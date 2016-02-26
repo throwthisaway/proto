@@ -1,0 +1,1 @@
+emcc -g3 main.cpp -o index.js -std=c++14 -s USE_GLFW=3

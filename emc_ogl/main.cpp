@@ -24,6 +24,8 @@
 #include <fstream>
 #include <algorithm>
 #include <random>
+#include "../../MeshLoader/MeshLoader.h"
+
 //#define VAO_SUPPORT
 
 static const int width = 640, height = 480;
@@ -31,6 +33,23 @@ static const size_t texw = 256, texh = 256;
 static GLFWwindow * window;
 static std::random_device rd;
 static std::mt19937 mt(rd());
+static void ReadMeshFile(const char* fname, Mesh& mesh) {
+	FILE *f;
+	::fopen_s(&f, fname, "rb");
+	if (!f) {
+		std::stringstream ss;
+		ss << "Can't open file: " << fname;
+		throw std::exception(ss.str().c_str());
+	}
+	::fseek(f, 0, SEEK_END);
+	fpos_t fpos;
+	::fgetpos(f, &fpos);
+	std::vector<unsigned char> data((size_t)fpos);
+	::fseek(f, 0, SEEK_SET);
+	::fread(&data.front(), 1, (size_t)fpos, f);
+	::fclose(f);
+	LoadMesh(&data.front(), data.size(), mesh);
+}
 struct AABB {
 	float l, t, r, b;
 	AABB Translate(const glm::vec3& pos) const {
@@ -132,6 +151,12 @@ namespace Asset {
 		std::vector<Model> models = { {proto_v_data, proto_parts },
 			{ missile_v_data, missile_parts, missile_texcoord_data } };
 		Assets() {
+			Mesh mesh;
+#ifdef __EMSCRIPTEN__
+			ReadMeshFile("asset//line_test.mesh", mesh);
+#else
+			ReadMeshFile("..//..//emc_ogl//asset//line_test.mesh", mesh);
+#endif
 			// TODO:: calc aabb by parts and store them by parts
 			for (auto& m : models)
 				for(auto& p : m.parts) 
@@ -525,7 +550,7 @@ struct Time {
 	double total, frame;
 };
 
-struct Mesh {
+struct Object {
 	glm::vec3 pos;
 	glm::mat4 model;
 };
@@ -1373,7 +1398,7 @@ public:
 	std::vector<ProtoX> players;
 	std::list<Renderer::Particles> particles;
 	Landscape landscape;
-	Mesh mesh{ { 5.f, 0.f, 0.f } };
+	Object mesh{ { 5.f, 0.f, 0.f } };
 	Camera camera{ width, height };
 	InputHandler inputHandler;
 	Timer timer;

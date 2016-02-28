@@ -19,7 +19,18 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\..\emc_ogl\main.cpp" />
+    <ClCompile Include="..\..\emc_ogl\main.cpp" />
+    <ClCompile Include="..\..\..\MeshLoader\MeshLoader.cpp" />
+    <ClCompile Include="..\..\..\MeshLoader\MeshSurface.cpp" />
+    <ClCompile Include="..\..\..\MeshLoader\types.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\..\MeshLoader\Deserialize.h" />
+    <ClInclude Include="..\..\..\MeshLoader\Image.h" />
+    <ClInclude Include="..\..\..\MeshLoader\MeshLoader.h" />
+    <ClInclude Include="..\..\..\MeshLoader\MeshSurface.h" />
+    <ClInclude Include="..\..\..\MeshLoader\pch.h" />
+    <ClInclude Include="..\..\..\MeshLoader\types.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{DE93DCEE-D835-438C-A0C2-565C0C4463F9}</ProjectGuid>
@@ -90,14 +101,14 @@
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>GLEW_STATIC;WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>GLM;GLEW_STATIC;WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>..\..\..\..\..\3rdparty\glm;..\..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>..\..\..\..\..\3rdparty\glew-1.13.0\lib\Release\Win32;..\..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\lib-vc2013</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>..\..\..\..\3rdparty\glew-1.13.0\lib\Release\Win32;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\lib-vc2013</AdditionalLibraryDirectories>
       <AdditionalDependencies>opengl32.lib;glu32.lib;legacy_stdio_definitions.lib;glfw3.lib;glew32s.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
@@ -107,14 +118,14 @@
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>GLEW_STATIC;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>GLM;GLEW_STATIC;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>..\..\..\..\..\3rdparty\glm;..\..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>..\..\..\..\..\3rdparty\glew-1.13.0\lib\Release\Win32;..\..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\lib-vc2013</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>..\..\..\..\3rdparty\glew-1.13.0\lib\Release\Win32;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\lib-vc2013</AdditionalLibraryDirectories>
       <AdditionalDependencies>opengl32.lib;glu32.lib;legacy_stdio_definitions.lib;glfw3.lib;glew32s.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
@@ -126,16 +137,16 @@
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>GLEW_STATIC;WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>GLM;GLEW_STATIC;WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>..\..\..\..\..\3rdparty\glm;..\..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>..\..\..\..\..\3rdparty\glew-1.13.0\lib\Release\Win32;..\..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\lib-vc2013</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>..\..\..\..\3rdparty\glew-1.13.0\lib\Release\Win32;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\lib-vc2013</AdditionalLibraryDirectories>
       <AdditionalDependencies>opengl32.lib;glu32.lib;legacy_stdio_definitions.lib;glfw3.lib;glew32s.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
@@ -147,16 +158,16 @@
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>GLEW_STATIC;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>GLM;GLEW_STATIC;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>..\..\..\..\..\3rdparty\glm;..\..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>..\..\..\..\..\3rdparty\glew-1.13.0\lib\Release\Win32;..\..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\lib-vc2013</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>..\..\..\..\3rdparty\glew-1.13.0\lib\Release\Win32;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\lib-vc2013</AdditionalLibraryDirectories>
       <AdditionalDependencies>opengl32.lib;glu32.lib;legacy_stdio_definitions.lib;glfw3.lib;glew32s.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>

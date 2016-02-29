@@ -142,6 +142,52 @@ namespace Asset {
 
 	enum class Parts { Thruster1, Thruster2, LowerBody, UpperBody, Count };
 
+	struct LineIndices {
+		std::vector<size_t> arr;
+	};
+	Model Reconstruct(const Mesh& mesh, float scale, float lineWidth = 3.f) {
+		lineWidth /= 2.f;
+		std::vector<glm::vec2> lineNormals;
+		lineNormals.reserve(mesh.lines.size());
+		std::vector<std::vector<size_t>> lineIndices(mesh.vertices.size());
+		size_t idx = 0;
+		for (const auto& l : mesh.lines) {
+			auto v = glm::normalize(mesh.vertices[l.v2] - mesh.vertices[l.v1]);
+			lineNormals.emplace_back(v.y, -v.x);
+			lineIndices[l.v1].push_back(idx);
+			lineIndices[l.v2].push_back(idx);
+			++idx;
+		}
+		idx = 0;
+		std::vector<glm::vec2> vertexNormals(lineIndices.size());
+		for (const auto& l : lineIndices) {
+			if (l.empty()) {
+				++idx;
+				continue;
+			}
+			auto n1 = lineNormals[l.front()];
+			if (l.size() > 1)
+				n1 = (n1 + lineNormals[l[1]]) / 2.f;
+			vertexNormals[idx++] = n1 * lineWidth;
+		}
+		std::vector<glm::vec3> vertices;
+		size_t count = 0;
+		for (const auto& l : mesh.lines) {
+			auto v1 = mesh.vertices[l.v1], v2 = mesh.vertices[l.v2];
+			glm::vec3 n11(vertexNormals[l.v1], v1.z), n12{ -n11.x, -n11.y, v1.z },
+				n21(vertexNormals[l.v2], v2.z), n22{ -n21.x, -n21.y, v2.z };
+			vertices.push_back(v1 * scale + n11);
+			vertices.push_back(v2 * scale + n21);
+			vertices.push_back(v2 * scale + n22);
+			++count;
+			vertices.push_back(v1 * scale + n11);
+			vertices.push_back(v2 * scale + n22);
+			vertices.push_back(v1 * scale + n12);
+			++count;
+		}
+		return{ vertices, {{ GLint(0), GLsizei(vertices.size())}}};
+	}
+
 	struct Assets {
 
 		const std::vector<PartInfo> proto_parts = { {0, 5}, {5, 5}, {10, 7}, {17, 18, { 0.f, 1.1f, 0.f } } };
@@ -157,6 +203,8 @@ namespace Asset {
 #else
 			ReadMeshFile("..//..//emc_ogl//asset//line_test.mesh", mesh);
 #endif
+			Model model = Reconstruct(mesh, 60.f);
+			models.push_back(model);
 			// TODO:: calc aabb by parts and store them by parts
 			for (auto& m : models)
 				for(auto& p : m.parts) 
@@ -879,7 +927,8 @@ struct Renderer {
 		VBO_AABB = 4,
 		VBO_STARFIELD = 5,
 		VBO_PARTICLE = 6,
-		VBO_COUNT = 7;
+		VBO_MESH = 7,
+		VBO_COUNT = 8;
 	struct {
 		size_t verex_count;
 		glm::vec3 col{ 1.f, 1.f, 1.f };
@@ -914,7 +963,7 @@ struct Renderer {
 				auto r = rad_dist(mt);
 				arr[i].v = { std::cos(r) * v_dist(mt) * init_mul, std::sin(r) * v_dist(mt) * init_mul, 0.f };
 				arr[i].life = 1.f;
-				arr[i].decay = decay_dist(mt);
+				arr[i].decay = (float)decay_dist(mt);
 			}
 		}
 		void Update(const Time& t) {
@@ -1064,13 +1113,15 @@ struct Renderer {
 			std::vector<glm::vec3> data;
 			data.reserve(count * 6);
 			for (size_t i = 0; i < count; ++i) {
-				GenerateSquare(dist_x(mt), dist_y(mt), star_size, data);
+				GenerateSquare((float)dist_x(mt), (float)dist_y(mt), star_size, data);
 			}
 			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_STARFIELD]);
 			glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * data.size(), &data.front(), GL_STATIC_DRAW);
 			starField = { vbo[VBO_STARFIELD], count, {-2.f, {1.f, 1.f, 1.f}}, {-3.f,{ 1.f, 0.f, 1.f }}, {-4.f,{ 0.f, 1.f, 1.f } } };
 		}
+		
 		{
+			// particle
 			const float particle_size = 3.f;
 			glBindBuffer(GL_ARRAY_BUFFER, Particles::vbo = vbo[VBO_PARTICLE]);
 			std::vector<glm::vec3> data;
@@ -1078,7 +1129,11 @@ struct Renderer {
 			glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * data.size(), &data.front(), GL_STATIC_DRAW);
 			Particles::vertex_count = data.size();
 		}
-
+		{
+			// Mesh
+			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_MESH]);
+			glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * assets.models[assets.models.size() - 1].vertices.size(), &assets.models[assets.models.size() - 1].vertices.front(), GL_STATIC_DRAW);
+		}
 	}
 	void PreRender() {
 		//rt.Set();
@@ -1089,7 +1144,7 @@ struct Renderer {
 		//rt.Render();
 		//rt.Reset();
 	}
-	void DrawBackground(Camera& cam) {
+	void DrawBackground(const Camera& cam) {
 		const auto& shader = colorShader;
 		glUseProgram(shader.program.id);
 		glEnableVertexAttribArray(0);
@@ -1117,7 +1172,24 @@ struct Renderer {
 		glDrawArrays(GL_TRIANGLES, 0, 1000);
 		glDisableVertexAttribArray(0);
 	}
-	void Draw(Camera& cam, std::list<Particles>& particles) {
+	void Draw(const Camera& cam, const Asset::Model& model) {
+		const auto& shader = colorShader;
+		glUseProgram(shader.program.id);
+		glEnableVertexAttribArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_MESH]);
+		glVertexAttribPointer(0,
+			3,
+			GL_FLOAT,
+			GL_FALSE,
+			0,
+			(void*)0);
+		glm::mat4 mvp = cam.vp;
+		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+		glUniform3f(shader.uCol, 1.f, 1.f, 1.f);
+		glDrawArrays(GL_TRIANGLES, model.parts[0].first, model.parts[0].count);
+		glDisableVertexAttribArray(0);
+	}
+	void Draw(const Camera& cam, const std::list<Particles>& particles) {
 		glEnableVertexAttribArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, Particles::vbo);
 		glVertexAttribPointer(0,
@@ -1139,7 +1211,7 @@ struct Renderer {
 		}
 		glDisableVertexAttribArray(0);
 	}
-	void Draw(Camera& cam, const AABB& aabb) {
+	void Draw(const Camera& cam, const AABB& aabb) {
 		std::array<float, 15> vertices{ aabb.l, aabb.t, 0.f,
 			aabb.r, aabb.t,  0.f,
 			aabb.r, aabb.b, 0.f,
@@ -1162,7 +1234,7 @@ struct Renderer {
 		glDrawArrays(GL_LINE_STRIP, 0, 5);
 		glDisableVertexAttribArray(0);
 	}
-	void Draw(Camera& cam, const ProtoX& proto) {
+	void Draw(const Camera& cam, const ProtoX& proto) {
 #ifdef VAO_SUPPORT
 		glBindVertexArray(vao);
 #else
@@ -1228,7 +1300,7 @@ struct Renderer {
 #endif
 	}
 
-	void Draw(Camera& cam, const ::Landscape&) {
+	void Draw(const Camera& cam, const ::Landscape&) {
 		glUseProgram(colorShader.program.id);
 		glUniform3f(colorShader.uCol, landscape.col.r, landscape.col.g, landscape.col.b);
 		glEnableVertexAttribArray(0);
@@ -1246,7 +1318,7 @@ struct Renderer {
 
 		glUseProgram(0);
 	}
-	void Draw(Camera& cam, const std::vector<::Missile>& missiles) {
+	void Draw(const Camera& cam, const std::vector<::Missile>& missiles) {
 		glEnable(GL_BLEND);
 		glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
 		glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
@@ -1523,6 +1595,7 @@ public:
 		renderer.Draw(camera, player);
 		renderer.Draw(camera, missiles);
 		renderer.Draw(camera, particles);
+		renderer.Draw(camera, assets.models[assets.models.size() - 1]);
 		renderer.PostRender();
 	}
 	void Update(const Time& t) {

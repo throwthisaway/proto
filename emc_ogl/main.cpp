@@ -131,7 +131,7 @@ namespace Asset {
 	struct PartInfo {
 		GLint first;
 		GLsizei count;
-		glm::vec3 offset;
+		glm::vec3 offset, col;
 		AABB aabb;
 	};
 	struct Model {
@@ -185,7 +185,18 @@ namespace Asset {
 			vertices.push_back(v1 * scale + n12);
 			++count;
 		}
-		return{ vertices, {{ GLint(0), GLsizei(vertices.size())}}};
+		// TODO::mesh.surfaces[1] is dangerous
+		PartInfo edgePart{ GLint(0), GLsizei(vertices.size()), {}, {mesh.surfaces[1].color[0],mesh.surfaces[1].color[1], mesh.surfaces[1].color[2]} },
+			polyPart{ GLint(vertices.size()) };
+		for (const auto& p : mesh.polygons) {
+			vertices.push_back(mesh.vertices[p.v[0]] * scale);
+			vertices.push_back(mesh.vertices[p.v[1]] * scale);
+			vertices.push_back(mesh.vertices[p.v[2]] * scale);
+		}
+		polyPart.count = GLsizei(vertices.size() - polyPart.first);
+		// TODO::mesh.surfaces[0] is dangerous
+		polyPart.col = { mesh.surfaces[0].color[0],mesh.surfaces[0].color[1], mesh.surfaces[0].color[2] };
+		return{ vertices, {edgePart, polyPart}};
 	}
 
 	struct Assets {
@@ -201,7 +212,8 @@ namespace Asset {
 #ifdef __EMSCRIPTEN__
 			ReadMeshFile("asset//line_test.mesh", mesh);
 #else
-			ReadMeshFile("..//..//emc_ogl//asset//line_test.mesh", mesh);
+			//ReadMeshFile("..//..//emc_ogl//asset//line_test.mesh", mesh);
+			ReadMeshFile("..//..//emc_ogl//asset//proto.mesh", mesh);
 #endif
 			Model model = Reconstruct(mesh, 60.f);
 			models.push_back(model);
@@ -1185,7 +1197,9 @@ struct Renderer {
 			(void*)0);
 		glm::mat4 mvp = cam.vp;
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		glUniform3f(shader.uCol, 1.f, 1.f, 1.f);
+		glUniform3f(shader.uCol, model.parts[1].col.r, model.parts[1].col.g, model.parts[1].col.b);
+		glDrawArrays(GL_TRIANGLES, model.parts[1].first, model.parts[1].count);
+		glUniform3f(shader.uCol, model.parts[0].col.r, model.parts[0].col.g, model.parts[0].col.b);
 		glDrawArrays(GL_TRIANGLES, model.parts[0].first, model.parts[0].count);
 		glDisableVertexAttribArray(0);
 	}

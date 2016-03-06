@@ -103,7 +103,7 @@
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>GLM;GLEW_STATIC;WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;..\..\..\..\3rdparty\GSL\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -120,7 +120,7 @@
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>GLM;GLEW_STATIC;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;..\..\..\..\3rdparty\GSL\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -139,7 +139,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>GLM;GLEW_STATIC;WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;..\..\..\..\3rdparty\GSL\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -160,7 +160,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>GLM;GLEW_STATIC;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;..\..\..\..\3rdparty\GSL\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

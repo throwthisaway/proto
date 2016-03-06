@@ -33,7 +33,7 @@ static const size_t texw = 256, texh = 256;
 static GLFWwindow * window;
 static std::random_device rd;
 static std::mt19937 mt(rd());
-static void ReadMeshFile(const char* fname, Mesh& mesh) {
+static void ReadMeshFile(const char* fname, MeshLoader::Mesh& mesh) {
 	FILE *f;
 	::fopen_s(&f, fname, "rb");
 	if (!f) {
@@ -44,7 +44,7 @@ static void ReadMeshFile(const char* fname, Mesh& mesh) {
 	::fseek(f, 0, SEEK_END);
 	fpos_t fpos;
 	::fgetpos(f, &fpos);
-	std::vector<unsigned char> data((size_t)fpos);
+	std::vector<char> data((size_t)fpos);
 	::fseek(f, 0, SEEK_SET);
 	::fread(&data.front(), 1, (size_t)fpos, f);
 	::fclose(f);
@@ -145,7 +145,7 @@ namespace Asset {
 	struct LineIndices {
 		std::vector<size_t> arr;
 	};
-	Model Reconstruct(const Mesh& mesh, float scale, float lineWidth = 3.f) {
+	Model Reconstruct(const MeshLoader::Mesh& mesh, float scale, float lineWidth = 3.f) {
 		lineWidth /= 2.f;
 		std::vector<glm::vec2> lineNormals;
 		lineNormals.reserve(mesh.lines.size());
@@ -208,14 +208,14 @@ namespace Asset {
 		std::vector<Model> models = { {proto_v_data, proto_parts },
 			{ missile_v_data, missile_parts, missile_texcoord_data } };
 		Assets() {
-			Mesh mesh;
+			MeshLoader::Mesh mesh;
 #ifdef __EMSCRIPTEN__
 			ReadMeshFile("asset//line_test.mesh", mesh);
 #else
 			//ReadMeshFile("..//..//emc_ogl//asset//line_test.mesh", mesh);
 			ReadMeshFile("..//..//emc_ogl//asset//proto.mesh", mesh);
 #endif
-			Model model = Reconstruct(mesh, 60.f);
+				Model model = Reconstruct(mesh, 60.f);
 			models.push_back(model);
 			// TODO:: calc aabb by parts and store them by parts
 			for (auto& m : models)

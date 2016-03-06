@@ -1,1 +1,6 @@
 *.suo
+*.sdf
+a.out.js
+index_.html
+index_.js
+Debug/

@@ -88,71 +88,29 @@ static AABB RecalcAABB(const AABB& aabb, const float rot) {
 		std::min(lt.y, std::min(lb.y, std::min(rt.y, rb.y))) };
 }
 namespace Asset {
-	static const std::initializer_list<glm::vec3> proto_v_data = { /*thruster1*/ {-0.1f, .0f, 0.f},
-		{-.1f, -.2f, 0.f },
-		{-.02f,  -.15f, 0.f},
-		{.1f, -.25f, 0.f},
-		{.1f, 0.f, 0.f},
-		/*thruster2*/{-0.1f, .0f, 0.f},
-		{-.1f, -.25f, 0.f},
-		{.02f, -.35f, 0.f},
-		{.1f, -.2f, 0.f},
-		{.1f, 0.f, 0.f},
-		/*lower part*/{-.5f, .5f, 0.f},
-		{-.5f, -.5f, 0.f},
-		{.5f, -.5f, 0.f},
-		{.5f, .5f, 0.f},
-		{.3f, .6f, 0.f},
-		{-.3f, .6f, 0.f},
-		{-.5f, .5f, 0.f},
-		/*upper part*/{0.5f, 0.f, .0f},
-		{0.46194f, 0.191342f, .0f},
-		{0.353553f, 0.353553f, .0f},
-		{0.191342f, 0.46194f, .0f},
-		{-2.18557e-08f, 0.5f, .0f},
-		{-0.191342f, 0.46194f, .0f},
-		{-0.353553f, 0.353553f, .0f},
-		{-0.46194f, 0.191342f, .0f},
-		{-0.5f, -4.37114e-08f, .0f},
-		{-0.46194f, -0.191342f, .0f},
-		{-0.353553f, -0.353553f, .0f},
-		{-0.191342f, -0.46194f, .0f},
-		{5.96244e-09f, -0.5f, .0f},
-		{0.191342f, -0.46194f, .0f},
-		{0.353554f, -0.353553f, .0f},
-		{0.46194f, -0.191342f, .0f},
-		{0.5f, 8.74228e-08f, .0f},
-		{0.7f, 8.74228e-08f, .0f} };
-	static const std::initializer_list<glm::vec3> missile_v_data = { {0.f, 0.f, 0.f},
-		{.5f, 0.f, 0.f},
-		{1.f, 0.f, 0.f } };
-	static const std::initializer_list<glm::vec2> missile_texcoord_data = { {0.f, 0.f}, {.5f, 0.f}, {1.f, 0.f} };
-
 	struct PartInfo {
 		GLint first;
 		GLsizei count;
-		glm::vec3 offset, col;
+		glm::vec3 pivot, col;
 		AABB aabb;
 	};
 	struct Model {
-		const std::vector<glm::vec3> vertices;
+		std::vector<glm::vec3> vertices;
 		std::vector<PartInfo> parts;
-		const std::vector<glm::vec2> uv;
+		std::vector<glm::vec2> uv;
 	};
 
 	enum class Parts { Thruster1, Thruster2, LowerBody, UpperBody, Count };
-
-	struct LineIndices {
-		std::vector<size_t> arr;
-	};
-	Model Reconstruct(const MeshLoader::Mesh& mesh, float scale, float lineWidth = 3.f) {
+	std::vector<glm::vec2> GenLineNormals(const std::vector<glm::vec3>& vertices,
+		const std::vector<MeshLoader::PolyLine>& lines,
+		float lineWidth) {
 		lineWidth /= 2.f;
 		std::vector<glm::vec2> lineNormals;
-		lineNormals.reserve(mesh.lines.size());
-		std::vector<std::vector<size_t>> lineIndices(mesh.vertices.size());
+		lineNormals.reserve(lines.size());
+		std::vector<std::vector<size_t>> lineIndices(vertices.size());
 		size_t idx = 0;
-		for (const auto& l : mesh.lines) {
-			auto v = glm::normalize(mesh.vertices[l.v2] - mesh.vertices[l.v1]);
+		for (const auto& l : lines) {
+			auto v = glm::normalize(vertices[l.v2] - vertices[l.v1]);
 			lineNormals.emplace_back(v.y, -v.x);
 			lineIndices[l.v1].push_back(idx);
 			lineIndices[l.v2].push_back(idx);
@@ -170,57 +128,173 @@ namespace Asset {
 				n1 = (n1 + lineNormals[l[1]]) / 2.f;
 			vertexNormals[idx++] = n1 * lineWidth;
 		}
-		std::vector<glm::vec3> vertices;
-		size_t count = 0;
-		for (const auto& l : mesh.lines) {
-			auto v1 = mesh.vertices[l.v1], v2 = mesh.vertices[l.v2];
-			glm::vec3 n11(vertexNormals[l.v1], v1.z), n12{ -n11.x, -n11.y, v1.z },
-				n21(vertexNormals[l.v2], v2.z), n22{ -n21.x, -n21.y, v2.z };
-			vertices.push_back(v1 * scale + n11);
-			vertices.push_back(v2 * scale + n21);
-			vertices.push_back(v2 * scale + n22);
-			++count;
-			vertices.push_back(v1 * scale + n11);
-			vertices.push_back(v2 * scale + n22);
-			vertices.push_back(v1 * scale + n12);
-			++count;
-		}
-		// TODO::mesh.surfaces[1] is dangerous
-		PartInfo edgePart{ GLint(0), GLsizei(vertices.size()), {}, {mesh.surfaces[1].color[0],mesh.surfaces[1].color[1], mesh.surfaces[1].color[2]} },
-			polyPart{ GLint(vertices.size()) };
-		for (const auto& p : mesh.polygons) {
-			vertices.push_back(mesh.vertices[p.v[0]] * scale);
-			vertices.push_back(mesh.vertices[p.v[1]] * scale);
-			vertices.push_back(mesh.vertices[p.v[2]] * scale);
-		}
-		polyPart.count = GLsizei(vertices.size() - polyPart.first);
-		// TODO::mesh.surfaces[0] is dangerous
-		polyPart.col = { mesh.surfaces[0].color[0],mesh.surfaces[0].color[1], mesh.surfaces[0].color[2] };
-		return{ vertices, {edgePart, polyPart}};
+	}
+	void GenVertices(const MeshLoader::PolyLine& l,
+		const std::vector<glm::vec2>& vertexNormals,
+		const std::vector<glm::vec3>& mesh_vertices,
+		float scale,
+		std::vector<glm::vec3>& vertices) {
+		auto v1 = mesh_vertices[l.v1], v2 = mesh_vertices[l.v2];
+		glm::vec3 n11(vertexNormals[l.v1], v1.z), n12{ -n11.x, -n11.y, v1.z },
+			n21(vertexNormals[l.v2], v2.z), n22{ -n21.x, -n21.y, v2.z };
+		vertices.push_back(v1 * scale + n11);
+		vertices.push_back(v2 * scale + n21);
+		vertices.push_back(v2 * scale + n22);
+		vertices.push_back(v1 * scale + n11);
+		vertices.push_back(v2 * scale + n22);
+		vertices.push_back(v1 * scale + n12);
 	}
 
-	struct Assets {
+	Model Reconstruct(const MeshLoader::Mesh& mesh, float scale, float lineWidth = 3.f) {
+		std::vector<glm::vec2> vertexNormals = GenLineNormals(mesh.vertices, mesh.lines, lineWidth);
+		std::vector<glm::vec3> vertices;
+		size_t count, start;
+		std::vector<PartInfo> parts;
+		for (const auto& layer : mesh.layers){
+			for (size_t section = 0; section < layer.line.n; ++section) {
+				auto end = layer.line.sections[section].start + layer.line.sections[section].count;
+				start = vertices.size(); count = 0;
+				for (size_t line = layer.line.sections[section].start; line < end; ++line) {
+					const auto& l = mesh.lines[line];
+					GenVertices(l, vertexNormals, mesh.vertices, scale, vertices);
+					count += 3 * 2;
+				}
+				if (count)
+					parts.emplace_back(start, count, layer.pivot, mesh.surfaces[layer.line.sections[section].index]);
+			}
+		}
+		for (const auto& layer : mesh.layers) {
+			for (size_t section = 0; section < layer.line.n; ++section) {
+				auto end = layer.poly.sections[section].start + layer.poly.sections[section].count;
+				start = vertices.size(); count = 0;
+				for (size_t poly = layer.poly.sections[section].start; poly < end; ++poly) {
+					const auto& p = mesh.polygons[poly];
+					vertices.push_back(mesh.vertices[p.v[0]] * scale);
+					vertices.push_back(mesh.vertices[p.v[1]] * scale);
+					vertices.push_back(mesh.vertices[p.v[2]] * scale);
+				}
+				if (count)
+					parts.emplace_back(start, count, layer.pivot, mesh.surfaces[layer.poly.sections[section].index]);
+			}
+		}
+		return { vertices, parts };
+	}
 
-		const std::vector<PartInfo> proto_parts = { {0, 5}, {5, 5}, {10, 7}, {17, 18, { 0.f, 1.1f, 0.f } } };
-		const std::vector<PartInfo> missile_parts = { {0, 3} };
-		const size_t PROTOX = 0;
-		const size_t MISSILE = 1;
-		std::vector<Model> models = { {proto_v_data, proto_parts },
-			{ missile_v_data, missile_parts, missile_texcoord_data } };
+	//Model Reconstruct(const MeshLoader::Mesh& mesh, float scale, float lineWidth = 3.f) {
+	//	lineWidth /= 2.f;
+	//	std::vector<glm::vec2> lineNormals;
+	//	lineNormals.reserve(mesh.lines.size());
+	//	std::vector<std::vector<size_t>> lineIndices(mesh.vertices.size());
+	//	size_t idx = 0;
+	//	for (const auto& l : mesh.lines) {
+	//		auto v = glm::normalize(mesh.vertices[l.v2] - mesh.vertices[l.v1]);
+	//		lineNormals.emplace_back(v.y, -v.x);
+	//		lineIndices[l.v1].push_back(idx);
+	//		lineIndices[l.v2].push_back(idx);
+	//		++idx;
+	//	}
+	//	idx = 0;
+	//	std::vector<glm::vec2> vertexNormals(lineIndices.size());
+	//	for (const auto& l : lineIndices) {
+	//		if (l.empty()) {
+	//			++idx;
+	//			continue;
+	//		}
+	//		auto n1 = lineNormals[l.front()];
+	//		if (l.size() > 1)
+	//			n1 = (n1 + lineNormals[l[1]]) / 2.f;
+	//		vertexNormals[idx++] = n1 * lineWidth;
+	//	}
+	//	std::vector<glm::vec3> vertices;
+	//	size_t count = 0;
+	//	for (const auto& l : mesh.lines) {
+	//		auto v1 = mesh.vertices[l.v1], v2 = mesh.vertices[l.v2];
+	//		glm::vec3 n11(vertexNormals[l.v1], v1.z), n12{ -n11.x, -n11.y, v1.z },
+	//			n21(vertexNormals[l.v2], v2.z), n22{ -n21.x, -n21.y, v2.z };
+	//		vertices.push_back(v1 * scale + n11);
+	//		vertices.push_back(v2 * scale + n21);
+	//		vertices.push_back(v2 * scale + n22);
+	//		++count;
+	//		vertices.push_back(v1 * scale + n11);
+	//		vertices.push_back(v2 * scale + n22);
+	//		vertices.push_back(v1 * scale + n12);
+	//		++count;
+	//	}
+	//	// TODO::mesh.surfaces[1] is dangerous
+	//	PartInfo edgePart{ GLint(0), GLsizei(vertices.size()), {}, {mesh.surfaces[1].color[0],mesh.surfaces[1].color[1], mesh.surfaces[1].color[2]} },
+	//		polyPart{ GLint(vertices.size()) };
+	//	for (const auto& p : mesh.polygons) {
+	//		vertices.push_back(mesh.vertices[p.v[0]] * scale);
+	//		vertices.push_back(mesh.vertices[p.v[1]] * scale);
+	//		vertices.push_back(mesh.vertices[p.v[2]] * scale);
+	//	}
+	//	polyPart.count = GLsizei(vertices.size() - polyPart.first);
+	//	// TODO::mesh.surfaces[0] is dangerous
+	//	polyPart.col = { mesh.surfaces[0].color[0],mesh.surfaces[0].color[1], mesh.surfaces[0].color[2] };
+	//	return{ vertices, {edgePart, polyPart}};
+	//}
+
+	Model Reconstruct(const std::vector<glm::vec3>& mesh_vertices,
+		const std::vector<MeshLoader::PolyLine>& lines,
+		const std::vector<glm::vec2>& mesh_texcoord, float scale = 1.f, float lineWidth = 3.f) {
+		std::vector<glm::vec3> vertices;
+		std::vector<glm::vec2> texcoord;
+		std::vector<glm::vec2> vertexNormals = GenLineNormals(vertices, lines, lineWidth);
+		for (const auto& l : lines) {
+			GenVertices(l, vertexNormals, mesh_vertices, scale, vertices);
+			// order should correspond to the vertex oreder of triangle generation
+			texcoord.push_back(mesh_texcoord[l.v1]);
+			texcoord.push_back(mesh_texcoord[l.v2]);
+			texcoord.push_back(mesh_texcoord[l.v2]);
+
+			texcoord.push_back(mesh_texcoord[l.v1]);
+			texcoord.push_back(mesh_texcoord[l.v2]);
+			texcoord.push_back(mesh_texcoord[l.v1]);
+		}
+		return{ vertices, {{ 0, vertices.size()}}, texcoord };
+	}
+	struct Assets {
+		std::vector<Model*> models;
+		Model ship, propulsion, land, missile;
 		Assets() {
-			MeshLoader::Mesh mesh;
 #ifdef __EMSCRIPTEN__
-			ReadMeshFile("asset//line_test.mesh", mesh);
+#define PATH_PREFIX ""
 #else
-			//ReadMeshFile("..//..//emc_ogl//asset//line_test.mesh", mesh);
-			ReadMeshFile("..//..//emc_ogl//asset//proto.mesh", mesh);
+#define PATH_PREFIX "..//..//emc_ogl//"
 #endif
-				Model model = Reconstruct(mesh, 60.f);
-			models.push_back(model);
+			const float scale = 40.f;
+			{
+				MeshLoader::Mesh mesh;
+				ReadMeshFile(PATH_PREFIX"asset//proto.mesh", mesh);
+				ship = Reconstruct(mesh, scale);
+				models.push_back(&ship);
+			}
+			{
+				MeshLoader::Mesh mesh;
+				ReadMeshFile(PATH_PREFIX"asset//propulsion.mesh", mesh);
+				propulsion = Reconstruct(mesh, scale);
+				models.push_back(&propulsion);
+			}
+			{
+				MeshLoader::Mesh mesh;
+				ReadMeshFile(PATH_PREFIX"asset//land.mesh", mesh);
+				land = Reconstruct(mesh, scale);
+				models.push_back(&land);
+			}
+			{
+				MeshLoader::Mesh mesh;
+				const std::initializer_list<glm::vec3> vertices { { 0.f, 0.f, 0.f },
+				{ .5f, 0.f, 0.f },
+				{ 1.f, 0.f, 0.f } };
+				const std::initializer_list<MeshLoader::PolyLine> lines{ {0, 1}, {1, 2} };
+				const std::initializer_list<glm::vec2> texcoord { { 0.f, 0.f },{ .5f, 0.f },{ 1.f, 0.f } };
+				missile = Reconstruct(vertices, lines, texcoord);
+				models.push_back(&missile);
+			}
 			// TODO:: calc aabb by parts and store them by parts
-			for (auto& m : models)
-				for(auto& p : m.parts) 
-					p.aabb = CalcAABB(m.vertices, p.first, p.count);
+			for (auto m : models)
+				for(auto& p : m->parts) 
+					p.aabb = CalcAABB(m->vertices, p.first, p.count);
 		}
 	};
 }

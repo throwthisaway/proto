@@ -100,7 +100,7 @@ namespace Asset {
 		std::vector<glm::vec2> uv;
 	};
 
-	enum class Parts { Thruster1, Thruster2, LowerBody, UpperBody, Count };
+	//enum class Parts { Thruster1, Thruster2, LowerBody, UpperBody, Count };
 	std::vector<glm::vec2> GenLineNormals(const std::vector<glm::vec3>& vertices,
 		const std::vector<MeshLoader::PolyLine>& lines,
 		float lineWidth) {
@@ -128,6 +128,7 @@ namespace Asset {
 				n1 = (n1 + lineNormals[l[1]]) / 2.f;
 			vertexNormals[idx++] = n1 * lineWidth;
 		}
+		return vertexNormals;
 	}
 	void GenVertices(const MeshLoader::PolyLine& l,
 		const std::vector<glm::vec2>& vertexNormals,
@@ -160,21 +161,28 @@ namespace Asset {
 					count += 3 * 2;
 				}
 				if (count)
-					parts.emplace_back(start, count, layer.pivot, mesh.surfaces[layer.line.sections[section].index]);
+					parts.push_back({ GLint(start), GLsizei(count), glm::vec3{ layer.pivot.x, layer.pivot.y, layer.pivot.z },
+					   glm::vec3{ mesh.surfaces[layer.line.sections[section].index].color[0],
+						mesh.surfaces[layer.line.sections[section].index].color[1],
+						mesh.surfaces[layer.line.sections[section].index].color[2] } });
 			}
 		}
 		for (const auto& layer : mesh.layers) {
-			for (size_t section = 0; section < layer.line.n; ++section) {
+			for (size_t section = 0; section < layer.poly.n; ++section) {
 				auto end = layer.poly.sections[section].start + layer.poly.sections[section].count;
 				start = vertices.size(); count = 0;
 				for (size_t poly = layer.poly.sections[section].start; poly < end; ++poly) {
 					const auto& p = mesh.polygons[poly];
 					vertices.push_back(mesh.vertices[p.v[0]] * scale);
-					vertices.push_back(mesh.vertices[p.v[1]] * scale);
 					vertices.push_back(mesh.vertices[p.v[2]] * scale);
+					vertices.push_back(mesh.vertices[p.v[1]] * scale);
+					count += 3;
 				}
 				if (count)
-					parts.emplace_back(start, count, layer.pivot, mesh.surfaces[layer.poly.sections[section].index]);
+					parts.push_back({ GLint(start), GLsizei(count), glm::vec3{ layer.pivot.x, layer.pivot.y, layer.pivot.z },
+						glm::vec3{ mesh.surfaces[layer.poly.sections[section].index].color[0],
+						mesh.surfaces[layer.poly.sections[section].index].color[1],
+						mesh.surfaces[layer.poly.sections[section].index].color[2] } });
 			}
 		}
 		return { vertices, parts };
@@ -239,7 +247,7 @@ namespace Asset {
 		const std::vector<glm::vec2>& mesh_texcoord, float scale = 1.f, float lineWidth = 3.f) {
 		std::vector<glm::vec3> vertices;
 		std::vector<glm::vec2> texcoord;
-		std::vector<glm::vec2> vertexNormals = GenLineNormals(vertices, lines, lineWidth);
+		std::vector<glm::vec2> vertexNormals = GenLineNormals(mesh_vertices, lines, lineWidth);
 		for (const auto& l : lines) {
 			GenVertices(l, vertexNormals, mesh_vertices, scale, vertices);
 			// order should correspond to the vertex oreder of triangle generation
@@ -251,11 +259,11 @@ namespace Asset {
 			texcoord.push_back(mesh_texcoord[l.v2]);
 			texcoord.push_back(mesh_texcoord[l.v1]);
 		}
-		return{ vertices, {{ 0, vertices.size()}}, texcoord };
+		return { vertices, {{ GLint(0), GLsizei(vertices.size())}}, texcoord };
 	}
 	struct Assets {
 		std::vector<Model*> models;
-		Model ship, propulsion, land, missile;
+		Model probe, propulsion, land, missile;
 		Assets() {
 #ifdef __EMSCRIPTEN__
 #define PATH_PREFIX ""
@@ -266,8 +274,8 @@ namespace Asset {
 			{
 				MeshLoader::Mesh mesh;
 				ReadMeshFile(PATH_PREFIX"asset//proto.mesh", mesh);
-				ship = Reconstruct(mesh, scale);
-				models.push_back(&ship);
+				probe = Reconstruct(mesh, scale);
+				models.push_back(&probe);
 			}
 			{
 				MeshLoader::Mesh mesh;
@@ -278,20 +286,20 @@ namespace Asset {
 			{
 				MeshLoader::Mesh mesh;
 				ReadMeshFile(PATH_PREFIX"asset//land.mesh", mesh);
-				land = Reconstruct(mesh, scale);
+				land = Reconstruct(mesh, scale, 10.f);
 				models.push_back(&land);
 			}
 			{
 				MeshLoader::Mesh mesh;
-				const std::initializer_list<glm::vec3> vertices { { 0.f, 0.f, 0.f },
+				const std::vector<glm::vec3> vertices { { 0.f, 0.f, 0.f },
 				{ .5f, 0.f, 0.f },
 				{ 1.f, 0.f, 0.f } };
-				const std::initializer_list<MeshLoader::PolyLine> lines{ {0, 1}, {1, 2} };
-				const std::initializer_list<glm::vec2> texcoord { { 0.f, 0.f },{ .5f, 0.f },{ 1.f, 0.f } };
+				const std::vector<MeshLoader::PolyLine> lines{ {0, 1}, {1, 2} };
+				const std::vector<glm::vec2> texcoord { { 0.f, 0.f },{ .5f, 0.f },{ 1.f, 0.f } };
 				missile = Reconstruct(vertices, lines, texcoord);
 				models.push_back(&missile);
 			}
-			// TODO:: calc aabb by parts and store them by parts
+			// TODO:: model.aabb = union parts.aabb
 			for (auto m : models)
 				for(auto& p : m->parts) 
 					p.aabb = CalcAABB(m->vertices, p.first, p.count);
@@ -851,10 +859,6 @@ public:
 	}
 };
 
-struct Landscape {
-	void Update(const Time& t) {}
-};
-
 struct ProtoX;
 struct Missile {
 	static const float size; 
@@ -882,13 +886,12 @@ const float Missile::size = 60.f;
 const glm::vec3 Missile::scale{ Missile::size, Missile::size, 1.f };
 
 struct ProtoX {
-	const size_t id, model_idx;
+	const size_t id;
 	AABB aabb;
-	const float size = 35.f, max_vel = .3f, max_acc = .0005f, force = .0001f, slowdown = .0003f,
+	const float max_vel = .3f, max_acc = .0005f, force = .0001f, slowdown = .0003f,
 		g = -.000151f, /* m/ms2 */
 		ground_level = 40.f;
-	glm::vec3 pos{ 0.f, 0.f, 0.f }, col{ 1.f, 0.f, 1.f }, scale{ size, size, 1.f },
-		vel{}, acc{ 0.f, g, 0.f };
+	glm::vec3 pos{ 0.f, 0.f, 0.f }, vel{}, acc{ 0.f, g, 0.f };
 	const glm::vec3 missile_start_offset;
 	struct {
 		const double frame_time = 100.; //ms
@@ -909,10 +912,11 @@ struct ProtoX {
 		lthruster_model = glm::translate({}, glm::vec3{ .5f, -.3f, 0.f }) * glm::rotate(glm::mat4{}, glm::half_pi<float>(), { 0.f, 0.f, 1.f }),
 		bthruster1_model = glm::translate({}, glm::vec3{ -.4f, -.5f, 0.f }),
 		bthruster2_model = glm::translate({}, glm::vec3{ .4f, -.5f, 0.f });
-	ProtoX(const size_t, const size_t model_idx, const Asset::Model& model) : id(id), model_idx(model_idx),
-		missile_start_offset(model.parts[(size_t)Asset::Parts::UpperBody].offset * scale) {
-		const auto& lb = model.parts[(size_t)Asset::Parts::LowerBody], &ub = model.parts[(size_t)Asset::Parts::UpperBody];
-		aabb = Union(lb.aabb.Translate(lb.offset).Scale(size), ub.aabb.Translate(ub.offset).Scale(size));
+	ProtoX(const size_t id, const Asset::Model& model) : id(id),
+		missile_start_offset(model.parts[model.parts.size()-1].pivot) {
+		aabb = model.parts[0].aabb;
+		for (size_t i = 1; i < model.parts.size();++i)
+			aabb = Union(aabb, model.parts[i].aabb);
 	}
 	void Shoot(std::vector<Missile>& missiles) {
 		
@@ -1013,13 +1017,7 @@ struct Renderer {
 		VBO_AABB = 4,
 		VBO_STARFIELD = 5,
 		VBO_PARTICLE = 6,
-		VBO_MESH = 7,
-		VBO_COUNT = 8;
-	struct {
-		size_t verex_count;
-		glm::vec3 col{ 1.f, 1.f, 1.f };
-		float start_x, end_x;
-	}landscape;
+		VBO_COUNT = 7;
 	struct Missile{
 		GLuint texID;
 		~Missile() {
@@ -1092,9 +1090,8 @@ struct Renderer {
 		glGenBuffers(sizeof(vbo) / sizeof(vbo[0]), vbo);
 		// ProtoX
 		{
-			auto& proto = assets.models[assets.PROTOX];
 			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_PROTOX]);
-			glBufferData(GL_ARRAY_BUFFER, proto.vertices.size() * sizeof(proto.vertices[0]), &proto.vertices.front(), GL_STATIC_DRAW);
+			glBufferData(GL_ARRAY_BUFFER, assets.probe.vertices.size() * sizeof(assets.probe.vertices[0]), &assets.probe.vertices.front(), GL_STATIC_DRAW);
 
 #ifdef VAO_SUPPORT
 			glGenVertexArrays(1, &vao);
@@ -1114,50 +1111,49 @@ struct Renderer {
 		}
 		// Landscape
 		{
-			std::vector<glm::vec3> landscape_data;
-			const size_t count = 30;
-			const int w = 2048, h = height >> 1, mid = -(h >> 1);
-			int lb = -h, rb = 0, start = -(w >> 1) - w;
-			landscape.start_x = -(w >> 1);
-			int prev = mid;
-			landscape_data.emplace_back((float)start, (float)mid, 0.f);
-			for (;;) {
-				if (start >= -(w >> 1))
-					break;
-				std::uniform_int_distribution<> dist(lb, rb);
-				int rnd = dist(mt);
-				start += std::abs(prev - rnd);
-				prev = rnd;
-				landscape_data.emplace_back((float)start, (float)rnd, 0.f);
-			}
-			landscape_data.emplace_back((float)(landscape_data.back().x + std::abs(landscape_data.back().y - mid)), (float)mid, 0.f);
-			landscape.end_x = -(w >> 1) + landscape_data.back().x - landscape_data.front().x;
-			size_t transform_start = landscape_data.size();
-			landscape_data.insert(landscape_data.end(), landscape_data.begin(), landscape_data.end());
-			float offset = landscape_data.back().x - landscape_data.front().x;
-			std::transform(landscape_data.begin() + transform_start, landscape_data.end(), landscape_data.begin() + transform_start, [=](glm::vec3 d) {
-				d.x += offset;
-				return d;
-			});
-			transform_start = landscape_data.size();
-			landscape_data.insert(landscape_data.end(), landscape_data.begin(), landscape_data.begin() + transform_start);
-			std::transform(landscape_data.begin() + transform_start, landscape_data.end(), landscape_data.begin() + transform_start, [&](glm::vec3 d) {
-				d.x += offset + offset;
-				return d;
-			});
-			landscape.verex_count = landscape_data.size();
+			//std::vector<glm::vec3> landscape_data;
+			//const size_t count = 30;
+			//const int w = 2048, h = height >> 1, mid = -(h >> 1);
+			//int lb = -h, rb = 0, start = -(w >> 1) - w;
+			//landscape.start_x = -(w >> 1);
+			//int prev = mid;
+			//landscape_data.emplace_back((float)start, (float)mid, 0.f);
+			//for (;;) {
+			//	if (start >= -(w >> 1))
+			//		break;
+			//	std::uniform_int_distribution<> dist(lb, rb);
+			//	int rnd = dist(mt);
+			//	start += std::abs(prev - rnd);
+			//	prev = rnd;
+			//	landscape_data.emplace_back((float)start, (float)rnd, 0.f);
+			//}
+			//landscape_data.emplace_back((float)(landscape_data.back().x + std::abs(landscape_data.back().y - mid)), (float)mid, 0.f);
+			//landscape.end_x = -(w >> 1) + landscape_data.back().x - landscape_data.front().x;
+			//size_t transform_start = landscape_data.size();
+			//landscape_data.insert(landscape_data.end(), landscape_data.begin(), landscape_data.end());
+			//float offset = landscape_data.back().x - landscape_data.front().x;
+			//std::transform(landscape_data.begin() + transform_start, landscape_data.end(), landscape_data.begin() + transform_start, [=](glm::vec3 d) {
+			//	d.x += offset;
+			//	return d;
+			//});
+			//transform_start = landscape_data.size();
+			//landscape_data.insert(landscape_data.end(), landscape_data.begin(), landscape_data.begin() + transform_start);
+			//std::transform(landscape_data.begin() + transform_start, landscape_data.end(), landscape_data.begin() + transform_start, [&](glm::vec3 d) {
+			//	d.x += offset + offset;
+			//	return d;
+			//});
+			//landscape.verex_count = landscape_data.size();
 			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_LANDSCAPE]);
-			glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * landscape_data.size(), &landscape_data.front(), GL_STATIC_DRAW);
+			glBufferData(GL_ARRAY_BUFFER, assets.land.vertices.size() * sizeof(assets.land.vertices[0]), &assets.land.vertices.front(), GL_STATIC_DRAW);
 		}
 
 		// Missile
 		{
 			{
-				auto& missile = assets.models[assets.MISSILE];
 				glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_MISSILE_UV]);
-				glBufferData(GL_ARRAY_BUFFER, missile.uv.size() * sizeof(missile.uv[0]), &missile.uv.front(), GL_STATIC_DRAW);
+				glBufferData(GL_ARRAY_BUFFER, assets.missile.uv.size() * sizeof(assets.missile.uv[0]), &assets.missile.uv.front(), GL_STATIC_DRAW);
 				glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_MISSILE_VERTEX]);
-				glBufferData(GL_ARRAY_BUFFER, missile.vertices.size() * sizeof(missile.vertices[0]), &missile.vertices.front(), GL_STATIC_DRAW);
+				glBufferData(GL_ARRAY_BUFFER, assets.missile.vertices.size() * sizeof(assets.missile.vertices[0]), &assets.missile.vertices.front(), GL_STATIC_DRAW);
 			}
 			std::normal_distribution<> dist(32., 10.);
 			const size_t count = 128, size = 32;
@@ -1215,16 +1211,10 @@ struct Renderer {
 			glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * data.size(), &data.front(), GL_STATIC_DRAW);
 			Particles::vertex_count = data.size();
 		}
-		{
-			// Mesh
-			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_MESH]);
-			glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * assets.models[assets.models.size() - 1].vertices.size(), &assets.models[assets.models.size() - 1].vertices.front(), GL_STATIC_DRAW);
-		}
 	}
 	void PreRender() {
 		//rt.Set();
 		glClear(GL_COLOR_BUFFER_BIT);
-		glLineWidth(2.f);
 	}
 	void PostRender() {
 		//rt.Render();
@@ -1258,11 +1248,11 @@ struct Renderer {
 		glDrawArrays(GL_TRIANGLES, 0, 1000);
 		glDisableVertexAttribArray(0);
 	}
-	void Draw(const Camera& cam, const Asset::Model& model) {
+	void Draw(const Camera& cam, const Asset::Model& model, size_t vbo_index) {
 		const auto& shader = colorShader;
 		glUseProgram(shader.program.id);
 		glEnableVertexAttribArray(0);
-		glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_MESH]);
+		glBindBuffer(GL_ARRAY_BUFFER, vbo[vbo_index]);
 		glVertexAttribPointer(0,
 			3,
 			GL_FLOAT,
@@ -1271,10 +1261,10 @@ struct Renderer {
 			(void*)0);
 		glm::mat4 mvp = cam.vp;
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		glUniform3f(shader.uCol, model.parts[1].col.r, model.parts[1].col.g, model.parts[1].col.b);
-		glDrawArrays(GL_TRIANGLES, model.parts[1].first, model.parts[1].count);
-		glUniform3f(shader.uCol, model.parts[0].col.r, model.parts[0].col.g, model.parts[0].col.b);
-		glDrawArrays(GL_TRIANGLES, model.parts[0].first, model.parts[0].count);
+		for (const auto&p : model.parts) {
+			glUniform3f(shader.uCol, p.col.r, p.col.g, p.col.b);
+			glDrawArrays(GL_TRIANGLES, p.first, p.count);
+		}
 		glDisableVertexAttribArray(0);
 	}
 	void Draw(const Camera& cam, const std::list<Particles>& particles) {
@@ -1335,52 +1325,59 @@ struct Renderer {
 			0,
 			(void*)0);
 #endif
-		glUseProgram(colorShader.program.id);
-		glm::mat4 mvp = cam.vp, m = glm::translate({}, proto.pos) * glm::scale({}, proto.scale) ;
-		mvp *= m;
-		glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		glUniform3f(colorShader.uCol, proto.col.r, proto.col.g, proto.col.b);
+		auto& shader = colorShader;
+		auto& model = assets.probe;
+		glUseProgram(shader.program.id);
 
-		const size_t thruster_frame_count = 2;
-		const auto& model = assets.models[proto.model_idx];
-		glDrawArrays(GL_LINE_STRIP, model.parts[(size_t)Asset::Parts::LowerBody].first, model.parts[(size_t)Asset::Parts::LowerBody].count);
-		mvp = cam.vp;
-		m = glm::translate({}, proto.pos) * glm::scale({}, proto.scale) * glm::translate({}, model.parts[(size_t)Asset::Parts::UpperBody].offset) * glm::rotate(glm::mat4{}, proto.upperPart.rot, { 0.f, 0.f, 1.f });
-		mvp *= m;
-		glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		glDrawArrays(GL_LINE_STRIP, model.parts[(size_t)Asset::Parts::UpperBody].first, model.parts[(size_t)Asset::Parts::UpperBody].count);
-		if (proto.state.lthruster) {
-			mvp = cam.vp;
-			m = glm::translate({}, proto.pos) * glm::scale({}, proto.scale) * proto.lthruster_model;
+		for (const auto& p : model.parts) {
+			// TODO:: turret rotation
+			glm::mat4 mvp = cam.vp, m = glm::translate({}, proto.pos + p.pivot);
 			mvp *= m;
 			glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-			auto frame = (proto.state.lt_frame % thruster_frame_count) ? model.parts[(size_t)Asset::Parts::Thruster1]
-				: model.parts[(size_t)Asset::Parts::Thruster2];
-			glDrawArrays(GL_LINE_STRIP, frame.first, frame.count);
+			glUniform3f(shader.uCol, p.col.r, p.col.g, p.col.b);
+			glDrawArrays(GL_TRIANGLES, p.first, p.count);
 		}
-		if (proto.state.rthruster) {
-			mvp = cam.vp;
-			m = glm::translate({}, proto.pos) * glm::scale({}, proto.scale) * proto.rthruster_model;
-			mvp *= m;
-			glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-			auto frame = (proto.state.rt_frame % thruster_frame_count) ? model.parts[(size_t)Asset::Parts::Thruster1]
-				: model.parts[(size_t)Asset::Parts::Thruster2];
-			glDrawArrays(GL_LINE_STRIP, frame.first, frame.count);
-		}
-		if (proto.state.bthruster) {
-			mvp = cam.vp;
-			m = glm::translate({}, proto.pos) * glm::scale({}, proto.scale) * proto.bthruster1_model;
-			mvp *= m;
-			glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-			auto frame = (proto.state.bt_frame % thruster_frame_count) ? model.parts[(size_t)Asset::Parts::Thruster1]
-				: model.parts[(size_t)Asset::Parts::Thruster2];
-			glDrawArrays(GL_LINE_STRIP, frame.first, frame.count);
-			mvp = cam.vp;
-			m = glm::translate({}, proto.pos) * glm::scale({}, proto.scale) * proto.bthruster2_model;
-			mvp *= m;
-			glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-			glDrawArrays(GL_LINE_STRIP, frame.first, frame.count);
-		}
+		// TODO:: propulsion
+		//const size_t thruster_frame_count = 2;
+		//const auto& model = assets.models[proto.model_idx];
+		//glDrawArrays(GL_LINE_STRIP, model.parts[(size_t)Asset::Parts::LowerBody].first, model.parts[(size_t)Asset::Parts::LowerBody].count);
+		//mvp = cam.vp;
+		//m = glm::translate({}, proto.pos) * glm::scale({}, proto.scale) * glm::translate({}, model.parts[(size_t)Asset::Parts::UpperBody].offset) * glm::rotate(glm::mat4{}, proto.upperPart.rot, { 0.f, 0.f, 1.f });
+		//mvp *= m;
+		//glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+		//glDrawArrays(GL_LINE_STRIP, model.parts[(size_t)Asset::Parts::UpperBody].first, model.parts[(size_t)Asset::Parts::UpperBody].count);
+		//if (proto.state.lthruster) {
+		//	mvp = cam.vp;
+		//	m = glm::translate({}, proto.pos) * glm::scale({}, proto.scale) * proto.lthruster_model;
+		//	mvp *= m;
+		//	glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+		//	auto frame = (proto.state.lt_frame % thruster_frame_count) ? model.parts[(size_t)Asset::Parts::Thruster1]
+		//		: model.parts[(size_t)Asset::Parts::Thruster2];
+		//	glDrawArrays(GL_LINE_STRIP, frame.first, frame.count);
+		//}
+		//if (proto.state.rthruster) {
+		//	mvp = cam.vp;
+		//	m = glm::translate({}, proto.pos) * glm::scale({}, proto.scale) * proto.rthruster_model;
+		//	mvp *= m;
+		//	glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+		//	auto frame = (proto.state.rt_frame % thruster_frame_count) ? model.parts[(size_t)Asset::Parts::Thruster1]
+		//		: model.parts[(size_t)Asset::Parts::Thruster2];
+		//	glDrawArrays(GL_LINE_STRIP, frame.first, frame.count);
+		//}
+		//if (proto.state.bthruster) {
+		//	mvp = cam.vp;
+		//	m = glm::translate({}, proto.pos) * glm::scale({}, proto.scale) * proto.bthruster1_model;
+		//	mvp *= m;
+		//	glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+		//	auto frame = (proto.state.bt_frame % thruster_frame_count) ? model.parts[(size_t)Asset::Parts::Thruster1]
+		//		: model.parts[(size_t)Asset::Parts::Thruster2];
+		//	glDrawArrays(GL_LINE_STRIP, frame.first, frame.count);
+		//	mvp = cam.vp;
+		//	m = glm::translate({}, proto.pos) * glm::scale({}, proto.scale) * proto.bthruster2_model;
+		//	mvp *= m;
+		//	glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+		//	glDrawArrays(GL_LINE_STRIP, frame.first, frame.count);
+		//}
 #ifdef VAO_SUPPORT
 		glBindVertexArray(0);
 #else
@@ -1388,23 +1385,8 @@ struct Renderer {
 #endif
 	}
 
-	void Draw(const Camera& cam, const ::Landscape&) {
-		glUseProgram(colorShader.program.id);
-		glUniform3f(colorShader.uCol, landscape.col.r, landscape.col.g, landscape.col.b);
-		glEnableVertexAttribArray(0);
-		glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_LANDSCAPE]);
-		glVertexAttribPointer(0,
-			3,
-			GL_FLOAT,
-			GL_FALSE,
-			0,
-			(void*)0);
-		glm::mat4 mvp = cam.proj * cam.view;
-		glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		glDrawArrays(GL_LINE_STRIP, 0, landscape.verex_count);
-		glDisableVertexAttribArray(0);
-
-		glUseProgram(0);
+	void DrawLandscape(const Camera& cam) {
+		Draw(cam, assets.land, VBO_LANDSCAPE);
 	}
 	void Draw(const Camera& cam, const std::vector<::Missile>& missiles) {
 		glEnable(GL_BLEND);
@@ -1445,9 +1427,8 @@ struct Renderer {
 				glm::scale({}, missile.scale) *
 				glm::rotate(glm::mat4{}, missile.rot, { 0.f, 0.f, 1.f });
 			mvp *= m;
-			const auto& model = assets.models[assets.MISSILE];
 			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-			glDrawArrays(GL_LINE_STRIP, model.parts[0].first, model.parts[0].count);
+			glDrawArrays(GL_TRIANGLES, assets.missile.parts[0].first, assets.missile.parts[0].count);
 		}
 
 		glDisableVertexAttribArray(0);
@@ -1557,7 +1538,6 @@ public:
 	std::vector<Missile> missiles;
 	std::vector<ProtoX> players;
 	std::list<Renderer::Particles> particles;
-	Landscape landscape;
 	Object mesh{ { 5.f, 0.f, 0.f } };
 	Camera camera{ width, height };
 	InputHandler inputHandler;
@@ -1595,16 +1575,13 @@ public:
 		return textureID;
 	}
 public:
-	Scene() : renderer(assets), player(0xdead/* TODO:: generate id*/, assets.PROTOX, assets.models[assets.PROTOX]) {
-
-		bounds.l = renderer.landscape.start_x;
-		bounds.r = renderer.landscape.end_x;
+	Scene() : renderer(assets), player(0xdead/* TODO:: generate id*/, assets.probe) {
+		bounds = assets.land.parts[0].aabb;
 		bounds.t = float((height >> 1) + (height >> 2));
 		bounds.b = -float((height >> 1) + (height >> 2));
-		players.emplace_back(0xbeef/* TODO:: generate id*/, assets.PROTOX, assets.models[assets.PROTOX]);
+		players.emplace_back(0xbeef/* TODO:: generate id*/, assets.probe);
 		auto& p = players.back();
 		p.pos.x = 100.f;
-		p.col = { .0f, 1.f, 1.f };
 
 		texID = GenTexture(texw, texh);
 		mesh.model = glm::translate(mesh.model, mesh.pos);
@@ -1675,7 +1652,7 @@ public:
 	
 		//glBindVertexArray(0);
 		renderer.DrawBackground(camera);
-		renderer.Draw(camera, landscape);
+		renderer.DrawLandscape(camera);
 		for (const auto& p : players) {
 			renderer.Draw(camera, p);
 			renderer.Draw(camera, p.aabb.Translate(p.pos));
@@ -1683,7 +1660,6 @@ public:
 		renderer.Draw(camera, player);
 		renderer.Draw(camera, missiles);
 		renderer.Draw(camera, particles);
-		renderer.Draw(camera, assets.models[assets.models.size() - 1]);
 		renderer.PostRender();
 	}
 	void Update(const Time& t) {
@@ -1716,7 +1692,7 @@ public:
 			m.Update(t);
 		}
 		auto d = camera.pos.x + player.pos.x;
-		auto res = player.WrapAround(renderer.landscape.start_x, renderer.landscape.end_x);
+		auto res = player.WrapAround(assets.land.parts[0].aabb.l, assets.land.parts[0].aabb.r);
 		camera.Update(t);
 		camera.Tracking(glm::vec2{ player.pos });
 		// wraparound camera hack

@@ -102,7 +102,7 @@ namespace Asset {
 
 	//enum class Parts { Thruster1, Thruster2, LowerBody, UpperBody, Count };
 	std::vector<glm::vec2> GenLineNormals(const std::vector<glm::vec3>& vertices,
-		const std::vector<MeshLoader::PolyLine>& lines,
+		std::vector<MeshLoader::PolyLine>& lines,
 		float lineWidth) {
 		lineWidth /= 2.f;
 		std::vector<glm::vec2> lineNormals;
@@ -110,22 +110,51 @@ namespace Asset {
 		std::vector<std::vector<size_t>> lineIndices(vertices.size());
 		size_t idx = 0;
 		for (const auto& l : lines) {
-			auto v = glm::normalize(vertices[l.v2] - vertices[l.v1]);
-			lineNormals.emplace_back(v.y, -v.x);
 			lineIndices[l.v1].push_back(idx);
 			lineIndices[l.v2].push_back(idx);
 			++idx;
 		}
+		// change line orientations
+		std::vector<bool> swapped(lines.size());
+		bool restart = true;
+		while (restart) {
+			restart = false;
+			for (auto& l : lineIndices) {
+				if (l.size() <= 1) continue;
+				if (lines[l.front()].v1 == lines[l.back()].v1 || lines[l.front()].v2 == lines[l.back()].v2)
+				{
+					size_t swap_line_index = (swapped[l.back()]) ? l.front() : l.back();
+					assert(!(swapped[l.back()] && swapped[l.front()]));
+					std::swap(lines[swap_line_index].v1, lines[swap_line_index].v2);
+					swapped[swap_line_index] = true;
+					restart = true;
+				}
+			}
+		}
+		idx = 0;
+		
+		for (const auto& l : lines) {
+			auto v = glm::normalize(glm::vec2{ vertices[l.v2] } -glm::vec2{ vertices[l.v1] });
+			lineNormals.emplace_back(v.y, -v.x);
+			++idx;
+		}
+
 		idx = 0;
 		std::vector<glm::vec2> vertexNormals(lineIndices.size());
-		for (const auto& l : lineIndices) {
-			if (l.empty()) {
+		for (const auto& line_index : lineIndices) {
+			if (line_index.empty()) {
 				++idx;
 				continue;
 			}
-			auto n1 = lineNormals[l.front()];
-			if (l.size() > 1)
-				n1 = (n1 + lineNormals[l[1]]) / 2.f;
+			auto n1 = lineNormals[line_index.front()];
+			if (line_index.size() > 1) {
+				n1 = glm::normalize(n1 + lineNormals[line_index.back()]);
+				//const auto& l = lines[line_index.back()];
+				//auto v = glm::normalize(glm::vec2{ vertices[l.v2] } -glm::vec2{ vertices[l.v1] });
+				//auto f = 1.f - glm::dot(v, n1);
+				//n1 = n1 / f;
+				assert(!(lines[line_index.front()].v1 == lines[line_index.back()].v1 || lines[line_index.front()].v2 == lines[line_index.back()].v2));
+			}
 			vertexNormals[idx++] = n1 * lineWidth;
 		}
 		return vertexNormals;
@@ -146,27 +175,10 @@ namespace Asset {
 		vertices.push_back(v1 * scale + n12);
 	}
 
-	Model Reconstruct(const MeshLoader::Mesh& mesh, float scale, float lineWidth = 3.f) {
-		std::vector<glm::vec2> vertexNormals = GenLineNormals(mesh.vertices, mesh.lines, lineWidth);
+	Model Reconstruct(MeshLoader::Mesh& mesh, float scale, float lineWidth = 3.f) {
 		std::vector<glm::vec3> vertices;
 		size_t count, start;
 		std::vector<PartInfo> parts;
-		for (const auto& layer : mesh.layers){
-			for (size_t section = 0; section < layer.line.n; ++section) {
-				auto end = layer.line.sections[section].start + layer.line.sections[section].count;
-				start = vertices.size(); count = 0;
-				for (size_t line = layer.line.sections[section].start; line < end; ++line) {
-					const auto& l = mesh.lines[line];
-					GenVertices(l, vertexNormals, mesh.vertices, scale, vertices);
-					count += 3 * 2;
-				}
-				if (count)
-					parts.push_back({ GLint(start), GLsizei(count), glm::vec3{ layer.pivot.x, layer.pivot.y, layer.pivot.z },
-					   glm::vec3{ mesh.surfaces[layer.line.sections[section].index].color[0],
-						mesh.surfaces[layer.line.sections[section].index].color[1],
-						mesh.surfaces[layer.line.sections[section].index].color[2] } });
-			}
-		}
 		for (const auto& layer : mesh.layers) {
 			for (size_t section = 0; section < layer.poly.n; ++section) {
 				auto end = layer.poly.sections[section].start + layer.poly.sections[section].count;
@@ -185,72 +197,36 @@ namespace Asset {
 						mesh.surfaces[layer.poly.sections[section].index].color[2] } });
 			}
 		}
+		std::vector<glm::vec2> vertexNormals = GenLineNormals(mesh.vertices, mesh.lines, lineWidth);
+		for (const auto& layer : mesh.layers){
+			for (size_t section = 0; section < layer.line.n; ++section) {
+				auto end = layer.line.sections[section].start + layer.line.sections[section].count;
+				start = vertices.size(); count = 0;
+				for (size_t line = layer.line.sections[section].start; line < end; ++line) {
+					const auto& l = mesh.lines[line];
+					GenVertices(l, vertexNormals, mesh.vertices, scale, vertices);
+					count += 3 * 2;
+				}
+				if (count)
+					parts.push_back({ GLint(start), GLsizei(count), glm::vec3{ layer.pivot.x, layer.pivot.y, layer.pivot.z },
+					   glm::vec3{ mesh.surfaces[layer.line.sections[section].index].color[0],
+						mesh.surfaces[layer.line.sections[section].index].color[1],
+						mesh.surfaces[layer.line.sections[section].index].color[2] } });
+			}
+		}
+
 		return { vertices, parts };
 	}
 
-	//Model Reconstruct(const MeshLoader::Mesh& mesh, float scale, float lineWidth = 3.f) {
-	//	lineWidth /= 2.f;
-	//	std::vector<glm::vec2> lineNormals;
-	//	lineNormals.reserve(mesh.lines.size());
-	//	std::vector<std::vector<size_t>> lineIndices(mesh.vertices.size());
-	//	size_t idx = 0;
-	//	for (const auto& l : mesh.lines) {
-	//		auto v = glm::normalize(mesh.vertices[l.v2] - mesh.vertices[l.v1]);
-	//		lineNormals.emplace_back(v.y, -v.x);
-	//		lineIndices[l.v1].push_back(idx);
-	//		lineIndices[l.v2].push_back(idx);
-	//		++idx;
-	//	}
-	//	idx = 0;
-	//	std::vector<glm::vec2> vertexNormals(lineIndices.size());
-	//	for (const auto& l : lineIndices) {
-	//		if (l.empty()) {
-	//			++idx;
-	//			continue;
-	//		}
-	//		auto n1 = lineNormals[l.front()];
-	//		if (l.size() > 1)
-	//			n1 = (n1 + lineNormals[l[1]]) / 2.f;
-	//		vertexNormals[idx++] = n1 * lineWidth;
-	//	}
-	//	std::vector<glm::vec3> vertices;
-	//	size_t count = 0;
-	//	for (const auto& l : mesh.lines) {
-	//		auto v1 = mesh.vertices[l.v1], v2 = mesh.vertices[l.v2];
-	//		glm::vec3 n11(vertexNormals[l.v1], v1.z), n12{ -n11.x, -n11.y, v1.z },
-	//			n21(vertexNormals[l.v2], v2.z), n22{ -n21.x, -n21.y, v2.z };
-	//		vertices.push_back(v1 * scale + n11);
-	//		vertices.push_back(v2 * scale + n21);
-	//		vertices.push_back(v2 * scale + n22);
-	//		++count;
-	//		vertices.push_back(v1 * scale + n11);
-	//		vertices.push_back(v2 * scale + n22);
-	//		vertices.push_back(v1 * scale + n12);
-	//		++count;
-	//	}
-	//	// TODO::mesh.surfaces[1] is dangerous
-	//	PartInfo edgePart{ GLint(0), GLsizei(vertices.size()), {}, {mesh.surfaces[1].color[0],mesh.surfaces[1].color[1], mesh.surfaces[1].color[2]} },
-	//		polyPart{ GLint(vertices.size()) };
-	//	for (const auto& p : mesh.polygons) {
-	//		vertices.push_back(mesh.vertices[p.v[0]] * scale);
-	//		vertices.push_back(mesh.vertices[p.v[1]] * scale);
-	//		vertices.push_back(mesh.vertices[p.v[2]] * scale);
-	//	}
-	//	polyPart.count = GLsizei(vertices.size() - polyPart.first);
-	//	// TODO::mesh.surfaces[0] is dangerous
-	//	polyPart.col = { mesh.surfaces[0].color[0],mesh.surfaces[0].color[1], mesh.surfaces[0].color[2] };
-	//	return{ vertices, {edgePart, polyPart}};
-	//}
-
 	Model Reconstruct(const std::vector<glm::vec3>& mesh_vertices,
-		const std::vector<MeshLoader::PolyLine>& lines,
+		std::vector<MeshLoader::PolyLine>& lines,
 		const std::vector<glm::vec2>& mesh_texcoord, float scale = 1.f, float lineWidth = 3.f) {
 		std::vector<glm::vec3> vertices;
 		std::vector<glm::vec2> texcoord;
 		std::vector<glm::vec2> vertexNormals = GenLineNormals(mesh_vertices, lines, lineWidth);
 		for (const auto& l : lines) {
 			GenVertices(l, vertexNormals, mesh_vertices, scale, vertices);
-			// order should correspond to the vertex oreder of triangle generation
+			// order should correspond to the vertex order of triangle generation
 			texcoord.push_back(mesh_texcoord[l.v1]);
 			texcoord.push_back(mesh_texcoord[l.v2]);
 			texcoord.push_back(mesh_texcoord[l.v2]);
@@ -272,6 +248,15 @@ namespace Asset {
 #endif
 			const float scale = 40.f;
 			{
+				const std::vector<glm::vec3> vertices{ { 0.f, 0.f, 0.f },
+				{ 1.f,0.f, 0.f },
+				{ 2.f, 0.f, 0.f } };
+				std::vector<MeshLoader::PolyLine> lines{ { 0, 1 },{ 2, 1 } };
+				const std::vector<glm::vec2> texcoord{ { 0.f, 0.f },{ .5f, 0.f },{ 1.f, 0.f } };
+				missile = Reconstruct(vertices, lines, texcoord, scale);
+				models.push_back(&missile);
+			}
+			{
 				MeshLoader::Mesh mesh;
 				ReadMeshFile(PATH_PREFIX"asset//proto.mesh", mesh);
 				probe = Reconstruct(mesh, scale);
@@ -290,13 +275,12 @@ namespace Asset {
 				models.push_back(&land);
 			}
 			{
-				MeshLoader::Mesh mesh;
-				const std::vector<glm::vec3> vertices { { 0.f, 0.f, 0.f },
-				{ .5f, 0.f, 0.f },
+				const std::vector<glm::vec3> vertices{ { 0.f, 0.f, 0.f },
+				{  0.5f,0.f, 0.f },
 				{ 1.f, 0.f, 0.f } };
-				const std::vector<MeshLoader::PolyLine> lines{ {0, 1}, {1, 2} };
-				const std::vector<glm::vec2> texcoord { { 0.f, 0.f },{ .5f, 0.f },{ 1.f, 0.f } };
-				missile = Reconstruct(vertices, lines, texcoord);
+				std::vector<MeshLoader::PolyLine> lines{ {0, 1}, {1, 2} };
+				const std::vector<glm::vec2> texcoord { { 0.f, 0.f },{ .5f, 0.f},{ 1.f, 0.f} };
+				missile = Reconstruct(vertices, lines, texcoord, scale);
 				models.push_back(&missile);
 			}
 			// TODO:: model.aabb = union parts.aabb
@@ -890,7 +874,7 @@ struct ProtoX {
 	AABB aabb;
 	const float max_vel = .3f, max_acc = .0005f, force = .0001f, slowdown = .0003f,
 		g = -.000151f, /* m/ms2 */
-		ground_level = 40.f;
+		ground_level = -280.f;
 	glm::vec3 pos{ 0.f, 0.f, 0.f }, vel{}, acc{ 0.f, g, 0.f };
 	const glm::vec3 missile_start_offset;
 	struct {
@@ -900,7 +884,7 @@ struct ProtoX {
 		size_t lt_frame = 0, rt_frame = 0, bt_frame = 0;
 	}state;
 	struct UpperPart {
-		float rot = 0.f;
+		float rot = glm::half_pi<float>();
 		const float min_rot = -glm::radians(45.f),
 			max_rot = glm::radians(225.f);
 		void Update(const Time& t) {
@@ -1215,6 +1199,7 @@ struct Renderer {
 	void PreRender() {
 		//rt.Set();
 		glClear(GL_COLOR_BUFFER_BIT);
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 	}
 	void PostRender() {
 		//rt.Render();
@@ -1424,7 +1409,6 @@ struct Renderer {
 		for (const auto& missile : missiles) {
 			glm::mat4 mvp = cam.proj * cam.view,
 				m = glm::translate({}, missile.pos) *
-				glm::scale({}, missile.scale) *
 				glm::rotate(glm::mat4{}, missile.rot, { 0.f, 0.f, 1.f });
 			mvp *= m;
 			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);

@@ -88,16 +88,21 @@ static AABB RecalcAABB(const AABB& aabb, const float rot) {
 		std::min(lt.y, std::min(lb.y, std::min(rt.y, rb.y))) };
 }
 namespace Asset {
-	struct PartInfo {
-		GLint first;
-		GLsizei count;
-		glm::vec3 pivot, col;
+	struct Layer {
+		struct Surface {
+			GLint first;
+			GLsizei count;
+			glm::vec3 col;
+		};
+		glm::vec3 pivot;
+		std::vector<Surface> parts;
 		AABB aabb;
 	};
 	struct Model {
 		std::vector<glm::vec3> vertices;
-		std::vector<PartInfo> parts;
+		std::vector<Layer> layers;
 		std::vector<glm::vec2> uv;
+		AABB aabb;
 	};
 
 	//enum class Parts { Thruster1, Thruster2, LowerBody, UpperBody, Count };
@@ -149,10 +154,12 @@ namespace Asset {
 			auto n1 = lineNormals[line_index.front()];
 			if (line_index.size() > 1) {
 				n1 = glm::normalize(n1 + lineNormals[line_index.back()]);
-				//const auto& l = lines[line_index.back()];
-				//auto v = glm::normalize(glm::vec2{ vertices[l.v2] } -glm::vec2{ vertices[l.v1] });
-				//auto f = 1.f - glm::dot(v, n1);
-				//n1 = n1 / f;
+				// preserve the thickness on joints
+				const auto& l = lines[line_index.back()];
+				auto v = glm::normalize(glm::vec2{ vertices[l.v2] } -glm::vec2{ vertices[l.v1] });
+				auto f = glm::dot(v, n1);	// cos(angle) between normal and the line
+				auto d = glm::distance(v * f, n1); // distancve between the normal and the normal projected onto the line
+				n1 = n1 / d; // grow normal the preserve the distance between the normal endpoint and the line
 				assert(!(lines[line_index.front()].v1 == lines[line_index.back()].v1 || lines[line_index.front()].v2 == lines[line_index.back()].v2));
 			}
 			vertexNormals[idx++] = n1 * lineWidth;
@@ -178,8 +185,12 @@ namespace Asset {
 	Model Reconstruct(MeshLoader::Mesh& mesh, float scale, float lineWidth = 3.f) {
 		std::vector<glm::vec3> vertices;
 		size_t count, start;
-		std::vector<PartInfo> parts;
+		std::vector<Layer> layers;
+		std::vector<glm::vec2> vertexNormals = GenLineNormals(mesh.vertices, mesh.lines, lineWidth);
+		layers.reserve(mesh.layers.size());
 		for (const auto& layer : mesh.layers) {
+			layers.push_back({ glm::vec3{ layer.pivot.x, layer.pivot.y, layer.pivot.z } * scale });
+			auto& layerInfo = layers.back();
 			for (size_t section = 0; section < layer.poly.n; ++section) {
 				auto end = layer.poly.sections[section].start + layer.poly.sections[section].count;
 				start = vertices.size(); count = 0;
@@ -191,14 +202,12 @@ namespace Asset {
 					count += 3;
 				}
 				if (count)
-					parts.push_back({ GLint(start), GLsizei(count), glm::vec3{ layer.pivot.x, layer.pivot.y, layer.pivot.z },
+					layerInfo.parts.push_back({ GLint(start), GLsizei(count),
 						glm::vec3{ mesh.surfaces[layer.poly.sections[section].index].color[0],
 						mesh.surfaces[layer.poly.sections[section].index].color[1],
 						mesh.surfaces[layer.poly.sections[section].index].color[2] } });
 			}
-		}
-		std::vector<glm::vec2> vertexNormals = GenLineNormals(mesh.vertices, mesh.lines, lineWidth);
-		for (const auto& layer : mesh.layers){
+
 			for (size_t section = 0; section < layer.line.n; ++section) {
 				auto end = layer.line.sections[section].start + layer.line.sections[section].count;
 				start = vertices.size(); count = 0;
@@ -208,14 +217,14 @@ namespace Asset {
 					count += 3 * 2;
 				}
 				if (count)
-					parts.push_back({ GLint(start), GLsizei(count), glm::vec3{ layer.pivot.x, layer.pivot.y, layer.pivot.z },
+					layerInfo.parts.push_back({ GLint(start), GLsizei(count),
 					   glm::vec3{ mesh.surfaces[layer.line.sections[section].index].color[0],
 						mesh.surfaces[layer.line.sections[section].index].color[1],
 						mesh.surfaces[layer.line.sections[section].index].color[2] } });
 			}
 		}
 
-		return { vertices, parts };
+		return { vertices, layers };
 	}
 
 	Model Reconstruct(const std::vector<glm::vec3>& mesh_vertices,
@@ -235,7 +244,8 @@ namespace Asset {
 			texcoord.push_back(mesh_texcoord[l.v2]);
 			texcoord.push_back(mesh_texcoord[l.v1]);
 		}
-		return { vertices, {{ GLint(0), GLsizei(vertices.size())}}, texcoord };
+		
+		return{ vertices,{ { {},{ Asset::Layer::Surface{ GLint(0), GLsizei(vertices.size()) } } } }, texcoord };
 	}
 	struct Assets {
 		std::vector<Model*> models;
@@ -246,11 +256,11 @@ namespace Asset {
 #else
 #define PATH_PREFIX "..//..//emc_ogl//"
 #endif
-			const float scale = 40.f;
+			const float scale = 40.f, propulsion_scale = 80.f;
 			{
 				const std::vector<glm::vec3> vertices{ { 0.f, 0.f, 0.f },
 				{ 1.f,0.f, 0.f },
-				{ 2.f, 0.f, 0.f } };
+				{ 1.f, -1.f, 0.f } };
 				std::vector<MeshLoader::PolyLine> lines{ { 0, 1 },{ 2, 1 } };
 				const std::vector<glm::vec2> texcoord{ { 0.f, 0.f },{ .5f, 0.f },{ 1.f, 0.f } };
 				missile = Reconstruct(vertices, lines, texcoord, scale);
@@ -265,13 +275,13 @@ namespace Asset {
 			{
 				MeshLoader::Mesh mesh;
 				ReadMeshFile(PATH_PREFIX"asset//propulsion.mesh", mesh);
-				propulsion = Reconstruct(mesh, scale);
+				propulsion = Reconstruct(mesh, propulsion_scale);
 				models.push_back(&propulsion);
 			}
 			{
 				MeshLoader::Mesh mesh;
 				ReadMeshFile(PATH_PREFIX"asset//land.mesh", mesh);
-				land = Reconstruct(mesh, scale, 10.f);
+				land = Reconstruct(mesh, scale);
 				models.push_back(&land);
 			}
 			{
@@ -283,10 +293,19 @@ namespace Asset {
 				missile = Reconstruct(vertices, lines, texcoord, scale);
 				models.push_back(&missile);
 			}
-			// TODO:: model.aabb = union parts.aabb
-			for (auto m : models)
-				for(auto& p : m->parts) 
-					p.aabb = CalcAABB(m->vertices, p.first, p.count);
+			for (auto& m : models) {
+				for (auto& l : m->layers) {
+					l.aabb = CalcAABB(m->vertices, l.parts.front().first, l.parts.front().count);
+					for (size_t i = 1; i < l.parts.size(); ++i) {
+						auto aabb = CalcAABB(m->vertices, l.parts[i].first, l.parts[i].count);
+						l.aabb = Union(l.aabb, aabb);
+					}
+				}
+
+				m->aabb = m->layers.front().aabb;
+				for (size_t i = 1; i < m->layers.size(); ++i)
+					m->aabb = Union(m->aabb, m->layers[i].aabb);
+			}
 		}
 	};
 }
@@ -874,71 +893,89 @@ struct ProtoX {
 	AABB aabb;
 	const float max_vel = .3f, max_acc = .0005f, force = .0001f, slowdown = .0003f,
 		g = -.000151f, /* m/ms2 */
-		ground_level = -280.f;
+		ground_level = 0.f;
 	glm::vec3 pos{ 0.f, 0.f, 0.f }, vel{}, acc{ 0.f, g, 0.f };
 	const glm::vec3 missile_start_offset;
-	struct {
+	const Asset::Layer& layer;
+	struct Propulsion{
+		const glm::vec3 pos;
+		const float rot;
+		const size_t frame_count;
+		bool on = false;
 		const double frame_time = 100.; //ms
-		bool lthruster = false, rthruster = false, bthruster = false;
-		double lt_start = 0., rt_start= 0., bt_start = 0.;
-		size_t lt_frame = 0, rt_frame = 0, bt_frame = 0;
-	}state;
-	struct UpperPart {
-		float rot = glm::half_pi<float>();
-		const float min_rot = -glm::radians(45.f),
-			max_rot = glm::radians(225.f);
+		double elapsed = 0.;
+		size_t frame;
+		void Update(const Time& t) {
+			elapsed += t.frame;
+			if (elapsed >= frame_time) {
+				++frame;
+				if (frame >= frame_count) frame = 0;
+				elapsed -= frame_time;
+			}
+		}
+		void Set(bool on) {
+			if (this->on == on)
+				return;
+			this->on = on;
+			if (on) {
+				frame = 0;
+				elapsed = 0.;
+			}
+		}
+		Propulsion(const glm::vec3& pos, float rot, size_t frame_count) :
+			pos(pos), rot(rot), frame_count(frame_count) {}
+	}left, bottom, right;
+	struct Turret {
+		float rot = 0.f;
+		const float rest_pos = glm::half_pi<float>(),
+			min_rot = -glm::radians(45.f) - rest_pos,
+			max_rot = glm::radians(225.f) - rest_pos;
+		const Asset::Layer& layer;
+		Turret(const Asset::Layer& layer) :layer(layer){}
 		void Update(const Time& t) {
 			rot = std::max(min_rot, rot);
 			rot = std::min(max_rot, rot);
 		}
-	}upperPart;
-	glm::mat4 rthruster_model = glm::translate({}, glm::vec3{ -.5f, -.3f, 0.f }) * glm::rotate(glm::mat4{}, -glm::half_pi<float>(), { 0.f, 0.f, 1.f }),
-		lthruster_model = glm::translate({}, glm::vec3{ .5f, -.3f, 0.f }) * glm::rotate(glm::mat4{}, glm::half_pi<float>(), { 0.f, 0.f, 1.f }),
-		bthruster1_model = glm::translate({}, glm::vec3{ -.4f, -.5f, 0.f }),
-		bthruster2_model = glm::translate({}, glm::vec3{ .4f, -.5f, 0.f });
-	ProtoX(const size_t id, const Asset::Model& model) : id(id),
-		missile_start_offset(model.parts[model.parts.size()-1].pivot) {
-		aabb = model.parts[0].aabb;
-		for (size_t i = 1; i < model.parts.size();++i)
-			aabb = Union(aabb, model.parts[i].aabb);
+	}turret;
+	ProtoX(const size_t id, const Asset::Model& model, size_t frame_count) : id(id),
+		missile_start_offset(model.layers[model.layers.size() - 1].pivot),
+		layer(model.layers.front()),
+		left({ 25.f, 15.f, 0.f }, glm::half_pi<float>(), frame_count),
+		right({ -25.f, 15.f, 0.f }, -glm::half_pi<float>(), frame_count),
+		bottom({}, 0.f, frame_count),
+		turret(model.layers.back()) {
+		aabb = model.aabb;
 	}
 	void Shoot(std::vector<Missile>& missiles) {
-		
 		const float missile_vel = .5f;
-		const glm::vec3 missile_vec{ std::cos(upperPart.rot) * missile_vel, std::sin(upperPart.rot) * missile_vel, .0f};
-		missiles.push_back({ pos + missile_start_offset, upperPart.rot, glm::length(missile_vec + vel), this });
+		auto rot = turret.rest_pos + turret.rot;
+		const glm::vec3 missile_vec{ std::cos(rot) * missile_vel, std::sin(rot) * missile_vel, .0f};
+		missiles.push_back({ pos + missile_start_offset, rot, glm::length(missile_vec + vel), this });
 	}
 	void Move(const Time& t, bool lt, bool rt, bool bt) {
-		if (state.lthruster != lt)
-			state.lt_start = t.total;
-		if (state.rthruster != rt)
-			state.rt_start = t.total;
-		if (state.bthruster != bt)
-			state.bt_start = t.total;
-		
-		state.lthruster = lt;
-		state.rthruster = rt;
-		state.bthruster = bt;
+		left.Set(lt);
+		right.Set(rt);
+		bottom.Set(bt);
 	}
 	void Update(const Time& t, const AABB& bounds) {
-		upperPart.Update(t);
-		if (state.lthruster) {
+		left.Update(t);
+		right.Update(t);
+		bottom.Update(t);
+		turret.Update(t);
+		if (left.on) {
 			acc.x = std::max(-max_acc, acc.x - force);
-			state.lt_frame = size_t(t.total - state.lt_start);
 		}
-		if (state.rthruster) {
+		if (right.on) {
 			acc.x = std::min(max_acc, acc.x + force);
-			state.rt_frame = size_t(t.total - state.rt_start);
 		}
-		if (!state.rthruster && !state.lthruster && vel.x != 0.f) {
+		if (!right.on && !left.on && vel.x != 0.f) {
 			if (vel.x<0.f)
 				acc.x = slowdown;
 			else if (vel.x>0.f)
 				acc.x = -slowdown;
 		}
-		if (state.bthruster) {
+		if (bottom.on) {
 			acc.y = std::min(max_acc, acc.y + force);
-			state.bt_frame = size_t(t.total - state.bt_start);
 		}
 		else {
 			acc.y = std::max(g, acc.y - force);
@@ -960,7 +997,7 @@ struct ProtoX {
 			vel.y = 0.f;
 		}
 
-		if (!state.rthruster && !state.lthruster && std::abs(vel.x) < 0.001f) {
+		if (!right.on && !left.on && std::abs(vel.x) < 0.001f) {
 			acc.x = 0.f;
 			vel.x = 0.f;
 		}
@@ -1001,7 +1038,8 @@ struct Renderer {
 		VBO_AABB = 4,
 		VBO_STARFIELD = 5,
 		VBO_PARTICLE = 6,
-		VBO_COUNT = 7;
+		VBO_PROPULSION = 7,
+		VBO_COUNT = 8;
 	struct Missile{
 		GLuint texID;
 		~Missile() {
@@ -1195,11 +1233,17 @@ struct Renderer {
 			glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * data.size(), &data.front(), GL_STATIC_DRAW);
 			Particles::vertex_count = data.size();
 		}
+		{
+			// propulsion
+			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_PROPULSION]);
+			glBufferData(GL_ARRAY_BUFFER, assets.propulsion.vertices.size() * sizeof(assets.propulsion.vertices[0]), &assets.propulsion.vertices.front(), GL_STATIC_DRAW);
+		}
+		
 	}
 	void PreRender() {
 		//rt.Set();
 		glClear(GL_COLOR_BUFFER_BIT);
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+		//glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 	}
 	void PostRender() {
 		//rt.Render();
@@ -1246,10 +1290,11 @@ struct Renderer {
 			(void*)0);
 		glm::mat4 mvp = cam.vp;
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		for (const auto&p : model.parts) {
-			glUniform3f(shader.uCol, p.col.r, p.col.g, p.col.b);
-			glDrawArrays(GL_TRIANGLES, p.first, p.count);
-		}
+		for (const auto& l : model.layers)
+			for (const auto& p : l.parts) {
+				glUniform3f(shader.uCol, p.col.r, p.col.g, p.col.b);
+				glDrawArrays(GL_TRIANGLES, p.first, p.count);
+			}
 		glDisableVertexAttribArray(0);
 	}
 	void Draw(const Camera& cam, const std::list<Particles>& particles) {
@@ -1297,6 +1342,31 @@ struct Renderer {
 		glDrawArrays(GL_LINE_STRIP, 0, 5);
 		glDisableVertexAttribArray(0);
 	}
+	void Draw(const Camera& cam, const ProtoX& proto, const ProtoX::Propulsion& prop) {
+		auto& shader = colorShader;
+		glUseProgram(shader.program.id);
+		glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_PROPULSION]);
+		glVertexAttribPointer(0,
+			3,
+			GL_FLOAT,
+			GL_FALSE,
+			0,
+			(void*)0);
+		const size_t frame_count = assets.propulsion.layers.size();
+		const auto& model = assets.propulsion;
+		if (prop.on) {
+			glm::mat4 m = glm::translate({}, proto.pos + prop.pos);
+			m = glm::rotate(m, prop.rot, { 0.f, 0.f, 1.f });
+			glm::mat4 mvp = cam.vp * m;
+			glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+
+			auto& layer = assets.propulsion.layers[proto.left.frame];
+			for (const auto& p : layer.parts) {
+				glUniform3f(shader.uCol, p.col.r, p.col.g, p.col.b);
+				glDrawArrays(GL_TRIANGLES, p.first, p.count);
+			}
+		}
+	}
 	void Draw(const Camera& cam, const ProtoX& proto) {
 #ifdef VAO_SUPPORT
 		glBindVertexArray(vao);
@@ -1311,35 +1381,27 @@ struct Renderer {
 			(void*)0);
 #endif
 		auto& shader = colorShader;
-		auto& model = assets.probe;
 		glUseProgram(shader.program.id);
-
-		for (const auto& p : model.parts) {
-			// TODO:: turret rotation
-			glm::mat4 mvp = cam.vp, m = glm::translate({}, proto.pos + p.pivot);
-			mvp *= m;
+		for (const auto& p : proto.layer.parts) {
+			glm::mat4 mvp = glm::translate(cam.vp, proto.pos);
 			glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 			glUniform3f(shader.uCol, p.col.r, p.col.g, p.col.b);
 			glDrawArrays(GL_TRIANGLES, p.first, p.count);
 		}
-		// TODO:: propulsion
-		//const size_t thruster_frame_count = 2;
-		//const auto& model = assets.models[proto.model_idx];
-		//glDrawArrays(GL_LINE_STRIP, model.parts[(size_t)Asset::Parts::LowerBody].first, model.parts[(size_t)Asset::Parts::LowerBody].count);
-		//mvp = cam.vp;
-		//m = glm::translate({}, proto.pos) * glm::scale({}, proto.scale) * glm::translate({}, model.parts[(size_t)Asset::Parts::UpperBody].offset) * glm::rotate(glm::mat4{}, proto.upperPart.rot, { 0.f, 0.f, 1.f });
-		//mvp *= m;
-		//glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		//glDrawArrays(GL_LINE_STRIP, model.parts[(size_t)Asset::Parts::UpperBody].first, model.parts[(size_t)Asset::Parts::UpperBody].count);
-		//if (proto.state.lthruster) {
-		//	mvp = cam.vp;
-		//	m = glm::translate({}, proto.pos) * glm::scale({}, proto.scale) * proto.lthruster_model;
-		//	mvp *= m;
-		//	glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		//	auto frame = (proto.state.lt_frame % thruster_frame_count) ? model.parts[(size_t)Asset::Parts::Thruster1]
-		//		: model.parts[(size_t)Asset::Parts::Thruster2];
-		//	glDrawArrays(GL_LINE_STRIP, frame.first, frame.count);
-		//}
+		for (const auto& p : proto.turret.layer.parts) {
+			glm::mat4 m = glm::translate({}, proto.pos + proto.turret.layer.pivot);
+			m = glm::rotate(m, proto.turret.rot, { 0.f, 0.f, 1.f });
+			m = glm::translate(m, -proto.turret.layer.pivot);
+			
+			glm::mat4 mvp = cam.vp * m;
+			glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+			glUniform3f(shader.uCol, p.col.r, p.col.g, p.col.b);
+			glDrawArrays(GL_TRIANGLES, p.first, p.count);
+		}
+
+		Draw(cam, proto, proto.left);
+		Draw(cam, proto, proto.right);
+		Draw(cam, proto, proto.bottom);
 		//if (proto.state.rthruster) {
 		//	mvp = cam.vp;
 		//	m = glm::translate({}, proto.pos) * glm::scale({}, proto.scale) * proto.rthruster_model;
@@ -1412,7 +1474,10 @@ struct Renderer {
 				glm::rotate(glm::mat4{}, missile.rot, { 0.f, 0.f, 1.f });
 			mvp *= m;
 			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-			glDrawArrays(GL_TRIANGLES, assets.missile.parts[0].first, assets.missile.parts[0].count);
+			for (const auto& l : assets.missile.layers)
+				for (const auto& p : l.parts) {
+					glDrawArrays(GL_TRIANGLES, p.first, p.count);
+				}
 		}
 
 		glDisableVertexAttribArray(0);
@@ -1559,11 +1624,11 @@ public:
 		return textureID;
 	}
 public:
-	Scene() : renderer(assets), player(0xdead/* TODO:: generate id*/, assets.probe) {
-		bounds = assets.land.parts[0].aabb;
-		bounds.t = float((height >> 1) + (height >> 2));
-		bounds.b = -float((height >> 1) + (height >> 2));
-		players.emplace_back(0xbeef/* TODO:: generate id*/, assets.probe);
+	Scene() : renderer(assets), player(0xdead/* TODO:: generate id*/, assets.probe, assets.propulsion.layers.size()) {
+		bounds = assets.land.aabb;
+		/*bounds.t = float((height >> 1) + (height >> 2));
+		bounds.b = -float((height >> 1) + (height >> 2));*/
+		players.emplace_back(0xbeef/* TODO:: generate id*/, assets.probe, assets.propulsion.layers.size());
 		auto& p = players.back();
 		p.pos.x = 100.f;
 
@@ -1637,12 +1702,12 @@ public:
 		//glBindVertexArray(0);
 		renderer.DrawBackground(camera);
 		renderer.DrawLandscape(camera);
+		renderer.Draw(camera, missiles);
 		for (const auto& p : players) {
 			renderer.Draw(camera, p);
 			renderer.Draw(camera, p.aabb.Translate(p.pos));
 		}
 		renderer.Draw(camera, player);
-		renderer.Draw(camera, missiles);
 		renderer.Draw(camera, particles);
 		renderer.PostRender();
 	}
@@ -1654,7 +1719,7 @@ public:
 		if (inputHandler.keys[(size_t)InputHandler::Keys::Right])
 			camera.Translate(float(scroll_speed * t.frame), 0.f, 0.f);
 		if (inputHandler.update)
-			player.upperPart.rot += float((inputHandler.px - inputHandler.x) * rot_ratio);
+			player.turret.rot += float((inputHandler.px - inputHandler.x) * rot_ratio);
 
 		player.Move(t, inputHandler.keys[(size_t)InputHandler::Keys::A],
 			inputHandler.keys[(size_t)InputHandler::Keys::D],
@@ -1676,7 +1741,7 @@ public:
 			m.Update(t);
 		}
 		auto d = camera.pos.x + player.pos.x;
-		auto res = player.WrapAround(assets.land.parts[0].aabb.l, assets.land.parts[0].aabb.r);
+		auto res = player.WrapAround(assets.land.layers[0].aabb.l, assets.land.layers[0].aabb.r);
 		camera.Update(t);
 		camera.Tracking(glm::vec2{ player.pos });
 		// wraparound camera hack

@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en-us">
   <head>
     <meta charset="utf-8">
@@ -131,6 +131,7 @@
       var spinnerElement = document.getElementById('spinner');
 
       var Module = {
+        arguments: [window.location.hostname],
         preRun: [],
         postRun: [],
         print: (function() {
@@ -204,6 +205,6 @@
         };
       };
     </script>
-    <script async type="text/javascript" src="index.js"></script>
+    <script async type="text/javascript" src="emc_socket/index.js"></script>
   </body>
 </html>

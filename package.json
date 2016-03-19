@@ -1,10 +1,20 @@
 {
-  "name": "socket-example",
-  "version": "0.0.1",
-  "description": "socket.io app",
+  "name": "Proto-Echo-Server",
+  "version": "1.0.0",
+  "description": "Proto Echo Server",
+
+  "engines": {
+    "node": ">= 0.6.0",
+    "npm": ">= 1.0.0"
+  },
+
   "dependencies": {
     "express": "^4.10.2",
-    "socket.io": "^1.4.5",
     "ws": "^1.0.1"
-  }
+  },
+  "devDependencies": {},
+  "bundleDependencies": [],
+
+  "private": true,
+  "main": "server.js"
 }

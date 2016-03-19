@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en-us">
   <head>
     <meta charset="utf-8">
@@ -1221,7 +1221,15 @@
       var progressElement = document.getElementById('progress');
       var spinnerElement = document.getElementById('spinner');
 
+      var w = window.innerWidth
+        || document.documentElement.clientWidth
+        || document.body.clientWidth;
+
+      var h = window.innerHeight
+        || document.documentElement.clientHeight
+        || document.body.clientHeight;
       var Module = {
+        arguments: [ window.location.hostname, ""+w, ""+h],
         preRun: [],
         postRun: [],
         print: (function() {

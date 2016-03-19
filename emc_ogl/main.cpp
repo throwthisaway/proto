@@ -25,25 +25,38 @@
 #include <algorithm>
 #include <random>
 #include "../../MeshLoader/MeshLoader.h"
-
 //#define VAO_SUPPORT
 
-static const int width = 640, height = 480;
+class Scene;
+struct {
+	std::string host = "localhost";
+	unsigned short port = 8000;
+	int width = 640, height = 480;
+	std::unique_ptr<Scene> scene;
+}globals;
+class exception : std::exception {
+public:
+	exception(const std::string& message) : message(message) {}
+	const std::string message;
+};
 static const size_t texw = 256, texh = 256;
 static GLFWwindow * window;
 static std::random_device rd;
 static std::mt19937 mt(rd());
 static void ReadMeshFile(const char* fname, MeshLoader::Mesh& mesh) {
 	FILE *f;
+#ifdef __EMSCRIPTEN__
+	f = ::fopen(fname, "rb");
+#else
 	::fopen_s(&f, fname, "rb");
+#endif
 	if (!f) {
 		std::stringstream ss;
 		ss << "Can't open file: " << fname;
-		throw std::exception(ss.str().c_str());
+		throw exception(ss.str());
 	}
 	::fseek(f, 0, SEEK_END);
-	fpos_t fpos;
-	::fgetpos(f, &fpos);
+	auto fpos = ::ftell(f);
 	std::vector<char> data((size_t)fpos);
 	::fseek(f, 0, SEEK_SET);
 	::fread(&data.front(), 1, (size_t)fpos, f);
@@ -267,8 +280,29 @@ namespace Asset {
 				models.push_back(&missile);
 			}
 			{
+#ifdef __EMSCRIPTEN__
+				emscripten_log(EM_LOG_CONSOLE, "load proto.mesh");
+#endif
 				MeshLoader::Mesh mesh;
 				ReadMeshFile(PATH_PREFIX"asset//proto.mesh", mesh);
+				
+				
+#ifdef __EMSCRIPTEN__
+				emscripten_log(EM_LOG_CONSOLE, "after load proto.mesh %d %d",mesh.vertices.size(), mesh.polygons.size());
+				emscripten_log(EM_LOG_CONSOLE, " %d %d", mesh.layers.size(), mesh.surfaces.size());
+				emscripten_log(EM_LOG_CONSOLE, " %f %f %f, %f %f %f", mesh.surfaces[0].color[0],
+					mesh.surfaces[0].color[1],
+					mesh.surfaces[0].color[2],
+					mesh.surfaces[1].color[0],
+					mesh.surfaces[1].color[1],
+					mesh.surfaces[1].color[2]);
+#endif
+				printf(" %f %f %f, %f %f %f", mesh.surfaces[0].color[0],
+					mesh.surfaces[0].color[1],
+					mesh.surfaces[0].color[2],
+					mesh.surfaces[1].color[0],
+					mesh.surfaces[1].color[1],
+					mesh.surfaces[1].color[2]);
 				probe = Reconstruct(mesh, scale);
 				models.push_back(&probe);
 			}
@@ -717,10 +751,10 @@ struct Camera {
 		vp(proj * view) {
 	}
 	void Update(const Time&) {}
-	void Tracking(const glm::vec2& tracking_pos) {
-		// TODO:: camer atracking bounds
-		const float max_x = float(width>>2), top =  float(height >> 2) + 60.f, bottom = -float((height >> 2) + 80.f);
-		auto d = tracking_pos + glm::vec2(pos);
+	void Tracking(const glm::vec3& tracking_pos, const AABB& scene_aabb, const AABB& player_aabb) {
+		// TODO:: camera tracking bounds
+		const float max_x = float(globals.width>>2), top =  float(globals.height >> 2), bottom = -float(globals.height >> 2);
+		auto d = tracking_pos + pos;
 
 		auto dx = max_x + d.x;
 		if (d.x < -max_x) {
@@ -812,7 +846,7 @@ public:
 	}
 	void Reset() {
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glViewport(0, 0, width, height);
+		glViewport(0, 0, globals.width, globals.height);
 		glDisable(GL_DEPTH_TEST);
 	}
 	void Render() {
@@ -842,7 +876,7 @@ public:
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, txt);
 		glUniform1i(shader.uSmp, 0);
-		glUniform2f(shader.uScreenSize, (GLfloat)width, (GLfloat)height);
+		glUniform2f(shader.uScreenSize, (GLfloat)globals.width, (GLfloat)globals.height);
 
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 		glDisable(GL_TEXTURE_2D);
@@ -891,10 +925,13 @@ const glm::vec3 Missile::scale{ Missile::size, Missile::size, 1.f };
 struct ProtoX {
 	const size_t id;
 	AABB aabb;
-	const float max_vel = .3f, max_acc = .0005f, force = .0001f, slowdown = .0003f,
-		g = -.000151f, /* m/ms2 */
-		ground_level = 0.f;
-	glm::vec3 pos{ 0.f, 0.f, 0.f }, vel{}, acc{ 0.f, g, 0.f };
+	const float max_vel = .3f,
+		m = 500.f,
+		force = .1f,
+		slowdown = .0003f,
+		g = -.1f, /* m/ms2 */
+		ground_level = 20.f;
+	glm::vec3 pos, vel, f;
 	const glm::vec3 missile_start_offset;
 	const Asset::Layer& layer;
 	struct Propulsion{
@@ -956,50 +993,29 @@ struct ProtoX {
 		left.Set(lt);
 		right.Set(rt);
 		bottom.Set(bt);
+		f.x = (lt) ? -force : (rt) ? force : 0.f;
+		f.y = (bt) ? force : g;
 	}
 	void Update(const Time& t, const AABB& bounds) {
 		left.Update(t);
 		right.Update(t);
 		bottom.Update(t);
 		turret.Update(t);
-		if (left.on) {
-			acc.x = std::max(-max_acc, acc.x - force);
-		}
-		if (right.on) {
-			acc.x = std::min(max_acc, acc.x + force);
-		}
-		if (!right.on && !left.on && vel.x != 0.f) {
-			if (vel.x<0.f)
-				acc.x = slowdown;
-			else if (vel.x>0.f)
-				acc.x = -slowdown;
-		}
-		if (bottom.on) {
-			acc.y = std::min(max_acc, acc.y + force);
-		}
-		else {
-			acc.y = std::max(g, acc.y - force);
-		}
-		pos += (vel + acc * (float)t.frame / 2.f) * (float)t.frame;
-		vel += acc * (float)t.frame;
+		vel += (f / m) * (float)t.frame;
+		pos += vel * (float)t.frame;
 		vel.x = std::max(-max_vel, std::min(max_vel, vel.x));
-		vel.y = std::min(max_vel, vel.y);
+		vel.y = std::max(-max_vel, std::min(max_vel, vel.y));
 		// ground constraint
-		if (pos.y <= bounds.b + ground_level) {
-			pos.y = bounds.b + ground_level;
+		if (pos.y + aabb.b <= bounds.b + ground_level) {
+			pos.y = bounds.b + ground_level - aabb.b;
 			if (std::abs(vel.y) < 0.001f)
 				vel.y = 0.f;
 			else
 				vel = { 0.f, -vel.y / 2.f, 0.f };
 		}
-		else if (pos.y >= bounds.t) {
-			pos.y = bounds.t;
+		else if (pos.y + aabb.t >= bounds.t) {
+			pos.y = bounds.t - aabb.t;
 			vel.y = 0.f;
-		}
-
-		if (!right.on && !left.on && std::abs(vel.x) < 0.001f) {
-			acc.x = 0.f;
-			vel.x = 0.f;
 		}
 	}
 	float WrapAround(float min, float max) {
@@ -1087,6 +1103,8 @@ struct Renderer {
 		}
 	};
 	struct StarField {
+		size_t count_per_layer;
+		AABB bounds;
 		GLuint vbo;
 		size_t count;
 		struct Layer {
@@ -1105,10 +1123,10 @@ struct Renderer {
 				std::sin(glm::two_pi<float>() / steps * i) * ratio << "f, .0f,\n";
 		}
 	}
-	Renderer(Asset::Assets& assets) : assets(assets) {
-		Init();
+	Renderer(Asset::Assets& assets, const AABB& scene_bounds) : assets(assets) {
+		Init(scene_bounds);
 	}
-	void Init() {
+	void Init(const AABB& scene_bounds) {
 		glGenBuffers(sizeof(vbo) / sizeof(vbo[0]), vbo);
 		// ProtoX
 		{
@@ -1210,18 +1228,23 @@ struct Renderer {
 		}
 		{
 			// Starfield
-			const float dist_mul_x = 2.f, dist_mul_y = 1.5f, star_size = 3.f;
-			const size_t count = 3000;
-			std::uniform_real_distribution<> dist_x(-width * dist_mul_x, width * dist_mul_x),
-				dist_y(-height * dist_mul_y, height * dist_mul_y);
+			const float star_size = 3.f;
+			const size_t count_per_layer = 3000, layer_count = 3;
 			std::vector<glm::vec3> data;
-			data.reserve(count * 6);
-			for (size_t i = 0; i < count; ++i) {
-				GenerateSquare((float)dist_x(mt), (float)dist_y(mt), star_size, data);
+			data.reserve(count_per_layer *layer_count * 6);
+			float mul = 2.f;
+			for (size_t j = 0; j < layer_count; ++j) {
+				std::uniform_real_distribution<> dist_x(scene_bounds.l * mul,
+					scene_bounds.r * mul),
+					dist_y(scene_bounds.b * mul, scene_bounds.t * mul);
+				mul -=.5f;
+				for (size_t i = 0; i < count_per_layer; ++i) {
+					GenerateSquare((float)dist_x(mt), (float)dist_y(mt), star_size, data);
+				}
 			}
 			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_STARFIELD]);
 			glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * data.size(), &data.front(), GL_STATIC_DRAW);
-			starField = { vbo[VBO_STARFIELD], count, {-2.f, {1.f, 1.f, 1.f}}, {-3.f,{ 1.f, 0.f, 1.f }}, {-4.f,{ 0.f, 1.f, 1.f } } };
+			starField = { count_per_layer, scene_bounds, vbo[VBO_STARFIELD], count_per_layer * layer_count, {1.f, {1.f, 1.f, 1.f}}, {.5f,{ .5f, .0f, .0f }}, {.25f,{ .0f, .0f, .5f } } };
 		}
 		
 		{
@@ -1260,21 +1283,21 @@ struct Renderer {
 			GL_FALSE,
 			0,
 			(void*)0);
-		glm::vec3 pos = cam.pos / starField.layer3.z;
+		glm::vec3 pos = cam.pos * starField.layer3.z;
 		glm::mat4 mvp = glm::translate(cam.vp, pos);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 		glUniform3f(shader.uCol, starField.layer3.color.r, starField.layer3.color.g, starField.layer3.color.b);
-		glDrawArrays(GL_TRIANGLES, 12000, 1000);
-		pos = cam.pos / starField.layer2.z;
+		glDrawArrays(GL_TRIANGLES, starField.count_per_layer * 6 * 2, starField.count_per_layer);
+		pos = cam.pos * starField.layer2.z;
 		mvp = glm::translate(cam.vp, pos);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 		glUniform3f(shader.uCol, starField.layer2.color.r, starField.layer2.color.g, starField.layer2.color.b);
-		glDrawArrays(GL_TRIANGLES, 6000, 1000);
-		pos = cam.pos / starField.layer1.z;
+		glDrawArrays(GL_TRIANGLES, starField.count_per_layer * 6 * 1, starField.count_per_layer);
+		pos = cam.pos * starField.layer1.z;
 		mvp = glm::translate(cam.vp, pos);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 		glUniform3f(shader.uCol, starField.layer1.color.r, starField.layer1.color.g, starField.layer1.color.b);
-		glDrawArrays(GL_TRIANGLES, 0, 1000);
+		glDrawArrays(GL_TRIANGLES, 0, starField.count_per_layer);
 		glDisableVertexAttribArray(0);
 	}
 	void Draw(const Camera& cam, const Asset::Model& model, size_t vbo_index) {
@@ -1574,21 +1597,18 @@ bool InputHandler::lb = false, InputHandler::rb = false,InputHandler::mb = false
 double InputHandler::x, InputHandler::y, InputHandler::px, InputHandler::py;
 bool InputHandler::update = false;
 std::queue<InputHandler::ButtonClick> InputHandler::event_queue;
-// TODO:: hack
-class Scene;
-static Scene* scene;
 class Scene {
 public:
+	Asset::Assets assets;
 	AABB bounds;
 	Shader::Simple simple;
-	Asset::Assets assets;
 	Renderer renderer;
 	ProtoX player;
 	std::vector<Missile> missiles;
 	std::vector<ProtoX> players;
 	std::list<Renderer::Particles> particles;
 	Object mesh{ { 5.f, 0.f, 0.f } };
-	Camera camera{ width, height };
+	Camera camera{ globals.width, globals.height };
 	InputHandler inputHandler;
 	Timer timer;
 	GLuint VertexArrayID;
@@ -1597,6 +1617,16 @@ public:
 	GLuint texID;
 	GLuint uTexSize;
 	glm::mat4x4 mvp;
+#ifndef __EMSCRIPTEN__
+	void* operator new(size_t i)
+	{
+		return _mm_malloc(i,16);
+	}
+	void operator delete(void* p)
+	{
+		_mm_free(p);
+	}
+#endif
 	GLuint GenTexture(size_t w, size_t h) {
 		GLuint textureID;
 		glGenTextures(1, &textureID);
@@ -1624,8 +1654,8 @@ public:
 		return textureID;
 	}
 public:
-	Scene() : renderer(assets), player(0xdead/* TODO:: generate id*/, assets.probe, assets.propulsion.layers.size()) {
-		bounds = assets.land.aabb;
+	Scene() : bounds(assets.land.aabb),
+		renderer(assets, bounds), player(0xdead/* TODO:: generate id*/, assets.probe, assets.propulsion.layers.size()) {
 		/*bounds.t = float((height >> 1) + (height >> 2));
 		bounds.b = -float((height >> 1) + (height >> 2));*/
 		players.emplace_back(0xbeef/* TODO:: generate id*/, assets.probe, assets.propulsion.layers.size());
@@ -1743,13 +1773,13 @@ public:
 		auto d = camera.pos.x + player.pos.x;
 		auto res = player.WrapAround(assets.land.layers[0].aabb.l, assets.land.layers[0].aabb.r);
 		camera.Update(t);
-		camera.Tracking(glm::vec2{ player.pos });
+		camera.Tracking(player.pos, bounds, player.aabb);
 		// wraparound camera hack
 		// wrap around from left
 		if (res < 0)
-			camera.Translate(std::max(d, -float(width >> 2)) - (width >> 2), 0.f, 0.f);
+			camera.Translate(std::max(d, -float(globals.width >> 2)) - (globals.width >> 2), 0.f, 0.f);
 		else if (res > 0)
-			camera.Translate(std::min(d, float(width >> 2)) + (width >> 2), 0.f, 0.f);
+			camera.Translate(std::min(d, float(globals.width >> 2)) + (globals.width >> 2), 0.f, 0.f);
 
 
 		auto it = missiles.begin();
@@ -1807,7 +1837,7 @@ public:
 	}
 };
 
-void init() {
+void init(int width, int height) {
 	glfwSetErrorCallback(errorcb);
 	ThrowIf(glfwInit() != GL_TRUE, "glfw init failed");
 	
@@ -1838,12 +1868,31 @@ void init() {
 }
 Timer timer;
 void main_loop();
-int main() {
+int main(int argc, char** argv) {
 	//Renderer::DumpCircle();
-	init();
-	Scene scene;
-	// TODO:: hack
-	::scene = &scene;
+	if (argc > 1)
+		globals.host = (!strcmp(argv[1], "0.0.0.1")) ? "localhost" : argv[1];
+	if (argc > 3) {
+		auto w = atoi(argv[2]), h = atoi(argv[3]);
+		if (w>0)
+			globals.width = w;
+		if (h>0)
+			globals.height = h;
+	}
+	init(globals.width, globals.height);
+
+	try {
+		globals.scene = std::make_unique<Scene>();
+	}
+	catch (exception& ex) {
+#ifdef __EMSCRIPTEN__
+		emscripten_log(EM_LOG_ERROR, ex.message.c_str());
+#else
+		std::cout << ex.message;
+#endif
+		throw;
+	}
+	
 #ifdef __EMSCRIPTEN__
 	// void emscripten_set_main_loop(em_callback_func func, int fps, int simulate_infinite_loop);
 	emscripten_set_main_loop(main_loop, 0/*60*/, 1);
@@ -1861,9 +1910,18 @@ int main() {
 }
 
 void main_loop() {
-	auto a = timer.Elapsed();
-	scene->Update({(double)timer.Total(), (double)timer.Elapsed()});
-	scene->Render();
-	timer.Tick();
-	InputHandler::Reset();
+//	try {
+		timer.Tick();
+		globals.scene->Update({ (double)timer.Total(), (double)timer.Elapsed() });
+		globals.scene->Render();
+		InputHandler::Reset();
+//	}
+//	catch (...) {
+//#ifdef __EMSCRIPTEN__
+//		emscripten_log(EM_LOG_ERROR, "exception has been thrown");
+//#else
+//		std::cout << "exception has been thrown";
+//#endif
+//		throw;
+//	}
 }

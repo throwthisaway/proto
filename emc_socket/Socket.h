@@ -1,47 +1,48 @@
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/ioctl.h>
-#include <sys/types.h>
-#include <sys/socket.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <vector>
-#include <netdb.h>
 #ifdef __EMSCRIPTEN__
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <netdb.h>
 #include <emscripten.h>
+#else
+#include <Winsock2.h>
+#include <ws2tcpip.h>
+#include <tuple>
+#pragma comment(lib, "Ws2_32.lib")
 #endif
-
+#ifdef __EMSCRIPTEN__
+#define SOCKET int
+#define INVALID_SOCKET -1
+#define SOCKET_ERROR -1
+#endif
 class Socket {
-	struct server_t {
-		int fd;
-	};
+protected:
+	SOCKET fd;
 
-	struct client_t
-	{
-		int fd;
-		struct sockaddr_in addr;
-	};
-
-	server_t server;
-	client_t client;
 	void cleanup()
 	{
-		if (client.fd)
-		{
-			close(client.fd);
-			client.fd = 0;
-		}
-		if (server.fd)
-		{
-			close(server.fd);
-			server.fd = 0;
-		}
+#ifdef __EMSCRIPTEN__
+		if (fd)
+			close(fd);
+#else
+		if (fd)
+			closesocket(fd);
+		::WSACleanup();
+#endif
+		fd = 0;
 	}
 
 	void finish(int result) {
@@ -56,8 +57,10 @@ class Socket {
 
 	static void error_callback(int fd, int err, const char* msg, void* _this)
 	{
+#ifdef __EMSCRIPTEN__
 		emscripten_log(EM_LOG_CONSOLE, "error");
-		int error;
+#endif
+		char error;
 		socklen_t len = sizeof(error);
 
 		int ret = getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len);
@@ -78,7 +81,7 @@ class Socket {
 	{
 		char msg[1024];
 		memset(msg, 0, sizeof(msg));
-		int res = recvfrom(fd, msg, 1024, 0, NULL, NULL);
+		int res = recv(fd, msg, 1024, 0);
 		if (res == -1) {
 			assert(errno == EAGAIN);
 		}
@@ -87,48 +90,160 @@ class Socket {
 	static void open_callback(int fd, void* _this)
 	{
 		printf("open_callback\n");
-
 	}
 public:
-	Socket(const char * inet_addr, unsigned short port) {
+	Socket() : fd(0) {
+#ifdef __EMSCRIPTEN__
+		emscripten_set_socket_error_callback(this, error_callback);
+		emscripten_set_socket_open_callback(this, open_callback);
+		emscripten_set_socket_close_callback(this, close_callback);
+		emscripten_set_socket_message_callback(this, message_callback);
+#endif
+	}
+	~Socket() {
+		cleanup();
+	}
+};
+
+class Client : public Socket {
+	struct sockaddr_in addr;
+public:
+	Client(const char * inet_addr, unsigned short port, bool async, bool host_by_name = true) : Socket() {
 		int res = 0;
-		memset(&client, 0, sizeof(client_t));
-		client.fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
-		if (client.fd == -1)
+		fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+		if (fd == -1)
 		{
 			perror("cannot create socket");
 			exit(EXIT_FAILURE);
 		}
-		fcntl(client.fd, F_SETFL, O_NONBLOCK);
-		struct hostent *host;
-		host = gethostbyname(inet_addr);
-		if (host == NULL)
-		{
-			perror("no such host");
-			exit(EXIT_FAILURE);
+		if (async) {
+#ifdef __EMSCRIPTEN__
+			fcntl(fd, F_SETFL, O_NONBLOCK);
+			// ?? fcntl(s, F_SETFF, FNDELAY);
+#else
+			unsigned long arg = -1;
+			ioctlsocket(fd, FIONBIO, &arg);
+#endif
 		}
-		memset(&client.addr, 0, sizeof(client.addr));
-		client.addr.sin_family = AF_INET;
-		client.addr.sin_port = htons(port);
-		bcopy((char *)host->h_addr,
-			(char *)&client.addr.sin_addr.s_addr,
-			host->h_length);
-		//if (inet_pton(AF_INET, inet_addr, &client.addr.sin_addr) != 1)
-		//{
-		//	perror("inet_pton failed");
-		//	exit(EXIT_FAILURE);
-		//}
-		res = connect(client.fd, (struct sockaddr *)&client.addr, sizeof(client.addr));
-		emscripten_log(EM_LOG_CONSOLE, "connect: %d", res);
-		if (res == -1 && errno != EINPROGRESS)
-		{
-			perror("connect failed");
-			finish(EXIT_FAILURE);
-		}
+		if (host_by_name) {
+			// TODO:: getnameinfo https://msdn.microsoft.com/en-us/library/windows/desktop/ms738532(v=vs.85).aspx
+			struct hostent *host;
+			host = gethostbyname(inet_addr);
+			if (host == NULL)
+			{
+				perror("no such host");
+				exit(EXIT_FAILURE);
+			}
+			memset(&addr, 0, sizeof(addr));
+			addr.sin_family = AF_INET;
+			addr.sin_port = htons(port);
+            memcpy((char *)&addr.sin_addr.s_addr,
+				(char *)host->h_addr,
+                host->h_length);
+			res = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
 
-		emscripten_set_socket_error_callback(this, error_callback);
-		emscripten_set_socket_open_callback(this, open_callback);
-		emscripten_set_socket_message_callback(this, message_callback);
+			if (res == -1 && errno != EINPROGRESS) {
+#ifndef __EMSCRIPTEN__
+				if (WSAGetLastError() != WSAEWOULDBLOCK)
+#endif
+				{
+#ifdef __EMSCRIPTEN__
+					emscripten_log(EM_LOG_ERROR, "connect failed: %d", errno);
+#endif
+					perror("connect failed");
+					finish(EXIT_FAILURE);
+				}
+			}
+		} else {
+// TODO:: getaddrinfo https://msdn.microsoft.com/en-us/library/windows/desktop/ms738520(v=vs.85).aspx
+
+//			struct addrinfo *host = NULL, hints;
+//			memset(&hints, 0, sizeof(hints));
+//			hints.ai_family = AF_UNSPEC;
+//			hints.ai_socktype = SOCK_STREAM;
+//			hints.ai_protocol = IPPROTO_TCP;
+//
+//			// Resolve the server address and port
+//			res = getaddrinfo(inet_addr, NULL, &hints, &host);
+//			if (res != 0) {
+//				printf("getaddrinfo failed with error: %d\n", res);
+//				exit(EXIT_FAILURE);
+//			}
+//
+//			for (struct addrinfo *ptr = host; ptr != NULL; ptr = ptr->ai_next) {
+//
+//				// Create a SOCKET for connecting to server
+//				fd = socket(ptr->ai_family, ptr->ai_socktype,
+//					ptr->ai_protocol);
+//				if (fd == INVALID_SOCKET) {
+//#ifdef __EMSCRIPTEN__
+//					perror("socket failed");
+//#else
+//					printf("socket failed with error: %ld\n", WSAGetLastError());
+//#endif
+//					exit(EXIT_FAILURE);
+//				}
+//
+//				// Connect to server.
+//				res = connect(fd, ptr->ai_addr, (int)ptr->ai_addrlen);
+//				if (res == SOCKET_ERROR) {
+//#ifdef __EMSCRIPTEN__
+//					close(fd);
+//#else
+//					closesocket(fd);
+//#endif
+//					continue;
+//				}
+//				break;
+//			}
+//
+//			freeaddrinfo(host);
+//
+//			if (fd == INVALID_SOCKET) {
+//				printf("Unable to connect to server!\n");
+//				exit(EXIT_FAILURE);
+//			}
+
+			memset(&addr, 0, sizeof(addr));
+			if (inet_pton(AF_INET, inet_addr, &addr.sin_addr) != 1)
+			{
+#ifdef __EMSCRIPTEN__
+				emscripten_log(EM_LOG_ERROR, "inet_pton failed: %d", errno);
+#endif
+				perror("inet_pton failed");
+				exit(EXIT_FAILURE);
+			}
+			addr.sin_family = AF_INET;
+			addr.sin_port = htons(port);
+			res = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+#ifdef __EMSCRIPTEN__
+			emscripten_log(EM_LOG_CONSOLE, "connect: %d", res);
+#endif
+
+			if (res == -1 && errno != EINPROGRESS)
+			{
+#ifndef __EMSCRIPTEN__
+				if (WSAGetLastError() != WSAEWOULDBLOCK)
+#endif
+				{
+					//auto r = WSAGetLastError();
+
+
+					perror("connect failed");
+					finish(EXIT_FAILURE);
+				}
+			}
+		}
+	}
+	int Recv() {
+		char msg[1024];
+		memset(msg, 0, sizeof(msg));
+		int res = recv(fd, msg, 1024, 0);
+		if (res == -1) {
+			assert(errno == EAGAIN);
+		}
+		printf("message callback %d %s\n", res, msg);
+		return res;
 	}
 	int Send(const std::string& msg) {
 		int res = 0;
@@ -136,8 +251,8 @@ public:
 		fd_set fdw;
 		FD_ZERO(&fdr);
 		FD_ZERO(&fdw);
-		FD_SET(client.fd, &fdr);
-		FD_SET(client.fd, &fdw);
+		FD_SET(fd, &fdr);
+		FD_SET(fd, &fdw);
 		res = select(64, &fdr, &fdw, NULL, NULL);
 		if (res == -1)
 		{
@@ -145,12 +260,12 @@ public:
 			finish(EXIT_FAILURE);
 			return -1;
 		}
-		if (!FD_ISSET(client.fd, &fdw))
+		if (!FD_ISSET(fd, &fdw))
 		{
 			perror("isset failed for write");
 			return -1;
 		}
-		res = ::send(client.fd, msg.c_str(), msg.size(), 0);
+		res = ::send(fd, msg.c_str(), msg.size(), 0);
 		if (res == -1)
 		{
 			assert(errno == EAGAIN);
@@ -160,6 +275,59 @@ public:
 	}
 };
 
-class Client : public Socket {
-
+class Server : public Socket {
+	const int max_connections = 16;
+	std::vector<std::tuple<SOCKET, sockaddr_in>> clients;
+public:
+	Server(unsigned short port) : Socket() {
+		int res = 0;
+		fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+		if (fd == -1)
+		{
+			perror("cannot create socket");
+			exit(EXIT_FAILURE);
+		}
+#ifdef __EMSCRIPTEN__
+		//fcntl(fd, F_SETFL, O_NONBLOCK);
+#else
+		unsigned long arg = -1;
+		//ioctlsocket(fd, FIONBIO, &arg);
+#endif
+		sockaddr_in addr;
+		memset((char *) &addr, 0, sizeof(addr));
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons(port);
+		addr.sin_addr.s_addr = INADDR_ANY;
+		if (bind(fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
+			perror("bind failed");
+			exit(EXIT_FAILURE);
+		}
+	}
+	~Server() {
+		for (const auto& client: clients) {
+#ifdef __EMSCRIPTEN__
+			close(std::get<0>(client));
+#else
+			closesocket(std::get<0>(client));
+#endif
+		}
+		cleanup();
+	}
+	void Listen() {
+		listen(fd, max_connections);
+		sockaddr_in client_addr;
+		socklen_t client_addr_len = sizeof(client_addr);
+		SOCKET client_fd;
+		for (;;) {
+			client_fd = accept(fd, (struct sockaddr *)&client_addr, &client_addr_len);
+			if (client_fd == INVALID_SOCKET) {
+				perror("accept failed");
+				exit(EXIT_FAILURE);
+			} 
+			clients.emplace_back(client_fd, client_addr);
+			/* the socket for this accepted connection is rqst */
+			//...
+		}
+	}
+	// TODO:: read/write/onmessage/shutdown/disconnect(remove client from list and close the socket)
 };

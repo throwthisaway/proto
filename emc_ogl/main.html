@@ -1217,6 +1217,26 @@
     <textarea id="output" rows="8"></textarea>
 
     <script type='text/javascript'>
+        function getQueryVariable(variable)
+        {
+            var query = window.location.search.substring(1);
+            var vars = query.split("&");
+            for (var i=0;i<vars.length;i++) {
+                var pair=vars[i].split("=");
+                if(pair[0] == variable){return pair[1];}
+           }
+           return(false);
+        }
+        function getParameterByName(name, url) {
+            if (!url) url = window.location.href;
+            url = url.toLowerCase(); // This is just to avoid case sensitiveness
+            name = name.replace(/[\[\]]/g, " \\$&").toLowerCase();// This is just to avoid case sensitiveness for query parameter name
+            var regex = new RegExp("[?&]" + name + "(=([^&#]*)|&|#|$)"),
+            results = regex.exec(url);
+            if (!results) return null;
+            if (!results[2]) return '';
+            return decodeURIComponent(results[2].replace(/\+/g, " "));
+        }
       var statusElement = document.getElementById('status');
       var progressElement = document.getElementById('progress');
       var spinnerElement = document.getElementById('spinner');
@@ -1228,8 +1248,9 @@
       var h = window.innerHeight
         || document.documentElement.clientHeight
         || document.body.clientHeight;
+      var sessionID = getQueryVariable('p');
       var Module = {
-        arguments: [ window.location.hostname, ""+w, ""+h],
+        arguments: [ window.location.hostname, ""+w, ""+h, sessionID],
         preRun: [],
         postRun: [],
         print: (function() {

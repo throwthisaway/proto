@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <random>
 #include "../../MeshLoader/MeshLoader.h"
+#include "../emc_socket/Socket.h"
 //#define VAO_SUPPORT
 
 class Scene;
@@ -32,7 +33,9 @@ struct {
 	std::string host = "localhost";
 	unsigned short port = 8000;
 	int width = 640, height = 480;
+	std::string sessionID;
 	std::unique_ptr<Scene> scene;
+	std::unique_ptr<Client> ws;
 }globals;
 class exception : std::exception {
 public:
@@ -1835,6 +1838,28 @@ public:
 		glDeleteTextures(1, &texID);
 		//glDeleteVertexArrays(1, &VertexArrayID);
 	}
+	void OnError(int code, const char* msg) {
+#ifdef __EMSCRIPTEN__
+		emscripten_log(EM_LOG_ERROR, "Socket error: %d  %s", code, msg);
+#endif
+	}
+	void OnClose() {
+#ifdef __EMSCRIPTEN__
+		emscripten_log(EM_LOG_ERROR, "Socket closed");
+#endif
+	}
+	void OnOpen() {
+#ifdef __EMSCRIPTEN__
+		emscripten_log(EM_LOG_ERROR, "Socket open");
+#endif
+	}
+	void OnMessage(const char* msg, int len) {
+		std::string str{ msg, (unsigned int)len };
+#ifdef __EMSCRIPTEN__
+		emscripten_log(EM_LOG_ERROR, "Socket message: %s", str.c_str());
+#endif
+		// TODO:: add to message queue
+	}
 };
 
 void init(int width, int height) {
@@ -1879,6 +1904,12 @@ int main(int argc, char** argv) {
 		if (h>0)
 			globals.height = h;
 	}
+	if (argc > 4) {
+		globals.sessionID = argv[4];
+#ifdef __EMSCRIPTEN__
+		emscripten_log(EM_LOG_CONSOLE, "SessionID is: %s", argv[4]);
+#endif
+	}
 	init(globals.width, globals.height);
 
 	try {
@@ -1892,8 +1923,12 @@ int main(int argc, char** argv) {
 #endif
 		throw;
 	}
-	
 #ifdef __EMSCRIPTEN__
+	Session session = { std::bind(&Scene::OnOpen, globals.scene.get()),
+		std::bind(&Scene::OnClose, globals.scene.get()),
+		std::bind(&Scene::OnError, globals.scene.get(),std::placeholders::_1, std::placeholders::_2),
+		std::bind(&Scene::OnMessage, globals.scene.get(),std::placeholders::_1, std::placeholders::_2) };
+	globals.ws = std::make_unique<Client>(globals.host.c_str(), 8000, session);
 	// void emscripten_set_main_loop(em_callback_func func, int fps, int simulate_infinite_loop);
 	emscripten_set_main_loop(main_loop, 0/*60*/, 1);
 #else

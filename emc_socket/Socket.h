@@ -23,13 +23,21 @@
 #include <tuple>
 #pragma comment(lib, "Ws2_32.lib")
 #endif
+#undef min
+#undef max
 #ifdef __EMSCRIPTEN__
 #define SOCKET int
 #define INVALID_SOCKET -1
 #define SOCKET_ERROR -1
 #endif
+struct Session {
+	std::function<void()> onOpen, onClose;
+	std::function<void(int, const char*)> onError;
+	std::function<void(const char*, int)> onMessage;
+};
 class Socket {
 protected:
+	const Session session;
 	SOCKET fd;
 
 	void cleanup()
@@ -66,33 +74,53 @@ protected:
 		int ret = getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len);
 		printf("error_callback\n");
 		printf("error message: %s\n", msg);
-
+		auto socket = (Socket*)_this;
 		if (err == error)
 		{
-			((Socket*)_this)->finish(EXIT_SUCCESS);
+			socket->finish(EXIT_SUCCESS);
 		}
 		else
 		{
-			((Socket*)_this)->finish(EXIT_FAILURE);
+			socket->finish(EXIT_FAILURE);
+		}
+		
+		if (socket->session.onError) {
+			socket->session.onError(err, msg);
 		}
 	}
 
 	static void message_callback(int fd, void* _this)
 	{
-		char msg[1024];
+		char msg[1024*10];
 		memset(msg, 0, sizeof(msg));
-		int res = recv(fd, msg, 1024, 0);
+		int res = recv(fd, msg, sizeof(msg), 0);
 		if (res == -1) {
 			assert(errno == EAGAIN);
 		}
 		printf("message callback %d %s\n", res, msg);
+		auto socket = (Socket*)_this;
+		if (socket->session.onMessage) {
+			socket->session.onMessage(msg, res);
+		}
 	}
 	static void open_callback(int fd, void* _this)
 	{
 		printf("open_callback\n");
+		auto socket = (Socket*)_this;
+		if (socket->session.onOpen) {
+			socket->session.onOpen();
+		}
+	}
+	static void close_callback(int fd, void* _this)
+	{
+		printf("close_callback\n");
+		auto socket = (Socket*)_this;
+		if (socket->session.onClose) {
+			socket->session.onClose();
+		}
 	}
 public:
-	Socket() : fd(0) {
+	Socket(const Session& session) : session(session), fd(0) {
 #ifdef __EMSCRIPTEN__
 		emscripten_set_socket_error_callback(this, error_callback);
 		emscripten_set_socket_open_callback(this, open_callback);
@@ -108,7 +136,7 @@ public:
 class Client : public Socket {
 	struct sockaddr_in addr;
 public:
-	Client(const char * inet_addr, unsigned short port, bool async, bool host_by_name = true) : Socket() {
+	Client(const char * inet_addr, unsigned short port, const Session& session, bool async = true, bool host_by_name = true) : Socket(session) {
 		int res = 0;
 		fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
 		if (fd == -1)
@@ -279,7 +307,7 @@ class Server : public Socket {
 	const int max_connections = 16;
 	std::vector<std::tuple<SOCKET, sockaddr_in>> clients;
 public:
-	Server(unsigned short port) : Socket() {
+	Server(unsigned short port, const Session& session) : Socket(session) {
 		int res = 0;
 		fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
 		if (fd == -1)

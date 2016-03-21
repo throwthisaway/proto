@@ -56,12 +56,11 @@ app.get('/emc_socket/index.js', function (req, res) {
     res.sendFile(__dirname + '/emc_socket/index.js');
 });
 
-
 app.get('/', function (req, res) {
-    if (req.query.p)
+    if (req.query.p && sessions[req.query.p] != undefined) {
         res.sendFile(__dirname + '/emc_ogl/main.html');
-          //  ?p=' + req.query.p);
-    else {
+        //  ?p=' + req.query.p);
+    } else {
         var sessionID = generateID(sessionIDLen);
         console.log('starting new session: ' + sessionID)
         sessions[sessionID] = [];
@@ -132,14 +131,20 @@ wss.on('connection', function(ws) {
             return;
         }
         session[ws] = ws;
+        ws.session = session;
         //  if (message.type === 'utf8')
         console.log('received: %s', message);
         broadcastToSession(ws, session, message);
     });
     ws.on('close', function (code, message) {
-        // TODO:: find session, remove it
-        //broadcastToSession(ws, session, "KILL" + ws.clientID);
-        console.log('Client disconnected ' + code + ' ' + message);
+        if (ws.session) {
+            broadcastToSession(ws, ws.session, "KILL" + ws.clientID);
+            if (ws.session.length > 1)
+                ws.session[ws.session.indexOf(ws)] = ws.session[ws.session.length - 1];
+            if (ws.session.length > 0)
+                ws.session.pop();
+        }
+        console.log('Client ' + ws.clientID + ' disconnected ' + code + ' ' + message);
     });
     ws.clientID = generateID(clientIDLen);
     ws.send(str2ab(ws.clientID));

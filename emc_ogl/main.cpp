@@ -1,5 +1,4 @@
 #include <GL/glew.h>
-#include <GLFW/glfw3.h>
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #include <html5.h>
@@ -26,8 +25,14 @@
 #include <random>
 #include "../../MeshLoader/MeshLoader.h"
 #include "../emc_socket/Socket.h"
+#include <GLFW/glfw3.h>
+#include <inttypes.h>
 //#define VAO_SUPPORT
 
+template<typename T>
+constexpr int64_t ID5(const T& t, size_t offset) {
+	return ((int64_t)t[offset + 4] << 32) | ((int64_t)t[offset + 3] << 24) | ((int64_t)t[offset + 2] << 16) | ((int64_t)t[offset + 1] << 8) | (int64_t)t[offset];
+}
 class Scene;
 struct {
 	std::string host = "localhost";
@@ -283,16 +288,11 @@ namespace Asset {
 				models.push_back(&missile);
 			}
 			{
-#ifdef __EMSCRIPTEN__
-				emscripten_log(EM_LOG_CONSOLE, "load proto.mesh");
-#endif
 				MeshLoader::Mesh mesh;
 				ReadMeshFile(PATH_PREFIX"asset//proto.mesh", mesh);
 				
 				
 #ifdef __EMSCRIPTEN__
-				emscripten_log(EM_LOG_CONSOLE, "after load proto.mesh %d %d",mesh.vertices.size(), mesh.polygons.size());
-				emscripten_log(EM_LOG_CONSOLE, " %d %d", mesh.layers.size(), mesh.surfaces.size());
 				emscripten_log(EM_LOG_CONSOLE, " %f %f %f, %f %f %f", mesh.surfaces[0].color[0],
 					mesh.surfaces[0].color[1],
 					mesh.surfaces[0].color[2],
@@ -300,12 +300,7 @@ namespace Asset {
 					mesh.surfaces[1].color[1],
 					mesh.surfaces[1].color[2]);
 #endif
-				printf(" %f %f %f, %f %f %f", mesh.surfaces[0].color[0],
-					mesh.surfaces[0].color[1],
-					mesh.surfaces[0].color[2],
-					mesh.surfaces[1].color[0],
-					mesh.surfaces[1].color[1],
-					mesh.surfaces[1].color[2]);
+
 				probe = Reconstruct(mesh, scale);
 				models.push_back(&probe);
 			}
@@ -926,7 +921,7 @@ const float Missile::size = 60.f;
 const glm::vec3 Missile::scale{ Missile::size, Missile::size, 1.f };
 
 struct ProtoX {
-	const size_t id;
+	const int64_t id;
 	AABB aabb;
 	const float max_vel = .3f,
 		m = 500.f,
@@ -937,7 +932,7 @@ struct ProtoX {
 	glm::vec3 pos, vel, f;
 	const glm::vec3 missile_start_offset;
 	const Asset::Layer& layer;
-	struct Propulsion{
+	struct Propulsion {
 		const glm::vec3 pos;
 		const float rot;
 		const size_t frame_count;
@@ -971,20 +966,24 @@ struct ProtoX {
 			min_rot = -glm::radians(45.f) - rest_pos,
 			max_rot = glm::radians(225.f) - rest_pos;
 		const Asset::Layer& layer;
-		Turret(const Asset::Layer& layer) :layer(layer){}
+		Turret(const Asset::Layer& layer) :layer(layer) {}
 		void Update(const Time& t) {
 			rot = std::max(min_rot, rot);
 			rot = std::min(max_rot, rot);
 		}
 	}turret;
-	ProtoX(const size_t id, const Asset::Model& model, size_t frame_count) : id(id),
+	ProtoX(const int64_t id, const Asset::Model& model, size_t frame_count) : id(id),
+		aabb{model.aabb},
 		missile_start_offset(model.layers[model.layers.size() - 1].pivot),
 		layer(model.layers.front()),
 		left({ 25.f, 15.f, 0.f }, glm::half_pi<float>(), frame_count),
 		right({ -25.f, 15.f, 0.f }, -glm::half_pi<float>(), frame_count),
 		bottom({}, 0.f, frame_count),
 		turret(model.layers.back()) {
-		aabb = model.aabb;
+#ifdef __EMSCRIPTEN__
+		emscripten_log(EM_LOG_CONSOLE, "Player connected");
+#endif
+		
 	}
 	void Shoot(std::vector<Missile>& missiles) {
 		const float missile_vel = .5f;
@@ -1086,6 +1085,7 @@ struct Renderer {
 				arr[i].col = { col_dist(mt), col_dist(mt), col_dist(mt) };
 				arr[i].pos = {};
 				auto r = rad_dist(mt);
+
 				arr[i].v = { std::cos(r) * v_dist(mt) * init_mul, std::sin(r) * v_dist(mt) * init_mul, 0.f };
 				arr[i].life = 1.f;
 				arr[i].decay = (float)decay_dist(mt);
@@ -1606,7 +1606,7 @@ public:
 	AABB bounds;
 	Shader::Simple simple;
 	Renderer renderer;
-	ProtoX player;
+	std::unique_ptr<ProtoX> player;
 	std::vector<Missile> missiles;
 	std::vector<ProtoX> players;
 	std::list<Renderer::Particles> particles;
@@ -1620,6 +1620,7 @@ public:
 	GLuint texID;
 	GLuint uTexSize;
 	glm::mat4x4 mvp;
+	std::queue<std::vector<unsigned char>> messages;
 #ifndef __EMSCRIPTEN__
 	void* operator new(size_t i)
 	{
@@ -1658,7 +1659,8 @@ public:
 	}
 public:
 	Scene() : bounds(assets.land.aabb),
-		renderer(assets, bounds), player(0xdead/* TODO:: generate id*/, assets.probe, assets.propulsion.layers.size()) {
+		player(std::make_unique<ProtoX>(0xdeadbeef, assets.probe, assets.propulsion.layers.size())),
+		renderer(assets, bounds) {
 		/*bounds.t = float((height >> 1) + (height >> 2));
 		bounds.b = -float((height >> 1) + (height >> 2));*/
 		players.emplace_back(0xbeef/* TODO:: generate id*/, assets.probe, assets.propulsion.layers.size());
@@ -1740,7 +1742,8 @@ public:
 			renderer.Draw(camera, p);
 			renderer.Draw(camera, p.aabb.Translate(p.pos));
 		}
-		renderer.Draw(camera, player);
+		if (player)
+			renderer.Draw(camera, *player.get());
 		renderer.Draw(camera, particles);
 		renderer.PostRender();
 	}
@@ -1752,9 +1755,9 @@ public:
 		if (inputHandler.keys[(size_t)InputHandler::Keys::Right])
 			camera.Translate(float(scroll_speed * t.frame), 0.f, 0.f);
 		if (inputHandler.update)
-			player.turret.rot += float((inputHandler.px - inputHandler.x) * rot_ratio);
+			player->turret.rot += float((inputHandler.px - inputHandler.x) * rot_ratio);
 
-		player.Move(t, inputHandler.keys[(size_t)InputHandler::Keys::A],
+		player->Move(t, inputHandler.keys[(size_t)InputHandler::Keys::A],
 			inputHandler.keys[(size_t)InputHandler::Keys::D],
 			inputHandler.keys[(size_t)InputHandler::Keys::W]);
 		while (!inputHandler.event_queue.empty()) {
@@ -1762,21 +1765,21 @@ public:
 			inputHandler.event_queue.pop();
 			switch(e) {
 			case InputHandler::ButtonClick::LB:
-				player.Shoot(missiles);
+				player->Shoot(missiles);
 				break;
 			}
 		}
-		player.Update(t, bounds);
+		player->Update(t, bounds);
 		for (auto& p : players) {
 			p.Update(t, bounds);
 		}
 		for (auto& m : missiles) {
 			m.Update(t);
 		}
-		auto d = camera.pos.x + player.pos.x;
-		auto res = player.WrapAround(assets.land.layers[0].aabb.l, assets.land.layers[0].aabb.r);
+		auto d = camera.pos.x + player->pos.x;
+		auto res = player->WrapAround(assets.land.layers[0].aabb.l, assets.land.layers[0].aabb.r);
 		camera.Update(t);
-		camera.Tracking(player.pos, bounds, player.aabb);
+		camera.Tracking(player->pos, bounds, player->aabb);
 		// wraparound camera hack
 		// wrap around from left
 		if (res < 0)
@@ -1845,20 +1848,50 @@ public:
 	}
 	void OnClose() {
 #ifdef __EMSCRIPTEN__
-		emscripten_log(EM_LOG_ERROR, "Socket closed");
+		emscripten_log(EM_LOG_CONSOLE, "Socket closed");
 #endif
 	}
 	void OnOpen() {
 #ifdef __EMSCRIPTEN__
-		emscripten_log(EM_LOG_ERROR, "Socket open");
+		emscripten_log(EM_LOG_CONSOLE, "Socket open");
 #endif
 	}
 	void OnMessage(const char* msg, int len) {
-		std::string str{ msg, (unsigned int)len };
 #ifdef __EMSCRIPTEN__
-		emscripten_log(EM_LOG_ERROR, "Socket message: %s", str.c_str());
+		std::string str{ msg, (unsigned int)len };
+		emscripten_log(EM_LOG_CONSOLE, "Socket message: %s", str.c_str());
 #endif
-		// TODO:: add to message queue
+		messages.push(std::vector<unsigned char>{ msg, msg + (size_t)len });
+	}
+	void Start(int64_t id) {
+		//if (player) return;
+//#ifdef __EMSCRIPTEN__
+//		emscripten_log(EM_LOG_CONSOLE, "Started: %" PRIx64, id);
+//#endif
+		player = std::make_unique<ProtoX>(id, assets.probe, assets.propulsion.layers.size());
+	}
+	void Dispatch(const std::vector<unsigned char>& msg) {
+		size_t tag = TAG(msg);
+		constexpr size_t conn = TAG("CONN"), // clientID
+			kill = TAG("KILL"),	// clientID
+			plyr = TAG("PLYR"), // clientID, pos.x, pos.y
+			misl = TAG("MISL"), // clientID, pos.x, pos.y, v.x, v.y
+			scor = TAG("SCOR"); // clientID, clientID
+//#ifdef __EMSCRIPTEN__
+//		emscripten_log(EM_LOG_CONSOLE, "Dispatch %x %" PRIx64, tag, ID5(msg, 4));
+//#endif
+		switch (tag) {
+		case conn:
+			Start(ID5(msg, 4));
+			break;
+		}
+	}
+	void ProcessMessages() {
+		while (messages.size()) {
+			auto& msg = messages.front();
+			Dispatch(msg);
+			messages.pop();
+		}
 	}
 };
 
@@ -1947,6 +1980,7 @@ int main(int argc, char** argv) {
 void main_loop() {
 //	try {
 		timer.Tick();
+		globals.scene->ProcessMessages();
 		globals.scene->Update({ (double)timer.Total(), (double)timer.Elapsed() });
 		globals.scene->Render();
 		InputHandler::Reset();

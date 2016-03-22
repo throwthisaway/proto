@@ -147,7 +147,7 @@ wss.on('connection', function(ws) {
         console.log('Client ' + ws.clientID + ' disconnected ' + code + ' ' + message);
     });
     ws.clientID = generateID(clientIDLen);
-    ws.send(str2ab(ws.clientID));
+    ws.send(str2ab("CONN" + ws.clientID));
 });
 
 /*function isAllowedOrigin(origin) {

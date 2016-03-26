@@ -19,6 +19,7 @@
 #include <array>
 #include <queue>
 #include <list>
+#include <map>
 #include <iostream>
 #include <fstream>
 #include <algorithm>
@@ -30,9 +31,18 @@
 //#define VAO_SUPPORT
 
 template<typename T>
-constexpr int64_t ID5(const T& t, size_t offset) {
-	return ((int64_t)t[offset + 4] << 32) | ((int64_t)t[offset + 3] << 24) | ((int64_t)t[offset + 2] << 16) | ((int64_t)t[offset + 1] << 8) | (int64_t)t[offset];
+constexpr size_t ID5(const T& t, size_t offset) {
+	return ((t[offset + 4] - '0') << 20) | ((t[offset + 3] - '0') << 15) | ((t[offset + 2] - '0') << 10) | ((t[offset + 1] - '0') << 5) | (t[offset] - '0');
 }
+
+constexpr std::array<unsigned char, 5> ID5(size_t id) {
+	return{(unsigned char)((id & 31) + '0'), (unsigned char)(((id>>5)&31) + '0'), (unsigned char)(((id>>10)&31) + '0'), (unsigned char)(((id >> 15) & 31) + '0'), (unsigned char)(((id >> 20) & 31) + '0') };
+}
+template<typename T>
+constexpr size_t Tag(const T& t) {
+	return (t[3] << 24) | (t[2] << 16) | (t[1] << 8) | t[0];
+}
+
 class Scene;
 struct {
 	std::string host = "localhost";
@@ -109,6 +119,7 @@ static AABB RecalcAABB(const AABB& aabb, const float rot) {
 		std::min(lt.y, std::min(lb.y, std::min(rt.y, rb.y))) };
 }
 namespace Asset {
+	const float missile_size = 120.f;
 	struct Layer {
 		struct Surface {
 			GLint first;
@@ -318,11 +329,11 @@ namespace Asset {
 			}
 			{
 				const std::vector<glm::vec3> vertices{ { 0.f, 0.f, 0.f },
-				{  0.5f,0.f, 0.f },
+				{  0.5f, 0.f, 0.f },
 				{ 1.f, 0.f, 0.f } };
-				std::vector<MeshLoader::PolyLine> lines{ {0, 1}, {1, 2} };
+				std::vector<MeshLoader::PolyLine> lines{ {0, 1}, {1, 2}};
 				const std::vector<glm::vec2> texcoord { { 0.f, 0.f },{ .5f, 0.f},{ 1.f, 0.f} };
-				missile = Reconstruct(vertices, lines, texcoord, scale);
+				missile = Reconstruct(vertices, lines, texcoord, missile_size, 10.f);
 				models.push_back(&missile);
 			}
 			for (auto& m : models) {
@@ -639,9 +650,9 @@ void main() {
 #endif
 R"(
 precision highp float;
-uniform vec3 uCol;
+uniform vec4 uCol;
 void main() {
-	gl_FragColor = vec4(uCol, 1.0);
+	gl_FragColor = uCol;
 }
 )", 0 };
 		GLuint uMVP, uCol;
@@ -896,8 +907,6 @@ public:
 
 struct ProtoX;
 struct Missile {
-	static const float size; 
-	static const glm::vec3 scale;
 	glm::vec3 pos;
 	float rot;
 	float vel;
@@ -913,22 +922,28 @@ struct Missile {
 		const AABB aabb_union{ std::min(min.x, bounds.l), std::max(max.y, bounds.t), std::max(max.x, bounds.r), std::min(min.y, bounds.b)};
 		const float xd1 = max.x - min.x, yd1 = max.y - min.y, xd2 = bounds.r - bounds.l, yd2 = bounds.t - bounds.b;
 		return xd1 + xd2 >= aabb_union.r - aabb_union.l && yd1 + yd2 >= aabb_union.t - aabb_union.b;*/
-		end = glm::vec3{ std::cos(rot), std::sin(rot), 0.f } *size + pos;
+		end = glm::vec3{ std::cos(rot), std::sin(rot), 0.f } * Asset::missile_size + pos;
 		return end.x >= bounds.l && end.x <= bounds.r && end.y >= bounds.b && end.y <= bounds.t;
 	}
 };
-const float Missile::size = 60.f;
-const glm::vec3 Missile::scale{ Missile::size, Missile::size, 1.f };
-
+struct Player {
+	size_t tag, id;
+	float x, y, rot, invincible;
+};
 struct ProtoX {
-	const int64_t id;
+	const size_t id;
 	AABB aabb;
+	Client *ws;
 	const float max_vel = .3f,
 		m = 500.f,
 		force = .1f,
 		slowdown = .0003f,
 		g = -.1f, /* m/ms2 */
-		ground_level = 20.f;
+		ground_level = 20.f,
+		blink_rate = 50.f, // ms
+		blink_duration = 5000.f; // ms
+	float invincible = blink_duration, blink_time = blink_rate;
+	bool visible = true;
 	glm::vec3 pos, vel, f;
 	const glm::vec3 missile_start_offset;
 	const Asset::Layer& layer;
@@ -972,8 +987,9 @@ struct ProtoX {
 			rot = std::min(max_rot, rot);
 		}
 	}turret;
-	ProtoX(const int64_t id, const Asset::Model& model, size_t frame_count) : id(id),
+	ProtoX(const size_t id, const Asset::Model& model, size_t frame_count, Client* ws = nullptr) : id(id),
 		aabb{model.aabb},
+		ws(ws),
 		missile_start_offset(model.layers[model.layers.size() - 1].pivot),
 		layer(model.layers.front()),
 		left({ 25.f, 15.f, 0.f }, glm::half_pi<float>(), frame_count),
@@ -986,7 +1002,7 @@ struct ProtoX {
 		
 	}
 	void Shoot(std::vector<Missile>& missiles) {
-		const float missile_vel = .5f;
+		const float missile_vel = .01f;
 		auto rot = turret.rest_pos + turret.rot;
 		const glm::vec3 missile_vec{ std::cos(rot) * missile_vel, std::sin(rot) * missile_vel, .0f};
 		missiles.push_back({ pos + missile_start_offset, rot, glm::length(missile_vec + vel), this });
@@ -999,6 +1015,19 @@ struct ProtoX {
 		f.y = (bt) ? force : g;
 	}
 	void Update(const Time& t, const AABB& bounds) {
+		if (invincible > 0.f) {
+			blink_time -= (float)t.frame;
+			if (blink_time < 0.f) {
+				visible = !visible;
+				blink_time += blink_rate;
+			}
+			invincible -= (float)t.frame;
+			if (invincible <= 0.f) {
+				blink_time = blink_rate;
+				invincible = 0.f;
+				visible = true;
+			}
+		}
 		left.Update(t);
 		right.Update(t);
 		bottom.Update(t);
@@ -1018,6 +1047,10 @@ struct ProtoX {
 		else if (pos.y + aabb.t >= bounds.t) {
 			pos.y = bounds.t - aabb.t;
 			vel.y = 0.f;
+		}
+		if (ws) {
+			Player player{ Tag("PLYR"), id, pos.x, pos.y, turret.rot, invincible };
+			globals.ws->Send((char*)&player, sizeof(Player));
 		}
 	}
 	float WrapAround(float min, float max) {
@@ -1068,11 +1101,12 @@ struct Renderer {
 		static GLuint vbo;
 		static GLsizei vertex_count;
 		static const size_t count = 100;
-		static constexpr float slowdown = .01f, g = .00001f, init_mul = 1.f, max_decay = .0001f, min_decay = .00005f;
+		static constexpr float slowdown = .01f, g = .00001f, init_mul = 1.f, max_decay = .0001f, min_decay = .0001f;
 		glm::vec3 pos;
 		bool kill = false;
 		struct Particle {
-			glm::vec3 pos, v, col;
+			glm::vec3 pos, v;
+			glm::vec4 col;
 			float life, decay;
 		};
 		std::array<Particle, count> arr;
@@ -1082,7 +1116,7 @@ struct Renderer {
 			static std::uniform_real_distribution<> decay_dist(min_decay, max_decay);
 			static std::uniform_real_distribution<> v_dist(.001f, .05f);
 			for (size_t i = 0; i < count; ++i) {
-				arr[i].col = { col_dist(mt), col_dist(mt), col_dist(mt) };
+				arr[i].col = { col_dist(mt), col_dist(mt), col_dist(mt), 1.f };
 				arr[i].pos = {};
 				auto r = rad_dist(mt);
 
@@ -1099,7 +1133,7 @@ struct Renderer {
 				arr[i].pos += arr[i].v * (float)t.frame;
 				arr[i].v *= 1.f - arr[i].decay * (float)t.frame;
 				arr[i].v.y *= 1.f + g * (float)t.frame;
-				//arr[i].col *= arr[i].life;
+				arr[i].col.a = arr[i].life;
 				arr[i].life -= arr[i].decay * (float)t.frame;
 				if (arr[i].life <= 0.01f) arr[i].life = 0.f;
 			}
@@ -1198,20 +1232,28 @@ struct Renderer {
 				glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_MISSILE_VERTEX]);
 				glBufferData(GL_ARRAY_BUFFER, assets.missile.vertices.size() * sizeof(assets.missile.vertices[0]), &assets.missile.vertices.front(), GL_STATIC_DRAW);
 			}
-			std::normal_distribution<> dist(32., 10.);
-			const size_t count = 128, size = 32;
+			std::normal_distribution<> dist(32., 12.);
+			const size_t count = 32, size = 64;
 			std::vector<GLubyte> texture_data(size * 4);
-			std::uniform_int_distribution<> u_dist(0, 32);
+			std::uniform_int_distribution<> u_dist(0, 255);
 			for (size_t i = 0; i < count; ++i) {
 				auto rnd = dist(mt);
 				size_t idx = (size_t)std::max(0., std::min(double(size - 1), rnd));
 				idx *= 4;
-				texture_data[idx++] += u_dist(mt);
-				texture_data[idx++] += u_dist(mt);
-				texture_data[idx++] += u_dist(mt);
+				texture_data[idx++] = 0;// u_dist(mt);
+				texture_data[idx++] = 255;// u_dist(mt);
+				texture_data[idx++] = 0;// u_dist(mt);
 				texture_data[idx] = 255;
 			}
-			
+			texture_data[0] = 0;// u_dist(mt);
+			texture_data[1] = 0;// u_dist(mt);
+			texture_data[2] = 255;// u_dist(mt);
+			texture_data[3] = 255;
+			texture_data[(size - 1)  * 4] = 255;// u_dist(mt);
+			texture_data[(size - 1) * 4 + 1] = 0;// u_dist(mt);
+			texture_data[(size - 1) * 4 + 2] = 0;// u_dist(mt);
+			texture_data[(size - 1) * 4 + 3] = 255;
+
 			glGenTextures(1, &missile.texID);
 			glBindTexture(GL_TEXTURE_2D, missile.texID);
 			GLint fmt, internalFmt;
@@ -1289,17 +1331,17 @@ struct Renderer {
 		glm::vec3 pos = cam.pos * starField.layer3.z;
 		glm::mat4 mvp = glm::translate(cam.vp, pos);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		glUniform3f(shader.uCol, starField.layer3.color.r, starField.layer3.color.g, starField.layer3.color.b);
+		glUniform4f(shader.uCol, starField.layer3.color.r, starField.layer3.color.g, starField.layer3.color.b, 1.f);
 		glDrawArrays(GL_TRIANGLES, starField.count_per_layer * 6 * 2, starField.count_per_layer);
 		pos = cam.pos * starField.layer2.z;
 		mvp = glm::translate(cam.vp, pos);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		glUniform3f(shader.uCol, starField.layer2.color.r, starField.layer2.color.g, starField.layer2.color.b);
+		glUniform4f(shader.uCol, starField.layer2.color.r, starField.layer2.color.g, starField.layer2.color.b, 1.f);
 		glDrawArrays(GL_TRIANGLES, starField.count_per_layer * 6 * 1, starField.count_per_layer);
 		pos = cam.pos * starField.layer1.z;
 		mvp = glm::translate(cam.vp, pos);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		glUniform3f(shader.uCol, starField.layer1.color.r, starField.layer1.color.g, starField.layer1.color.b);
+		glUniform4f(shader.uCol, starField.layer1.color.r, starField.layer1.color.g, starField.layer1.color.b, 1.f);
 		glDrawArrays(GL_TRIANGLES, 0, starField.count_per_layer);
 		glDisableVertexAttribArray(0);
 	}
@@ -1318,12 +1360,15 @@ struct Renderer {
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 		for (const auto& l : model.layers)
 			for (const auto& p : l.parts) {
-				glUniform3f(shader.uCol, p.col.r, p.col.g, p.col.b);
+				glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, 1.f);
 				glDrawArrays(GL_TRIANGLES, p.first, p.count);
 			}
 		glDisableVertexAttribArray(0);
 	}
 	void Draw(const Camera& cam, const std::list<Particles>& particles) {
+		glEnable(GL_BLEND);
+		glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+		glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
 		glEnableVertexAttribArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, Particles::vbo);
 		glVertexAttribPointer(0,
@@ -1337,13 +1382,14 @@ struct Renderer {
 
 		for (const auto& p : particles) {
 			for (size_t i = 0; i < p.arr.size(); ++i) {
-				glUniform3f(shader.uCol, p.arr[i].col.r, p.arr[i].col.g, p.arr[i].col.b);
+				glUniform4f(shader.uCol, p.arr[i].col.r, p.arr[i].col.g, p.arr[i].col.b, p.arr[i].col.a);
 				glm::mat4 mvp = glm::translate(cam.vp, p.pos + p.arr[i].pos);
 				glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 				glDrawArrays(GL_TRIANGLES, 0, Particles::vertex_count);
 			}
 		}
 		glDisableVertexAttribArray(0);
+		glDisable(GL_BLEND);
 	}
 	void Draw(const Camera& cam, const AABB& aabb) {
 		std::array<float, 15> vertices{ aabb.l, aabb.t, 0.f,
@@ -1363,7 +1409,7 @@ struct Renderer {
 		const auto& shader = colorShader;
 		glUseProgram(shader.program.id);
 		const glm::mat4& mvp = cam.vp;
-		glUniform3f(shader.uCol, 1.f, 1.f, 1.f);
+		glUniform4f(shader.uCol, 1.f, 1.f, 1.f, 1.f);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 		glDrawArrays(GL_LINE_STRIP, 0, 5);
 		glDisableVertexAttribArray(0);
@@ -1388,12 +1434,14 @@ struct Renderer {
 
 			auto& layer = assets.propulsion.layers[proto.left.frame];
 			for (const auto& p : layer.parts) {
-				glUniform3f(shader.uCol, p.col.r, p.col.g, p.col.b);
+				glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, 1.f);
 				glDrawArrays(GL_TRIANGLES, p.first, p.count);
 			}
 		}
 	}
 	void Draw(const Camera& cam, const ProtoX& proto) {
+		if (!proto.visible)
+			return;
 #ifdef VAO_SUPPORT
 		glBindVertexArray(vao);
 #else
@@ -1411,7 +1459,7 @@ struct Renderer {
 		for (const auto& p : proto.layer.parts) {
 			glm::mat4 mvp = glm::translate(cam.vp, proto.pos);
 			glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-			glUniform3f(shader.uCol, p.col.r, p.col.g, p.col.b);
+			glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, 1.f);
 			glDrawArrays(GL_TRIANGLES, p.first, p.count);
 		}
 		for (const auto& p : proto.turret.layer.parts) {
@@ -1421,7 +1469,7 @@ struct Renderer {
 			
 			glm::mat4 mvp = cam.vp * m;
 			glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-			glUniform3f(shader.uCol, p.col.r, p.col.g, p.col.b);
+			glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, 1.f);
 			glDrawArrays(GL_TRIANGLES, p.first, p.count);
 		}
 
@@ -1600,6 +1648,7 @@ bool InputHandler::lb = false, InputHandler::rb = false,InputHandler::mb = false
 double InputHandler::x, InputHandler::y, InputHandler::px, InputHandler::py;
 bool InputHandler::update = false;
 std::queue<InputHandler::ButtonClick> InputHandler::event_queue;
+
 class Scene {
 public:
 	Asset::Assets assets;
@@ -1608,7 +1657,7 @@ public:
 	Renderer renderer;
 	std::unique_ptr<ProtoX> player;
 	std::vector<Missile> missiles;
-	std::vector<ProtoX> players;
+	std::map<size_t, std::unique_ptr<ProtoX>> players;
 	std::list<Renderer::Particles> particles;
 	Object mesh{ { 5.f, 0.f, 0.f } };
 	Camera camera{ globals.width, globals.height };
@@ -1663,9 +1712,9 @@ public:
 		renderer(assets, bounds) {
 		/*bounds.t = float((height >> 1) + (height >> 2));
 		bounds.b = -float((height >> 1) + (height >> 2));*/
-		players.emplace_back(0xbeef/* TODO:: generate id*/, assets.probe, assets.propulsion.layers.size());
-		auto& p = players.back();
-		p.pos.x = 100.f;
+		players[(size_t)0xbeef] = std::make_unique<ProtoX>( (size_t)0xbeef, assets.probe, assets.propulsion.layers.size() );
+		auto& p = players[0xbeef];
+		p->pos.x = 100.f;
 
 		texID = GenTexture(texw, texh);
 		mesh.model = glm::translate(mesh.model, mesh.pos);
@@ -1739,8 +1788,8 @@ public:
 		renderer.DrawLandscape(camera);
 		renderer.Draw(camera, missiles);
 		for (const auto& p : players) {
-			renderer.Draw(camera, p);
-			renderer.Draw(camera, p.aabb.Translate(p.pos));
+			renderer.Draw(camera, *p.second.get());
+			renderer.Draw(camera, p.second->aabb.Translate(p.second->pos));
 		}
 		if (player)
 			renderer.Draw(camera, *player.get());
@@ -1771,7 +1820,7 @@ public:
 		}
 		player->Update(t, bounds);
 		for (auto& p : players) {
-			p.Update(t, bounds);
+			p.second->Update(t, bounds);
 		}
 		for (auto& m : missiles) {
 			m.Update(t);
@@ -1808,7 +1857,7 @@ public:
 				bool last = false;
 				for (const auto& p : players) {
 					glm::vec3 hit_pos;
-					if (m.HitTest(p.aabb.Translate(p.pos), hit_pos)) {
+					if (p.second->invincible == 0.f && m.HitTest(p.second->aabb.Translate(p.second->pos), hit_pos)) {
 						particles.push_back({ hit_pos });
 						if (&m != &missiles.back()) {
 							m = missiles.back();
@@ -1863,26 +1912,61 @@ public:
 #endif
 		messages.push(std::vector<unsigned char>{ msg, msg + (size_t)len });
 	}
-	void Start(int64_t id) {
-		//if (player) return;
+	void OnConn(size_t id) {
+		player = std::make_unique<ProtoX>(id, assets.probe, assets.propulsion.layers.size(), globals.ws.get());
+		SendSessionID();
+	}
+	void SendSessionID() {
+		constexpr size_t sess = Tag("SESS"); // sessionID
+		union {
+			struct {
+				size_t tag;
+				char sessionID[5];
+			}str;
+			char arr[128];
+		}msg;
+		msg.str.tag = sess;
+		std::copy(std::begin(globals.sessionID), std::end(globals.sessionID), msg.str.sessionID);
+		globals.ws->Send(msg.arr, sizeof(msg.str));
+	}
+	void OnPlyr(const std::vector<unsigned char>& msg) {
+		Player player;
+		memcpy(&player, &msg.front(), msg.size());
 //#ifdef __EMSCRIPTEN__
-//		emscripten_log(EM_LOG_CONSOLE, "Started: %" PRIx64, id);
+//		emscripten_log(EM_LOG_CONSOLE, "OnPlyr %d ", player.id, player.x, player.y, player.rot, player.invincible);
 //#endif
-		player = std::make_unique<ProtoX>(id, assets.probe, assets.propulsion.layers.size());
+		auto it = players.find(player.id);
+		ProtoX * proto;
+		if (it == players.end()) {
+			auto ptr = std::make_unique<ProtoX>( player.id, assets.probe, assets.propulsion.layers.size() );
+			proto = ptr.get();
+			players[player.id] = std::move(ptr);
+		}
+		else
+			proto = it->second.get();
+		proto->pos.x = player.x; proto->pos.y = player.y; proto->turret.rot = player.rot; proto->invincible = player.invincible;
 	}
 	void Dispatch(const std::vector<unsigned char>& msg) {
-		size_t tag = TAG(msg);
-		constexpr size_t conn = TAG("CONN"), // clientID
-			kill = TAG("KILL"),	// clientID
-			plyr = TAG("PLYR"), // clientID, pos.x, pos.y
-			misl = TAG("MISL"), // clientID, pos.x, pos.y, v.x, v.y
-			scor = TAG("SCOR"); // clientID, clientID
+		size_t tag = Tag(msg);
+		constexpr size_t conn = Tag("CONN"), // clientID
+			kill = Tag("KILL"),	// clientID
+			plyr = Tag("PLYR"), // clientID, pos.x, pos.y, invincible
+			misl = Tag("MISL"), // clientID, pos.x, pos.y, v.x, v.y
+			scor = Tag("SCOR"); // clientID, clientID
 //#ifdef __EMSCRIPTEN__
-//		emscripten_log(EM_LOG_CONSOLE, "Dispatch %x %" PRIx64, tag, ID5(msg, 4));
+//		emscripten_log(EM_LOG_CONSOLE, "Dispatch %x ", tag);
 //#endif
 		switch (tag) {
 		case conn:
-			Start(ID5(msg, 4));
+			OnConn(ID5(msg, 4));
+			break;
+		case plyr:
+			OnPlyr(msg);
+			break;
+		case kill:
+		#ifdef __EMSCRIPTEN__
+			emscripten_log(EM_LOG_CONSOLE, "kill %x ", ID5(msg, 4));
+		#endif
 			break;
 		}
 	}
@@ -1956,6 +2040,7 @@ int main(int argc, char** argv) {
 #endif
 		throw;
 	}
+	timer.Tick();
 #ifdef __EMSCRIPTEN__
 	Session session = { std::bind(&Scene::OnOpen, globals.scene.get()),
 		std::bind(&Scene::OnClose, globals.scene.get()),

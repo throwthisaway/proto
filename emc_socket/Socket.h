@@ -97,7 +97,7 @@ protected:
 		if (res == -1) {
 			assert(errno == EAGAIN);
 		}
-		printf("message callback %d %s\n", res, msg);
+		//printf("message callback %d %s\n", res, msg);
 		auto socket = (Socket*)_this;
 		if (socket->session.onMessage) {
 			socket->session.onMessage(msg, res);
@@ -135,8 +135,10 @@ public:
 
 class Client : public Socket {
 	struct sockaddr_in addr;
+	bool async;
 public:
-	Client(const char * inet_addr, unsigned short port, const Session& session, bool async = true, bool host_by_name = true) : Socket(session) {
+	Client(const char * inet_addr, unsigned short port, const Session& session, bool async = true, bool host_by_name = true) : Socket(session),
+		async(async) {
 		int res = 0;
 		fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
 		if (fd == -1)
@@ -273,7 +275,7 @@ public:
 		printf("message callback %d %s\n", res, msg);
 		return res;
 	}
-	int Send(const std::string& msg) {
+	int Send(const char* msg, size_t len) {
 		int res = 0;
 		fd_set fdr;
 		fd_set fdw;
@@ -281,26 +283,79 @@ public:
 		FD_ZERO(&fdw);
 		FD_SET(fd, &fdr);
 		FD_SET(fd, &fdw);
-		res = select(64, &fdr, &fdw, NULL, NULL);
+		res = select(64, nullptr/*&fdr*/, &fdw, NULL, NULL);
 		if (res == -1)
 		{
 			perror("select failed");
 			finish(EXIT_FAILURE);
 			return -1;
 		}
+		//if (FD_ISSET(fd, &fdr))
+		//{
+		//	message_callback(fd, this);
+		//}
 		if (!FD_ISSET(fd, &fdw))
 		{
 			perror("isset failed for write");
 			return -1;
 		}
-		res = ::send(fd, msg.c_str(), msg.size(), 0);
+//#ifdef __EMSCRIPTEN__
+//		auto fd_flags = fcntl(fd, F_GETFL);
+//		if (fd_flags & O_NONBLOCK)
+//			fcntl(fd, F_SETFL, fd_flags & ~O_NONBLOCK);
+//#else
+//		if (async) {
+//			unsigned long arg = 0;
+//			ioctlsocket(fd, FIONBIO, &arg);
+//		}
+//#endif
+		// TODO:: while (sum += res) < len
+		res = ::send(fd, msg, len, 0);
+//#ifdef __EMSCRIPTEN__
+//		fcntl(fd, F_SETFL, fd_flags);
+//#else
+//		if (async) {
+//			unsigned long arg = -1;
+//			ioctlsocket(fd, FIONBIO, &arg);
+//		}
+//#endif
 		if (res == -1)
 		{
-			assert(errno == EAGAIN);
+			if (errno != EAGAIN && errno != EINPROGRESS)
+				perror("send error");
+			assert(errno == EAGAIN || errno == EINPROGRESS);
 			return res;
 		}
 		return res;
 	}
+	//int Send(const std::string& msg) {
+	//	int res = 0;
+	//	fd_set fdr;
+	//	fd_set fdw;
+	//	FD_ZERO(&fdr);
+	//	FD_ZERO(&fdw);
+	//	FD_SET(fd, &fdr);
+	//	FD_SET(fd, &fdw);
+	//	res = select(64, &fdr, &fdw, NULL, NULL);
+	//	if (res == -1)
+	//	{
+	//		perror("select failed");
+	//		finish(EXIT_FAILURE);
+	//		return -1;
+	//	}
+	//	if (!FD_ISSET(fd, &fdw))
+	//	{
+	//		perror("isset failed for write");
+	//		return -1;
+	//	}
+	//	res = ::send(fd, msg.c_str(), msg.size(), 0);
+	//	if (res == -1)
+	//	{
+	//		assert(errno == EAGAIN);
+	//		return res;
+	//	}
+	//	return res;
+	//}
 };
 
 class Server : public Socket {

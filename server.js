@@ -37,16 +37,22 @@ function generateID(count) {
     for (i = 0; i < count; ++i) {
         res += symbols[(Math.random() * symbols.length) | 0];
     }
+    return "" + res;
+}
+function generateClientID(count) {
+    var symbols = '0123456789:;<=>?@ABCDEFGHIJKLMNO',
+        res = '';
+    for (i = 0; i < count; ++i) {
+        res += symbols[(Math.random() * symbols.length) | 0];
+    }
     return ""+res;
 }
-function getSessionFromMsg(msg) {
-    if (msg.length < 3 + sessionIDLen)
+function getSessionIDFromMsg(msg) {
+    if (msg.length < 4 + sessionIDLen)
         return undefined
-    if (msg[0] != 'N' || msg[1] != 'i' || msg[0] != 'N')
-        return undefined;
-    var sessionID = String.fromCharCode.apply(null, new Uint8Array(msg, 3, sessionIDLen));
-    var session = sessions[sessionID];
-    return session;
+    var sessionID = String.fromCharCode.apply(null, msg);
+    console.log('session init, id: %s', sessionID);
+    return sessionID.substr(4, sessionIDLen);
 }
 app.get('/emc_socket', function (req, res) {
     res.sendFile(__dirname + '/emc_socket/index.html');
@@ -64,6 +70,7 @@ app.get('/', function (req, res) {
         var sessionID = generateID(sessionIDLen);
         console.log('starting new session: ' + sessionID)
         sessions[sessionID] = [];
+        sessions[sessionID].id = sessionID;
         res.redirect('/?p=' + sessionID);
     }
 });
@@ -124,29 +131,45 @@ function broadcastToSession(sender, session, data) {
 };
 wss.on('connection', function(ws) {
     console.log("New connection");
-    ws.on('message', function (message) {
-        var session = getSessionFromMsg(msg);
-        if (session == undefined) {
+    ws.on('message', function (message, flags) {
+        //console.log('received: %s', message);
+        if (String.fromCharCode(message[0], message[1], message[2], message[3]) === 'SESS') {
+            var sessionID = getSessionIDFromMsg(message);
+            var session = sessions[sessionID]
+            if (session == undefined) {
+                ws.terminate();
+                return;
+            }
+            session.push(ws);
+            ws.session = session;
+            console.log('session player count: ' + session.length);
+            return;
+        }
+        if (ws.session == undefined) {
+            console.log('invalid session for ws client');
             ws.terminate();
             return;
         }
-        session[ws] = ws;
-        ws.session = session;
         //  if (message.type === 'utf8')
-        console.log('received: %s', message);
-        broadcastToSession(ws, session, message);
+        broadcastToSession(ws, ws.session, message);
     });
     ws.on('close', function (code, message) {
         if (ws.session) {
-            broadcastToSession(ws, ws.session, "KILL" + ws.clientID);
+            broadcastToSession(ws, ws.session, str2ab('KILL' + ws.clientID));
             if (ws.session.length > 1)
                 ws.session[ws.session.indexOf(ws)] = ws.session[ws.session.length - 1];
             if (ws.session.length > 0)
                 ws.session.pop();
+            console.log('session player count: ' + ws.session.length);
+            if (ws.session.length < 1) {
+                console.log('deleting session: ' + ws.session.id);
+                delete sessions[ws.session.id];
+            }
+            
         }
         console.log('Client ' + ws.clientID + ' disconnected ' + code + ' ' + message);
     });
-    ws.clientID = generateID(clientIDLen);
+    ws.clientID = generateClientID(clientIDLen);
     ws.send(str2ab("CONN" + ws.clientID));
 });
 

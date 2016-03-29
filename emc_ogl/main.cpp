@@ -911,6 +911,7 @@ struct Missile {
 	float rot;
 	float vel;
 	ProtoX* owner;
+	size_t id;
 	Missile& operator=(const Missile&) = default;
 	void Update(const Time& t) {
 		pos += glm::vec3{ std::cos(rot), std::sin(rot), 0.f } * vel * (float)t.frame;
@@ -926,9 +927,17 @@ struct Missile {
 		return end.x >= bounds.l && end.x <= bounds.r && end.y >= bounds.b && end.y <= bounds.t;
 	}
 };
-struct Player {
+struct Plyr {
 	size_t tag, id;
 	float x, y, rot, invincible;
+};
+struct Misl {
+	size_t tag, player_id, missile_id;
+	float x, y, rot, vel;
+};
+struct Scor {
+	size_t tag, owner_id, target_id, missile_id;
+	float x, y;
 };
 struct ProtoX {
 	const size_t id;
@@ -947,6 +956,7 @@ struct ProtoX {
 	glm::vec3 pos, vel, f;
 	const glm::vec3 missile_start_offset;
 	const Asset::Layer& layer;
+	size_t score = 0, missile_id = 0;
 	struct Propulsion {
 		const glm::vec3 pos;
 		const float rot;
@@ -1005,7 +1015,12 @@ struct ProtoX {
 		const float missile_vel = .01f;
 		auto rot = turret.rest_pos + turret.rot;
 		const glm::vec3 missile_vec{ std::cos(rot) * missile_vel, std::sin(rot) * missile_vel, .0f};
-		missiles.push_back({ pos + missile_start_offset, rot, glm::length(missile_vec + vel), this });
+		missiles.push_back({ pos + missile_start_offset, rot, glm::length(missile_vec + vel), this, missile_id++ });
+		if (ws) {
+			auto& m = missiles.back();
+			Misl misl{ Tag("MISL"), id, missile_id, m.pos.x, m.pos.y, m.rot, m.vel};
+			globals.ws->Send((char*)&misl, sizeof(misl));
+		}
 	}
 	void Move(const Time& t, bool lt, bool rt, bool bt) {
 		left.Set(lt);
@@ -1049,8 +1064,8 @@ struct ProtoX {
 			vel.y = 0.f;
 		}
 		if (ws) {
-			Player player{ Tag("PLYR"), id, pos.x, pos.y, turret.rot, invincible };
-			globals.ws->Send((char*)&player, sizeof(Player));
+			Plyr player{ Tag("PLYR"), id, pos.x, pos.y, turret.rot, invincible };
+			globals.ws->Send((char*)&player, sizeof(Plyr));
 		}
 	}
 	float WrapAround(float min, float max) {
@@ -1065,6 +1080,9 @@ struct ProtoX {
 			return dif;
 		}
 		return 0.f;
+	}
+	void Kill() {
+		// TODO::
 	}
 };
 void GenerateSquare(float x, float y, float s, std::vector<glm::vec3>& data) {
@@ -1796,6 +1814,18 @@ public:
 		renderer.Draw(camera, particles);
 		renderer.PostRender();
 	}
+	bool RemoveMissile(Missile& m) {
+		if (&m != &missiles.back()) {
+			m = missiles.back();
+			missiles.pop_back();
+		}
+		else {
+			missiles.pop_back();
+			if (missiles.empty())
+				return true;
+		}
+		return false;
+	}
 	void Update(const Time& t) {
 		const double scroll_speed = .5, // px/s
 			rot_ratio = .002;
@@ -1839,40 +1869,37 @@ public:
 
 		auto it = missiles.begin();
 		while (it != missiles.end()) {
+			bool missile_removed = false;
 			auto& m = *it;
+			if (m.owner != player.get())
+				continue;
 			if (m.pos.x < bounds.l ||
 				m.pos.x > bounds.r ||
 				m.pos.y < bounds.b ||
 				m.pos.y > bounds.t) {
-				if (&m != &missiles.back()) {
-					m = missiles.back();
-					missiles.pop_back();
-				}
-				else {
-					missiles.pop_back();
+				missile_removed = true;
+				if (RemoveMissile(m))
 					break;
-				}
 			}
 			else {
 				bool last = false;
 				for (const auto& p : players) {
 					glm::vec3 hit_pos;
 					if (p.second->invincible == 0.f && m.HitTest(p.second->aabb.Translate(p.second->pos), hit_pos)) {
+						missile_removed = true;
 						particles.push_back({ hit_pos });
-						if (&m != &missiles.back()) {
-							m = missiles.back();
-							missiles.pop_back();
+						if (player->ws) {
+							Scor msg{ Tag("SCOR"), player->id, p.second->id, m.id, hit_pos.x, hit_pos.y };
+							player->ws->Send((const char*)&msg, sizeof(msg));
 						}
-						else {
-							missiles.pop_back();
-							last = true;
-							break;
-						}
+						last = RemoveMissile(m);
+						if (last) break;
 					}
 				}
 				if (last) break;
-				++it;
 			}
+			if (!missile_removed)
+				++it;
 		}
 		for (auto it = particles.begin(); it != particles.end();) {
 			it->Update(t);
@@ -1906,10 +1933,10 @@ public:
 #endif
 	}
 	void OnMessage(const char* msg, int len) {
-#ifdef __EMSCRIPTEN__
-		std::string str{ msg, (unsigned int)len };
-		emscripten_log(EM_LOG_CONSOLE, "Socket message: %s", str.c_str());
-#endif
+//#ifdef __EMSCRIPTEN__
+//		std::string str{ msg, (unsigned int)len };
+//		emscripten_log(EM_LOG_CONSOLE, "Socket message: %s", str.c_str());
+//#endif
 		messages.push(std::vector<unsigned char>{ msg, msg + (size_t)len });
 	}
 	void OnConn(size_t id) {
@@ -1930,7 +1957,7 @@ public:
 		globals.ws->Send(msg.arr, sizeof(msg.str));
 	}
 	void OnPlyr(const std::vector<unsigned char>& msg) {
-		Player player;
+		Plyr player;
 		memcpy(&player, &msg.front(), msg.size());
 //#ifdef __EMSCRIPTEN__
 //		emscripten_log(EM_LOG_CONSOLE, "OnPlyr %d ", player.id, player.x, player.y, player.rot, player.invincible);
@@ -1945,6 +1972,32 @@ public:
 		else
 			proto = it->second.get();
 		proto->pos.x = player.x; proto->pos.y = player.y; proto->turret.rot = player.rot; proto->invincible = player.invincible;
+	}
+	void OnMisl(const std::vector<unsigned char>& msg) {
+		const Misl* misl = reinterpret_cast<const Misl*>(&msg.front());
+		auto it = players.find(misl->player_id);
+		if (it != players.end())
+			missiles.push_back({ { misl->x, misl->y, 0.f }, misl->rot, misl->vel, it->second.get(), misl->missile_id });
+	}
+	void OnScor(const std::vector<unsigned char>& msg) {
+		const Scor* scor = reinterpret_cast<const Scor*>(&msg.front());
+		particles.push_back({ glm::vec3{scor->x, scor->y, 0.f} });
+		auto it = std::find_if(missiles.begin(), missiles.end(), [=](const Missile& m) {
+			if (m.owner->id == scor->owner_id && m.id == scor->missile_id)
+				return true;
+			return false;});
+		if (it != missiles.end())
+			RemoveMissile(*it);
+		if (scor->target_id == player->id)
+			player->Kill();
+		else {
+			auto it = players.find(scor->target_id);
+			if (it != players.end())
+				it->second->Kill();
+		}
+	}
+	void OnKill(const std::vector<unsigned char>& msg) {
+		// TODO::
 	}
 	void Dispatch(const std::vector<unsigned char>& msg) {
 		size_t tag = Tag(msg);
@@ -1963,10 +2016,17 @@ public:
 		case plyr:
 			OnPlyr(msg);
 			break;
+		case misl:
+			OnMisl(msg);
+			break;
+		case scor:
+			OnScor(msg);
+			break;
 		case kill:
 		#ifdef __EMSCRIPTEN__
 			emscripten_log(EM_LOG_CONSOLE, "kill %x ", ID5(msg, 4));
 		#endif
+			OnKill(msg);
 			break;
 		}
 	}

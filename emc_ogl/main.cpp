@@ -926,6 +926,12 @@ struct Missile {
 		end = glm::vec3{ std::cos(rot), std::sin(rot), 0.f } * Asset::missile_size + pos;
 		return end.x >= bounds.l && end.x <= bounds.r && end.y >= bounds.b && end.y <= bounds.t;
 	}
+	bool IsOutOfBounds(const AABB& bounds) {
+		return pos.x < bounds.l ||
+			pos.x > bounds.r ||
+			pos.y < bounds.b ||
+			pos.y > bounds.t;
+	}
 };
 struct Plyr {
 	size_t tag, id;
@@ -1015,10 +1021,10 @@ struct ProtoX {
 		const float missile_vel = .01f;
 		auto rot = turret.rest_pos + turret.rot;
 		const glm::vec3 missile_vec{ std::cos(rot) * missile_vel, std::sin(rot) * missile_vel, .0f};
-		missiles.push_back({ pos + missile_start_offset, rot, glm::length(missile_vec + vel), this, missile_id++ });
+		missiles.push_back({ pos + missile_start_offset, rot, glm::length(missile_vec + vel), this, ++missile_id });
 		if (ws) {
 			auto& m = missiles.back();
-			Misl misl{ Tag("MISL"), id, missile_id, m.pos.x, m.pos.y, m.rot, m.vel};
+			Misl misl{ Tag("MISL"), id, m.id, m.pos.x, m.pos.y, m.rot, m.vel};
 			globals.ws->Send((char*)&misl, sizeof(misl));
 		}
 	}
@@ -1818,13 +1824,10 @@ public:
 		if (&m != &missiles.back()) {
 			m = missiles.back();
 			missiles.pop_back();
+			return false;
 		}
-		else {
-			missiles.pop_back();
-			if (missiles.empty())
-				return true;
-		}
-		return false;
+		missiles.pop_back();
+		return true;
 	}
 	void Update(const Time& t) {
 		const double scroll_speed = .5, // px/s
@@ -1871,29 +1874,29 @@ public:
 		while (it != missiles.end()) {
 			bool missile_removed = false;
 			auto& m = *it;
-			if (m.owner != player.get())
+			if (m.IsOutOfBounds(bounds)) {
+				if (RemoveMissile(m)) break;
 				continue;
-			if (m.pos.x < bounds.l ||
-				m.pos.x > bounds.r ||
-				m.pos.y < bounds.b ||
-				m.pos.y > bounds.t) {
-				missile_removed = true;
-				if (RemoveMissile(m))
-					break;
 			}
 			else {
+				// TODO:: test all hits or just ours?
+				if (m.owner != player.get()) {
+					++it;
+					continue;
+				}
 				bool last = false;
 				for (const auto& p : players) {
+					// if (m.owner != p.second.get()) continue;
 					glm::vec3 hit_pos;
 					if (p.second->invincible == 0.f && m.HitTest(p.second->aabb.Translate(p.second->pos), hit_pos)) {
-						missile_removed = true;
 						particles.push_back({ hit_pos });
 						if (player->ws) {
 							Scor msg{ Tag("SCOR"), player->id, p.second->id, m.id, hit_pos.x, hit_pos.y };
 							player->ws->Send((const char*)&msg, sizeof(msg));
 						}
 						last = RemoveMissile(m);
-						if (last) break;
+						missile_removed = true;
+						break;
 					}
 				}
 				if (last) break;
@@ -1983,11 +1986,12 @@ public:
 		const Scor* scor = reinterpret_cast<const Scor*>(&msg.front());
 		particles.push_back({ glm::vec3{scor->x, scor->y, 0.f} });
 		auto it = std::find_if(missiles.begin(), missiles.end(), [=](const Missile& m) {
-			if (m.owner->id == scor->owner_id && m.id == scor->missile_id)
-				return true;
-			return false;});
-		if (it != missiles.end())
+			return m.owner->id == scor->owner_id && m.id == scor->missile_id;});
+		if (it != missiles.end()) {
+			printf("remove %d\n", missiles.size());
 			RemoveMissile(*it);
+			printf("after %d\n", missiles.size());
+		}
 		if (scor->target_id == player->id)
 			player->Kill();
 		else {

@@ -29,7 +29,7 @@
 #include <GLFW/glfw3.h>
 #include <inttypes.h>
 //#define VAO_SUPPORT
-
+#define DEBUG_REL
 template<typename T>
 constexpr size_t ID5(const T& t, size_t offset) {
 	return ((t[offset + 4] - '0') << 20) | ((t[offset + 3] - '0') << 15) | ((t[offset + 2] - '0') << 10) | ((t[offset + 1] - '0') << 5) | (t[offset] - '0');
@@ -45,6 +45,11 @@ constexpr size_t Tag(const T& t) {
 
 class Scene;
 struct {
+#ifdef DEBUG_REL
+	const float invincibility = 0.f;
+#else
+	const float invincibility = 5000.f;
+#endif
 	std::string host = "localhost";
 	unsigned short port = 8000;
 	int width = 640, height = 480;
@@ -83,6 +88,7 @@ static void ReadMeshFile(const char* fname, MeshLoader::Mesh& mesh) {
 }
 struct AABB {
 	float l, t, r, b;
+	//AABB(const AABB&) = default;
 	AABB Translate(const glm::vec3& pos) const {
 		return{ l + pos.x, t + pos.y, r + pos.x, b + pos.y };
 	}
@@ -277,11 +283,21 @@ namespace Asset {
 			texcoord.push_back(mesh_texcoord[l.v1]);
 		}
 		
-		return{ vertices,{ { {},{ Asset::Layer::Surface{ GLint(0), GLsizei(vertices.size()) } } } }, texcoord };
+		return{ vertices,{ { {},{ Asset::Layer::Surface{ GLint(0), GLsizei(vertices.size()) , { 1.f, 1.f, 1.f } } } } }, texcoord };
 	}
+
+	Model ExtractLines(MeshLoader::Mesh& mesh, float scale = 1.f, float lineWidth = 3.f) {
+		std::vector<glm::vec3> vertices;
+		std::vector<glm::vec2> vertexNormals = GenLineNormals(mesh.vertices, mesh.lines, lineWidth);
+		for (const auto& l : mesh.lines) {
+			GenVertices(l, vertexNormals, mesh.vertices, scale, vertices);
+		}
+		return{ vertices,{ { {},{ Asset::Layer::Surface{ GLint(0), GLsizei(vertices.size()), {1.f, 1.f, 1.f} } } } } };
+	}
+
 	struct Assets {
 		std::vector<Model*> models;
-		Model probe, propulsion, land, missile;
+		Model probe, propulsion, land, missile, debris;
 		Assets() {
 #ifdef __EMSCRIPTEN__
 #define PATH_PREFIX ""
@@ -311,9 +327,11 @@ namespace Asset {
 					mesh.surfaces[1].color[1],
 					mesh.surfaces[1].color[2]);
 #endif
-
 				probe = Reconstruct(mesh, scale);
 				models.push_back(&probe);
+				
+				debris = ExtractLines(mesh, scale);
+				models.push_back(&debris);
 			}
 			{
 				MeshLoader::Mesh mesh;
@@ -945,6 +963,9 @@ struct Scor {
 	size_t tag, owner_id, target_id, missile_id;
 	float x, y;
 };
+struct Kill {
+	size_t tag, client_id;
+};
 struct ProtoX {
 	const size_t id;
 	AABB aabb;
@@ -956,10 +977,12 @@ struct ProtoX {
 		g = -.1f, /* m/ms2 */
 		ground_level = 20.f,
 		blink_rate = 50.f, // ms
-		blink_duration = 5000.f; // ms
-	float invincible = blink_duration, blink_time = blink_rate;
-	bool visible = true;
-	glm::vec3 pos, vel, f;
+		blink_duration = globals.invincibility,  // ms
+		fade_out_time = 1500.f; // ms
+	// state...
+	float invincible, blink_time, fade_out;
+	bool visible, hit, killed;
+	glm::vec3 pos, vel, f, hit_pos;
 	const glm::vec3 missile_start_offset;
 	const Asset::Layer& layer;
 	size_t score = 0, missile_id = 0;
@@ -1012,6 +1035,7 @@ struct ProtoX {
 		right({ -25.f, 15.f, 0.f }, -glm::half_pi<float>(), frame_count),
 		bottom({}, 0.f, frame_count),
 		turret(model.layers.back()) {
+		Init();
 #ifdef __EMSCRIPTEN__
 		emscripten_log(EM_LOG_CONSOLE, "Player connected");
 #endif
@@ -1035,6 +1059,15 @@ struct ProtoX {
 		f.x = (lt) ? -force : (rt) ? force : 0.f;
 		f.y = (bt) ? force : g;
 	}
+	void Init() {
+		invincible = blink_duration; blink_time = blink_rate; fade_out = fade_out_time;
+		visible = true; hit = killed = false;
+	}
+	void Kill(const glm::vec3& hit_pos) {
+		if (invincible > 0.f) return;
+		hit = true;
+		this->hit_pos = hit_pos;
+	}
 	void Update(const Time& t, const AABB& bounds) {
 		if (invincible > 0.f) {
 			blink_time -= (float)t.frame;
@@ -1048,6 +1081,11 @@ struct ProtoX {
 				invincible = 0.f;
 				visible = true;
 			}
+		}
+		else if (hit) {
+			fade_out -= (float)t.frame;
+			killed = fade_out < 0.f;
+			return;
 		}
 		left.Update(t);
 		right.Update(t);
@@ -1087,9 +1125,6 @@ struct ProtoX {
 		}
 		return 0.f;
 	}
-	void Kill() {
-		// TODO::
-	}
 };
 void GenerateSquare(float x, float y, float s, std::vector<glm::vec3>& data) {
 	s *= .5f;
@@ -1114,7 +1149,8 @@ struct Renderer {
 		VBO_STARFIELD = 5,
 		VBO_PARTICLE = 6,
 		VBO_PROPULSION = 7,
-		VBO_COUNT = 8;
+		VBO_DEBRIS = 8,
+		VBO_COUNT = 9;
 	struct Missile{
 		GLuint texID;
 		~Missile() {
@@ -1125,7 +1161,8 @@ struct Renderer {
 		static GLuint vbo;
 		static GLsizei vertex_count;
 		static const size_t count = 100;
-		static constexpr float slowdown = .01f, g = .00001f, init_mul = 1.f, max_decay = .0001f, min_decay = .0001f;
+		static constexpr float slowdown = .01f, g = -.00005f, init_mul = 1.f, max_decay = .0009f, min_decay = .0005f,
+			v_min = .01f, v_max = .1f;
 		glm::vec3 pos;
 		bool kill = false;
 		struct Particle {
@@ -1138,7 +1175,7 @@ struct Renderer {
 			static std::uniform_real_distribution<> col_dist(0., 1.);
 			static std::uniform_real_distribution<> rad_dist(.0, glm::two_pi<float>());
 			static std::uniform_real_distribution<> decay_dist(min_decay, max_decay);
-			static std::uniform_real_distribution<> v_dist(.001f, .05f);
+			static std::uniform_real_distribution<> v_dist(v_min, v_max);
 			for (size_t i = 0; i < count; ++i) {
 				arr[i].col = { col_dist(mt), col_dist(mt), col_dist(mt), 1.f };
 				arr[i].pos = {};
@@ -1155,8 +1192,8 @@ struct Renderer {
 				if (arr[i].life <= 0.f) continue;
 				kill = false;
 				arr[i].pos += arr[i].v * (float)t.frame;
-				arr[i].v *= 1.f - arr[i].decay * (float)t.frame;
-				arr[i].v.y *= 1.f + g * (float)t.frame;
+				//arr[i].v *= 1.f - arr[i].decay * (float)t.frame;
+				arr[i].v.y += g * (float)t.frame;
 				arr[i].col.a = arr[i].life;
 				arr[i].life -= arr[i].decay * (float)t.frame;
 				if (arr[i].life <= 0.01f) arr[i].life = 0.f;
@@ -1209,6 +1246,12 @@ struct Renderer {
 #else
 			glBindBuffer(GL_ARRAY_BUFFER, 0);
 #endif
+		}
+		// Debris
+		{
+			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_DEBRIS]);
+			glBufferData(GL_ARRAY_BUFFER, assets.debris.vertices.size() * sizeof(assets.debris.vertices[0]), nullptr, GL_DYNAMIC_DRAW);
+			glBindBuffer(GL_ARRAY_BUFFER, 0);
 		}
 		// Landscape
 		{
@@ -1293,7 +1336,7 @@ struct Renderer {
 		{
 			// AABB
 			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_AABB]);
-			glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 3 * 5, nullptr, GL_STATIC_DRAW);
+			glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 3 * 5, nullptr, GL_DYNAMIC_DRAW);
 		}
 		{
 			// Starfield
@@ -1466,6 +1509,30 @@ struct Renderer {
 	void Draw(const Camera& cam, const ProtoX& proto) {
 		if (!proto.visible)
 			return;
+		if (proto.hit) {
+			glEnable(GL_BLEND);
+			glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+			glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
+			glEnableVertexAttribArray(0);
+			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_DEBRIS]);
+			glBufferData(GL_ARRAY_BUFFER, assets.debris.vertices.size() * sizeof(assets.debris.vertices[0]), &assets.debris.vertices.front(), GL_DYNAMIC_DRAW);
+			glVertexAttribPointer(0,
+				3,
+				GL_FLOAT,
+				GL_FALSE,
+				0,
+				(void*)0);
+			const auto& shader = colorShader;
+			glUseProgram(shader.program.id);
+			auto& p = assets.debris.layers.front().parts.front();
+			glm::mat4 mvp = glm::translate(cam.vp, proto.pos);
+			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+			glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, proto.fade_out / proto.fade_out_time);
+			glDrawArrays(GL_TRIANGLES, p.first, p.count);
+			glDisableVertexAttribArray(0);
+			glDisable(GL_BLEND);
+			return;
+		}
 #ifdef VAO_SUPPORT
 		glBindVertexArray(vao);
 #else
@@ -1482,7 +1549,7 @@ struct Renderer {
 		glUseProgram(shader.program.id);
 		for (const auto& p : proto.layer.parts) {
 			glm::mat4 mvp = glm::translate(cam.vp, proto.pos);
-			glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 			glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, 1.f);
 			glDrawArrays(GL_TRIANGLES, p.first, p.count);
 		}
@@ -1492,7 +1559,7 @@ struct Renderer {
 			m = glm::translate(m, -proto.turret.layer.pivot);
 			
 			glm::mat4 mvp = cam.vp * m;
-			glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 			glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, 1.f);
 			glDrawArrays(GL_TRIANGLES, p.first, p.count);
 		}
@@ -1820,6 +1887,7 @@ public:
 		renderer.Draw(camera, particles);
 		renderer.PostRender();
 	}
+
 	bool RemoveMissile(Missile& m) {
 		if (&m != &missiles.back()) {
 			m = missiles.back();
@@ -1855,6 +1923,12 @@ public:
 		for (auto& p : players) {
 			p.second->Update(t, bounds);
 		}
+
+		for (auto p = std::begin(players); p != std::end(players);){
+			if (p->second->killed)
+				players.erase(p++);
+			else ++p;
+		}
 		for (auto& m : missiles) {
 			m.Update(t);
 		}
@@ -1889,6 +1963,7 @@ public:
 					// if (m.owner != p.second.get()) continue;
 					glm::vec3 hit_pos;
 					if (p.second->invincible == 0.f && m.HitTest(p.second->aabb.Translate(p.second->pos), hit_pos)) {
+						p.second->Kill(hit_pos);
 						particles.push_back({ hit_pos });
 						if (player->ws) {
 							Scor msg{ Tag("SCOR"), player->id, p.second->id, m.id, hit_pos.x, hit_pos.y };
@@ -1993,15 +2068,21 @@ public:
 			printf("after %d\n", missiles.size());
 		}
 		if (scor->target_id == player->id)
-			player->Kill();
+			player->Kill({ scor->x, scor->y, 0.f });
 		else {
 			auto it = players.find(scor->target_id);
 			if (it != players.end())
-				it->second->Kill();
+				it->second->Kill({ scor->x, scor->y, 0.f });
 		}
 	}
 	void OnKill(const std::vector<unsigned char>& msg) {
-		// TODO::
+		const Kill* kill = reinterpret_cast<const Kill*>(&msg.front());
+		auto it = std::find_if(std::begin(players), std::end(players), [&](const auto& p) {
+			return p.second->id == kill->client_id; });
+		if (it == std::end(players)) return;
+		auto& p = it->second;
+		auto hit_pos = p->pos + glm::vec3{ p->aabb.r - p->aabb.l, p->aabb.t - p->aabb.b, 0.f };
+		p->Kill(hit_pos);
 	}
 	void Dispatch(const std::vector<unsigned char>& msg) {
 		size_t tag = Tag(msg);

@@ -12,6 +12,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/constants.hpp>
+#include <glm/gtx/rotate_vector.hpp>
 #include <chrono>
 
 #include <stdio.h>
@@ -42,7 +43,10 @@ template<typename T>
 constexpr size_t Tag(const T& t) {
 	return (t[3] << 24) | (t[2] << 16) | (t[1] << 8) | t[0];
 }
-
+inline glm::vec3 RotateZ(const glm::vec3& v, const glm::vec3& c, float r) {
+	//return{std::cos(r) * (v.x - c.x), std::sin(r) * (v.y - c.y), 0.f };
+	return glm::rotateZ(v - c, r);
+}
 class Scene;
 struct {
 #ifdef DEBUG_REL
@@ -970,6 +974,8 @@ struct ProtoX {
 	const size_t id;
 	AABB aabb;
 	Client *ws;
+	const Asset::Model& debris_ref;
+	Asset::Model debris;
 	const float max_vel = .3f,
 		m = 500.f,
 		force = .1f,
@@ -978,7 +984,9 @@ struct ProtoX {
 		ground_level = 20.f,
 		blink_rate = 50.f, // ms
 		blink_duration = globals.invincibility,  // ms
-		fade_out_time = 1500.f; // ms
+		fade_out_time = 1500.f, // ms
+		debris_speed = .1f, //px/ ms
+		debris_centrifugal_speed = .01f; // rad/ms
 	// state...
 	float invincible, blink_time, fade_out;
 	bool visible, hit, killed;
@@ -1026,9 +1034,10 @@ struct ProtoX {
 			rot = std::min(max_rot, rot);
 		}
 	}turret;
-	ProtoX(const size_t id, const Asset::Model& model, size_t frame_count, Client* ws = nullptr) : id(id),
+	ProtoX(const size_t id, const Asset::Model& model, const Asset::Model& debris, size_t frame_count, Client* ws = nullptr) : id(id),
 		aabb{model.aabb},
 		ws(ws),
+		debris_ref(debris),
 		missile_start_offset(model.layers[model.layers.size() - 1].pivot),
 		layer(model.layers.front()),
 		left({ 25.f, 15.f, 0.f }, glm::half_pi<float>(), frame_count),
@@ -1042,10 +1051,10 @@ struct ProtoX {
 		
 	}
 	void Shoot(std::vector<Missile>& missiles) {
-		const float missile_vel = .01f;
+		const float missile_vel = 1.f;
 		auto rot = turret.rest_pos + turret.rot;
 		const glm::vec3 missile_vec{ std::cos(rot) * missile_vel, std::sin(rot) * missile_vel, .0f};
-		missiles.push_back({ pos + missile_start_offset, rot, glm::length(missile_vec + vel), this, ++missile_id });
+		missiles.push_back({ pos + missile_start_offset, rot, glm::length(missile_vec), this, ++missile_id });
 		if (ws) {
 			auto& m = missiles.back();
 			Misl misl{ Tag("MISL"), id, m.id, m.pos.x, m.pos.y, m.rot, m.vel};
@@ -1064,9 +1073,10 @@ struct ProtoX {
 		visible = true; hit = killed = false;
 	}
 	void Kill(const glm::vec3& hit_pos) {
-		if (invincible > 0.f) return;
+		if (invincible > 0.f || hit || killed) return;
 		hit = true;
-		this->hit_pos = hit_pos;
+		this->hit_pos = hit_pos - pos;
+		debris = debris_ref;
 	}
 	void Update(const Time& t, const AABB& bounds) {
 		if (invincible > 0.f) {
@@ -1084,7 +1094,32 @@ struct ProtoX {
 		}
 		else if (hit) {
 			fade_out -= (float)t.frame;
-			killed = fade_out < 0.f;
+			if (killed = fade_out < 0.f) return;
+			// TODO:: refactor to continuous fx instead of incremental
+			for (size_t i = 0; i < debris.vertices.size(); i += 6) {
+				// TODO:: only enough to have the average of the furthest vertices
+				auto center = (debris.vertices[i] + debris.vertices[i + 1] + debris.vertices[i + 2] +
+					debris.vertices[i + 3] + debris.vertices[i + 4] + debris.vertices[i + 5]) / 6.f;
+				auto v = center - hit_pos;
+				float len = glm::length(v);
+				v /= len;
+				v *= debris_speed * (float)t.frame;
+				//v.y += g * (float)t.frame;
+				auto incr = debris_centrifugal_speed * (float)t.frame;
+//				auto r = RotateZ(debris.vertices[i], center, incr);
+				debris.vertices[i] += v;
+				debris.vertices[i] = center + RotateZ(debris.vertices[i], center, incr);
+				debris.vertices[i + 1] += v;
+				debris.vertices[i + 1] = center + RotateZ(debris.vertices[i + 1], center, incr);
+				debris.vertices[i + 2] += v;
+				debris.vertices[i + 2] = center + RotateZ(debris.vertices[i + 2], center, incr);
+				debris.vertices[i + 3] += v;
+				debris.vertices[i + 3] = center + RotateZ(debris.vertices[i + 3], center, incr);
+				debris.vertices[i + 4] += v;
+				debris.vertices[i + 4] = center + RotateZ(debris.vertices[i + 4], center, incr);
+				debris.vertices[i + 5] += v;
+				debris.vertices[i + 5] = center + RotateZ(debris.vertices[i + 5], center, incr);
+			}
 			return;
 		}
 		left.Update(t);
@@ -1187,7 +1222,7 @@ struct Renderer {
 			}
 		}
 		void Update(const Time& t) {
-			bool kill = true;
+			kill = true;
 			for (size_t i = 0; i < count; ++i) {
 				if (arr[i].life <= 0.f) continue;
 				kill = false;
@@ -1515,7 +1550,7 @@ struct Renderer {
 			glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
 			glEnableVertexAttribArray(0);
 			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_DEBRIS]);
-			glBufferData(GL_ARRAY_BUFFER, assets.debris.vertices.size() * sizeof(assets.debris.vertices[0]), &assets.debris.vertices.front(), GL_DYNAMIC_DRAW);
+			glBufferData(GL_ARRAY_BUFFER, proto.debris.vertices.size() * sizeof(proto.debris.vertices[0]), &proto.debris.vertices.front(), GL_DYNAMIC_DRAW);
 			glVertexAttribPointer(0,
 				3,
 				GL_FLOAT,
@@ -1799,14 +1834,18 @@ public:
 	}
 public:
 	Scene() : bounds(assets.land.aabb),
-		player(std::make_unique<ProtoX>(0xdeadbeef, assets.probe, assets.propulsion.layers.size())),
+#ifdef DEBUG_REL
+		player(std::make_unique<ProtoX>(0xdeadbeef, assets.probe, assets.debris, assets.propulsion.layers.size())),
+#endif
 		renderer(assets, bounds) {
 		/*bounds.t = float((height >> 1) + (height >> 2));
 		bounds.b = -float((height >> 1) + (height >> 2));*/
-		players[(size_t)0xbeef] = std::make_unique<ProtoX>( (size_t)0xbeef, assets.probe, assets.propulsion.layers.size() );
+#ifdef DEBUG_REL
+		players[(size_t)0xbeef] = std::make_unique<ProtoX>( (size_t)0xbeef, assets.probe, assets.debris, assets.propulsion.layers.size() );
+
 		auto& p = players[0xbeef];
 		p->pos.x = 100.f;
-
+#endif
 		texID = GenTexture(texw, texh);
 		mesh.model = glm::translate(mesh.model, mesh.pos);
 		auto mvp = camera.proj * camera.view * mesh.model;
@@ -1904,22 +1943,24 @@ public:
 			camera.Translate(float(scroll_speed * t.frame), 0.f, 0.f);
 		if (inputHandler.keys[(size_t)InputHandler::Keys::Right])
 			camera.Translate(float(scroll_speed * t.frame), 0.f, 0.f);
-		if (inputHandler.update)
-			player->turret.rot += float((inputHandler.px - inputHandler.x) * rot_ratio);
+		if (player) {
+			if (inputHandler.update)
+				player->turret.rot += float((inputHandler.px - inputHandler.x) * rot_ratio);
 
-		player->Move(t, inputHandler.keys[(size_t)InputHandler::Keys::A],
-			inputHandler.keys[(size_t)InputHandler::Keys::D],
-			inputHandler.keys[(size_t)InputHandler::Keys::W]);
-		while (!inputHandler.event_queue.empty()) {
-			auto e = inputHandler.event_queue.back();
-			inputHandler.event_queue.pop();
-			switch(e) {
-			case InputHandler::ButtonClick::LB:
-				player->Shoot(missiles);
-				break;
+			player->Move(t, inputHandler.keys[(size_t)InputHandler::Keys::A],
+				inputHandler.keys[(size_t)InputHandler::Keys::D],
+				inputHandler.keys[(size_t)InputHandler::Keys::W]);
+			while (!inputHandler.event_queue.empty()) {
+				auto e = inputHandler.event_queue.back();
+				inputHandler.event_queue.pop();
+				switch (e) {
+				case InputHandler::ButtonClick::LB:
+					player->Shoot(missiles);
+					break;
+				}
 			}
+			player->Update(t, bounds);
 		}
-		player->Update(t, bounds);
 		for (auto& p : players) {
 			p.second->Update(t, bounds);
 		}
@@ -1932,52 +1973,54 @@ public:
 		for (auto& m : missiles) {
 			m.Update(t);
 		}
-		auto d = camera.pos.x + player->pos.x;
-		auto res = player->WrapAround(assets.land.layers[0].aabb.l, assets.land.layers[0].aabb.r);
-		camera.Update(t);
-		camera.Tracking(player->pos, bounds, player->aabb);
-		// wraparound camera hack
-		// wrap around from left
-		if (res < 0)
-			camera.Translate(std::max(d, -float(globals.width >> 2)) - (globals.width >> 2), 0.f, 0.f);
-		else if (res > 0)
-			camera.Translate(std::min(d, float(globals.width >> 2)) + (globals.width >> 2), 0.f, 0.f);
+		if (player) {
+			auto d = camera.pos.x + player->pos.x;
+			auto res = player->WrapAround(assets.land.layers[0].aabb.l, assets.land.layers[0].aabb.r);
+			camera.Update(t);
+			camera.Tracking(player->pos, bounds, player->aabb);
+			// wraparound camera hack
+			// wrap around from left
+			if (res < 0)
+				camera.Translate(std::max(d, -float(globals.width >> 2)) - (globals.width >> 2), 0.f, 0.f);
+			else if (res > 0)
+				camera.Translate(std::min(d, float(globals.width >> 2)) + (globals.width >> 2), 0.f, 0.f);
 
-
-		auto it = missiles.begin();
-		while (it != missiles.end()) {
-			bool missile_removed = false;
-			auto& m = *it;
-			if (m.IsOutOfBounds(bounds)) {
-				if (RemoveMissile(m)) break;
-				continue;
-			}
-			else {
-				// TODO:: test all hits or just ours?
-				if (m.owner != player.get()) {
-					++it;
+			auto it = missiles.begin();
+			while (it != missiles.end()) {
+				bool missile_removed = false;
+				auto& m = *it;
+				if (m.IsOutOfBounds(bounds)) {
+					if (RemoveMissile(m)) break;
 					continue;
 				}
-				bool last = false;
-				for (const auto& p : players) {
-					// if (m.owner != p.second.get()) continue;
-					glm::vec3 hit_pos;
-					if (p.second->invincible == 0.f && m.HitTest(p.second->aabb.Translate(p.second->pos), hit_pos)) {
-						p.second->Kill(hit_pos);
-						particles.push_back({ hit_pos });
-						if (player->ws) {
-							Scor msg{ Tag("SCOR"), player->id, p.second->id, m.id, hit_pos.x, hit_pos.y };
-							player->ws->Send((const char*)&msg, sizeof(msg));
-						}
-						last = RemoveMissile(m);
-						missile_removed = true;
-						break;
+				else {
+					// TODO:: test all hits or just ours?
+					if (m.owner != player.get()) {
+						++it;
+						continue;
 					}
+					bool last = false;
+					for (const auto& p : players) {
+						// if (m.owner != p.second.get()) continue;
+						glm::vec3 hit_pos;
+						if (!p.second->hit && !p.second->killed && p.second->invincible == 0.f && m.HitTest(p.second->aabb.Translate(p.second->pos), hit_pos)) {
+							p.second->Kill(hit_pos);
+							particles.push_back({ hit_pos });
+							++player->score;
+							if (player->ws) {
+								Scor msg{ Tag("SCOR"), player->id, p.second->id, m.id, hit_pos.x, hit_pos.y };
+								player->ws->Send((const char*)&msg, sizeof(msg));
+							}
+							last = RemoveMissile(m);
+							missile_removed = true;
+							break;
+						}
+					}
+					if (last) break;
 				}
-				if (last) break;
+				if (!missile_removed)
+					++it;
 			}
-			if (!missile_removed)
-				++it;
 		}
 		for (auto it = particles.begin(); it != particles.end();) {
 			it->Update(t);
@@ -1988,6 +2031,13 @@ public:
 			}
 			else ++it;
 		}
+#ifdef DEBUG_REL
+		if (players.empty()) {
+			players[(size_t)0xbeef] = std::make_unique<ProtoX>((size_t)0xbeef, assets.probe, assets.debris, assets.propulsion.layers.size());
+			auto& p = players[0xbeef];
+			p->pos.x = 50.f;
+		}
+#endif
 	}
 	~Scene() {
 		glDeleteBuffers(1, &vertexbuffer);
@@ -2018,7 +2068,13 @@ public:
 		messages.push(std::vector<unsigned char>{ msg, msg + (size_t)len });
 	}
 	void OnConn(size_t id) {
-		player = std::make_unique<ProtoX>(id, assets.probe, assets.propulsion.layers.size(), globals.ws.get());
+		player = std::make_unique<ProtoX>(id, assets.probe, assets.debris, assets.propulsion.layers.size(), globals.ws.get());
+#ifndef DEBUG_REL
+		float dx = (assets.probe.aabb.r - assets.probe.aabb.l) / 2.f,
+			dy = (assets.probe.aabb.t - assets.probe.aabb.b) / 2.f;
+		std::uniform_real_distribution<> x_dist(bounds.l + dx, bounds.r - dx), y_dist(bounds.b + dy, bounds.t - dy);
+		player->pos = { x_dist(mt), y_dist(mt), 0.f };
+#endif
 		SendSessionID();
 	}
 	void SendSessionID() {
@@ -2043,7 +2099,7 @@ public:
 		auto it = players.find(player.id);
 		ProtoX * proto;
 		if (it == players.end()) {
-			auto ptr = std::make_unique<ProtoX>( player.id, assets.probe, assets.propulsion.layers.size() );
+			auto ptr = std::make_unique<ProtoX>( player.id, assets.probe, assets.debris, assets.propulsion.layers.size() );
 			proto = ptr.get();
 			players[player.id] = std::move(ptr);
 		}
@@ -2058,6 +2114,7 @@ public:
 			missiles.push_back({ { misl->x, misl->y, 0.f }, misl->rot, misl->vel, it->second.get(), misl->missile_id });
 	}
 	void OnScor(const std::vector<unsigned char>& msg) {
+		if (!player) return;
 		const Scor* scor = reinterpret_cast<const Scor*>(&msg.front());
 		particles.push_back({ glm::vec3{scor->x, scor->y, 0.f} });
 		auto it = std::find_if(missiles.begin(), missiles.end(), [=](const Missile& m) {

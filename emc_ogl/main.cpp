@@ -690,6 +690,42 @@ void main() {
 		}
 	};
 
+	struct ColorPosAttrib {
+		Program program{
+#ifndef __EMSCRIPTEN__
+			"#version 130\n"
+#endif
+			R"(
+precision highp float;
+attribute vec3 v, pos;
+uniform mat4 uMVP;
+void main() {
+	gl_Position = uMVP * vec4(v + pos, 1.0);
+}
+)",
+#ifndef __EMSCRIPTEN__
+"#version 130\n"
+#endif
+R"(
+precision highp float;
+uniform vec4 uCol;
+void main() {
+	gl_FragColor = uCol;
+}
+)", 0 };
+		GLuint uMVP, uCol;
+		ColorPosAttrib() {
+			ReloadProgram();
+		}
+		void ReloadProgram() {
+			if (program.id) glDeleteProgram(program.id);
+			program.id = LoadShaders(program.vs, program.fs);
+			if (!program.id) throw custom_exception("Shader program compilation/link error");
+			uMVP = glGetUniformLocation(program.id, "uMVP");
+			uCol = glGetUniformLocation(program.id, "uCol");
+		}
+	};
+
 	struct Texture {
 		Program program{
 	#ifndef __EMSCRIPTEN__
@@ -988,7 +1024,7 @@ struct ProtoX {
 		debris_speed = .1f, //px/ ms
 		debris_centrifugal_speed = .01f; // rad/ms
 	// state...
-	float invincible, blink_time, fade_out;
+	float invincible, blink_time, fade_out, hit_time;
 	bool visible, hit, killed;
 	glm::vec3 pos, vel, f, hit_pos;
 	const glm::vec3 missile_start_offset;
@@ -1072,10 +1108,11 @@ struct ProtoX {
 		invincible = blink_duration; blink_time = blink_rate; fade_out = fade_out_time;
 		visible = true; hit = killed = false;
 	}
-	void Kill(const glm::vec3& hit_pos) {
+	void Kill(const glm::vec3& hit_pos, double hit_time) {
 		if (invincible > 0.f || hit || killed) return;
 		hit = true;
 		this->hit_pos = hit_pos - pos;
+		this->hit_time = hit_time;
 		debris = debris_ref;
 	}
 	void Update(const Time& t, const AABB& bounds) {
@@ -1093,8 +1130,9 @@ struct ProtoX {
 			}
 		}
 		else if (hit) {
-			fade_out -= (float)t.frame;
-			if (killed = fade_out < 0.f) return;
+			auto fade_time = (float)(t.total - hit_time) / fade_out_time;
+			fade_out = 1.f - fade_time * fade_time * fade_time * fade_time * fade_time;
+			if (killed = fade_out <= 0.0001f) return;
 			// TODO:: refactor to continuous fx instead of incremental
 			for (size_t i = 0; i < debris.vertices.size(); i += 6) {
 				// TODO:: only enough to have the average of the furthest vertices
@@ -1171,10 +1209,15 @@ void GenerateSquare(float x, float y, float s, std::vector<glm::vec3>& data) {
 	data.emplace_back(x + s, y + s, 0.f);
 	data.emplace_back(x - s, y + s, 0.f);
 }
+const glm::vec4 colors[] = { { 1.0f,0.5f,0.5f , 1.f },{ 1.0f,0.75f,0.5f , 1.f },{ 1.0f,1.0f,0.5f , 1.f },{ 0.75f,1.0f,0.5f , 1.f },
+{ 0.5f,1.0f,0.5f , 1.f },{ 0.5f,1.0f,0.75f , 1.f },{ 0.5f,1.0f,1.0f , 1.f },{ 0.5f,0.75f,1.0f , 1.f },
+{ 0.5f,0.5f,1.0f , 1.f },{ 0.75f,0.5f,1.0f , 1.f },{ 1.0f,0.5f,1.0f , 1.f },{ 1.0f,0.5f,0.75f , 1.f } };
+
 struct Renderer {
 	const Asset::Assets& assets;
 	RT rt;
 	Shader::Color colorShader;
+	Shader::ColorPosAttrib colorPosAttribShader;
 	Shader::Texture textureShader;
 	static const size_t VBO_PROTOX = 0,
 		VBO_MISSILE_UV = 1,
@@ -1196,21 +1239,24 @@ struct Renderer {
 		static GLuint vbo;
 		static GLsizei vertex_count;
 		static const size_t count = 100;
-		static constexpr float slowdown = .01f, g = -.00005f, init_mul = 1.f, max_decay = .0009f, min_decay = .0005f,
-			v_min = .01f, v_max = .1f;
+		static constexpr float slowdown = .01f, g = -.00005f, init_mul = 1.f, min_fade = 750.f, max_fade = 1500.,
+			v_min = .05f, v_max = .2f, blink_rate = 33.;
 		glm::vec3 pos;
 		bool kill = false;
+		float time;
 		struct Particle {
 			glm::vec3 pos, v;
 			glm::vec4 col;
-			float life, decay;
+			float life, fade_duration;
+			size_t start_col_idx;
 		};
 		std::array<Particle, count> arr;
-		Particles(const glm::vec3& pos) : pos(pos) {
+		Particles(const glm::vec3& pos, double time) : pos(pos), time((float)time) {
 			static std::uniform_real_distribution<> col_dist(0., 1.);
 			static std::uniform_real_distribution<> rad_dist(.0, glm::two_pi<float>());
-			static std::uniform_real_distribution<> decay_dist(min_decay, max_decay);
+			static std::uniform_real_distribution<float> fade_dist(min_fade, max_fade);
 			static std::uniform_real_distribution<> v_dist(v_min, v_max);
+			static std::uniform_int_distribution<> col_idx_dist(0, sizeof(colors) / sizeof(colors[0]) - 1);
 			for (size_t i = 0; i < count; ++i) {
 				arr[i].col = { col_dist(mt), col_dist(mt), col_dist(mt), 1.f };
 				arr[i].pos = {};
@@ -1218,7 +1264,8 @@ struct Renderer {
 
 				arr[i].v = { std::cos(r) * v_dist(mt) * init_mul, std::sin(r) * v_dist(mt) * init_mul, 0.f };
 				arr[i].life = 1.f;
-				arr[i].decay = (float)decay_dist(mt);
+				arr[i].fade_duration = fade_dist(mt);
+				arr[i].start_col_idx = col_idx_dist(mt);
 			}
 		}
 		void Update(const Time& t) {
@@ -1229,8 +1276,10 @@ struct Renderer {
 				arr[i].pos += arr[i].v * (float)t.frame;
 				//arr[i].v *= 1.f - arr[i].decay * (float)t.frame;
 				arr[i].v.y += g * (float)t.frame;
+				arr[i].col = colors[(arr[i].start_col_idx + size_t((t.total - time) / blink_rate)) % (sizeof(colors) / sizeof(colors[0]))];
 				arr[i].col.a = arr[i].life;
-				arr[i].life -= arr[i].decay * (float)t.frame;
+				auto fade_time = (float)(t.total - time) / arr[i].fade_duration;
+				arr[i].life = 1.f - fade_time * fade_time * fade_time * fade_time * fade_time;
 				if (arr[i].life <= 0.01f) arr[i].life = 0.f;
 			}
 		}
@@ -1479,14 +1528,13 @@ struct Renderer {
 			GL_FALSE,
 			0,
 			(void*)0);
-		const auto& shader = colorShader;
+		const auto& shader = colorPosAttribShader;
 		glUseProgram(shader.program.id);
-
+		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &cam.vp[0][0]);
 		for (const auto& p : particles) {
 			for (size_t i = 0; i < p.arr.size(); ++i) {
 				glUniform4f(shader.uCol, p.arr[i].col.r, p.arr[i].col.g, p.arr[i].col.b, p.arr[i].col.a);
-				glm::mat4 mvp = glm::translate(cam.vp, p.pos + p.arr[i].pos);
-				glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+				glVertexAttrib3fv(1, &(p.pos + p.arr[i].pos)[0]);
 				glDrawArrays(GL_TRIANGLES, 0, Particles::vertex_count);
 			}
 		}
@@ -1562,7 +1610,7 @@ struct Renderer {
 			auto& p = assets.debris.layers.front().parts.front();
 			glm::mat4 mvp = glm::translate(cam.vp, proto.pos);
 			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-			glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, proto.fade_out / proto.fade_out_time);
+			glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, proto.fade_out);
 			glDrawArrays(GL_TRIANGLES, p.first, p.count);
 			glDisableVertexAttribArray(0);
 			glDisable(GL_BLEND);
@@ -2004,8 +2052,8 @@ public:
 						// if (m.owner != p.second.get()) continue;
 						glm::vec3 hit_pos;
 						if (!p.second->hit && !p.second->killed && p.second->invincible == 0.f && m.HitTest(p.second->aabb.Translate(p.second->pos), hit_pos)) {
-							p.second->Kill(hit_pos);
-							particles.push_back({ hit_pos });
+							p.second->Kill(hit_pos, (double)t.total);
+							particles.push_back({ hit_pos, t.total });
 							++player->score;
 							if (player->ws) {
 								Scor msg{ Tag("SCOR"), player->id, p.second->id, m.id, hit_pos.x, hit_pos.y };
@@ -2116,7 +2164,7 @@ public:
 	void OnScor(const std::vector<unsigned char>& msg) {
 		if (!player) return;
 		const Scor* scor = reinterpret_cast<const Scor*>(&msg.front());
-		particles.push_back({ glm::vec3{scor->x, scor->y, 0.f} });
+		particles.push_back({ glm::vec3{scor->x, scor->y, 0.f}, (double)timer.Total() });
 		auto it = std::find_if(missiles.begin(), missiles.end(), [=](const Missile& m) {
 			return m.owner->id == scor->owner_id && m.id == scor->missile_id;});
 		if (it != missiles.end()) {
@@ -2125,11 +2173,11 @@ public:
 			printf("after %d\n", missiles.size());
 		}
 		if (scor->target_id == player->id)
-			player->Kill({ scor->x, scor->y, 0.f });
+			player->Kill({ scor->x, scor->y, 0.f }, (double)timer.Total());
 		else {
 			auto it = players.find(scor->target_id);
 			if (it != players.end())
-				it->second->Kill({ scor->x, scor->y, 0.f });
+				it->second->Kill({ scor->x, scor->y, 0.f }, (double)timer.Total());
 		}
 	}
 	void OnKill(const std::vector<unsigned char>& msg) {
@@ -2139,7 +2187,7 @@ public:
 		if (it == std::end(players)) return;
 		auto& p = it->second;
 		auto hit_pos = p->pos + glm::vec3{ p->aabb.r - p->aabb.l, p->aabb.t - p->aabb.b, 0.f };
-		p->Kill(hit_pos);
+		p->Kill(hit_pos, (double)timer.Total());
 	}
 	void Dispatch(const std::vector<unsigned char>& msg) {
 		size_t tag = Tag(msg);

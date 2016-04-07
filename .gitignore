@@ -6,3 +6,6 @@ index_.js
 Debug/
 node_modules/
 *.opendb
+.ninja_deps
+.ninja_log
+*.bc

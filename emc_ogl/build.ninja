@@ -1,0 +1,19 @@
+MeshLoaderPath = ..\..\MeshLoader\
+MeshExportPath = ..\..\MeshExport\
+EMCC_PATH=f:\Programs\Emscripten\emscripten\1.35.0\
+
+cppflags = -v -s USE_GLFW=3 -s NO_EXIT_RUNTIME=1 -DGLM -std=c++14 -I..\..\..\3rdparty\glm -I..\..\..\3rdparty\GSL\include -i%MeshLoaderPath% -i%MeshExportPath%MeshCommon -i%MeshExportPath%MeshView2005\Img
+linkflags = -v -s USE_GLFW=3 -s NO_EXIT_RUNTIME=1 --embed-file asset
+rule cpp
+  command = ${EMCC_PATH}emcc.bat $cppflags $in -o $out
+rule link
+  command = ${EMCC_PATH}emcc.bat $linkflags $in -o $out
+build main.bc: cpp main.cpp
+build MeshLoader.bc: cpp ${MeshLoaderPath}MeshLoader.cpp
+build types.bc: cpp ${MeshLoaderPath}types.cpp
+build MeshSurface.bc: cpp ${MeshLoaderPath}MeshSurface.cpp
+build File.bc: cpp ${MeshLoaderPath}File.cpp
+build FileReader.bc: cpp ${MeshLoaderPath}FileReader.cpp
+build Tga.bc: cpp ${MeshLoaderPath}Tga.cpp
+build Log.bc: cpp ${MeshLoaderPath}Log.cpp
+build main.js: link main.bc MeshLoader.bc types.bc MeshSurface.bc FileReader.bc File.bc Tga.bc Log.bc

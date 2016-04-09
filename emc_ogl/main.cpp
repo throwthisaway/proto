@@ -50,7 +50,8 @@ inline glm::vec3 RotateZ(const glm::vec3& v, const glm::vec3& c, float r) {
 class Scene;
 struct {
 #ifdef DEBUG_REL
-	const float invincibility = 0.f;
+	const float invincibility = 0.f,
+		text_scale = 1200.f;
 #else
 	const float invincibility = 5000.f;
 #endif
@@ -168,10 +169,12 @@ namespace Asset {
 			restart = false;
 			for (auto& l : lineIndices) {
 				if (l.size() <= 1) continue;
+				// <---+--->, --->+<---
 				if (lines[l.front()].v1 == lines[l.back()].v1 || lines[l.front()].v2 == lines[l.back()].v2)
 				{
 					size_t swap_line_index = (swapped[l.back()]) ? l.front() : l.back();
-					assert(!(swapped[l.back()] && swapped[l.front()]));
+					// TODO:: cyclical graphs and more than 2 lines sharing a vertex are not supported
+					//assert(!(swapped[l.back()] && swapped[l.front()]));
 					std::swap(lines[swap_line_index].v1, lines[swap_line_index].v2);
 					swapped[swap_line_index] = true;
 					restart = true;
@@ -195,6 +198,7 @@ namespace Asset {
 			}
 			auto n1 = lineNormals[line_index.front()];
 			if (line_index.size() > 1) {
+				// vertexes sharing more than 2 lines are not supported
 				n1 = glm::normalize(n1 + lineNormals[line_index.back()]);
 				// preserve the thickness on joints
 				const auto& l = lines[line_index.back()];
@@ -202,6 +206,7 @@ namespace Asset {
 				auto f = glm::dot(v, n1);	// cos(angle) between normal and the line
 				auto d = glm::distance(v * f, n1); // distancve between the normal and the normal projected onto the line
 				n1 = n1 / d; // grow normal the preserve the distance between the normal endpoint and the line
+				// TODO:: cyclical graphs and more than 2 lines sharing a vertex are not supported
 				assert(!(lines[line_index.front()].v1 == lines[line_index.back()].v1 || lines[line_index.front()].v2 == lines[line_index.back()].v2));
 			}
 			vertexNormals[idx++] = n1 * lineWidth;
@@ -301,7 +306,7 @@ namespace Asset {
 
 	struct Assets {
 		std::vector<Model*> models;
-		Model probe, propulsion, land, missile, debris;
+		Model probe, propulsion, land, missile, debris, text, debug;
 		Assets() {
 #ifdef __EMSCRIPTEN__
 #define PATH_PREFIX ""
@@ -309,6 +314,14 @@ namespace Asset {
 #define PATH_PREFIX "..//..//emc_ogl//"
 #endif
 			const float scale = 40.f, propulsion_scale = 80.f;
+
+			//{
+			//	MeshLoader::Mesh mesh;
+			//	ReadMeshFile(PATH_PREFIX"asset//debug2.mesh", mesh);
+			//	debug = Reconstruct(mesh,  12000.);
+			//	models.push_back(&debug);
+			//}
+
 			{
 				const std::vector<glm::vec3> vertices{ { 0.f, 0.f, 0.f },
 				{ 1.f,0.f, 0.f },
@@ -350,6 +363,12 @@ namespace Asset {
 				models.push_back(&land);
 			}
 			{
+				MeshLoader::Mesh mesh;
+				ReadMeshFile(PATH_PREFIX"asset//text.mesh", mesh);
+				text = Reconstruct(mesh, globals.text_scale);
+				models.push_back(&text);
+			}
+			{
 				const std::vector<glm::vec3> vertices{ { 0.f, 0.f, 0.f },
 				{  0.5f, 0.f, 0.f },
 				{ 1.f, 0.f, 0.f } };
@@ -360,12 +379,14 @@ namespace Asset {
 			}
 			for (auto& m : models) {
 				for (auto& l : m->layers) {
+					if (l.parts.empty()) continue;
 					l.aabb = CalcAABB(m->vertices, l.parts.front().first, l.parts.front().count);
 					for (size_t i = 1; i < l.parts.size(); ++i) {
 						auto aabb = CalcAABB(m->vertices, l.parts[i].first, l.parts[i].count);
 						l.aabb = Union(l.aabb, aabb);
 					}
 				}
+
 
 				m->aabb = m->layers.front().aabb;
 				for (size_t i = 1; i < m->layers.size(); ++i)
@@ -1212,7 +1233,11 @@ void GenerateSquare(float x, float y, float s, std::vector<glm::vec3>& data) {
 const glm::vec4 colors[] = { { 1.0f,0.5f,0.5f , 1.f },{ 1.0f,0.75f,0.5f , 1.f },{ 1.0f,1.0f,0.5f , 1.f },{ 0.75f,1.0f,0.5f , 1.f },
 { 0.5f,1.0f,0.5f , 1.f },{ 0.5f,1.0f,0.75f , 1.f },{ 0.5f,1.0f,1.0f , 1.f },{ 0.5f,0.75f,1.0f , 1.f },
 { 0.5f,0.5f,1.0f , 1.f },{ 0.75f,0.5f,1.0f , 1.f },{ 1.0f,0.5f,1.0f , 1.f },{ 1.0f,0.5f,0.75f , 1.f } };
-
+struct Text {
+	glm::vec3 pos;
+	float scale;
+	std::string str;
+};
 struct Renderer {
 	const Asset::Assets& assets;
 	RT rt;
@@ -1228,7 +1253,8 @@ struct Renderer {
 		VBO_PARTICLE = 6,
 		VBO_PROPULSION = 7,
 		VBO_DEBRIS = 8,
-		VBO_COUNT = 9;
+		VBO_TEXT = 9,
+		VBO_COUNT = 10;
 	struct Missile{
 		GLuint texID;
 		~Missile() {
@@ -1456,6 +1482,12 @@ struct Renderer {
 			// propulsion
 			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_PROPULSION]);
 			glBufferData(GL_ARRAY_BUFFER, assets.propulsion.vertices.size() * sizeof(assets.propulsion.vertices[0]), &assets.propulsion.vertices.front(), GL_STATIC_DRAW);
+		}
+		{
+			// text
+			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_TEXT]);
+			glBufferData(GL_ARRAY_BUFFER, assets.text.vertices.size() * sizeof(assets.text.vertices[0]), &assets.text.vertices.front(), GL_STATIC_DRAW);
+			glBindBuffer(GL_ARRAY_BUFFER, 0);
 		}
 		
 	}
@@ -1734,6 +1766,27 @@ struct Renderer {
 		glUseProgram(0);
 		glDisable(GL_BLEND);
 	}
+	void Draw(const Camera& cam, const std::vector<Text>& texts) {
+		glEnableVertexAttribArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_TEXT]);
+		glVertexAttribPointer(0,
+			3,
+			GL_FLOAT,
+			GL_FALSE,
+			0,
+			(void*)0);
+		auto& shader = colorShader;
+		glUseProgram(shader.program.id);
+		glm::vec3 pos;
+		for (const auto& layer : assets.text.layers)
+			for (const auto& p : layer.parts) {
+				glm::mat4 mvp = glm::translate(cam.vp, pos);
+				pos.x -= 30.f;
+				glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+				glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, 1.f);
+				glDrawArrays(GL_TRIANGLES, p.first, p.count);
+			}
+	}
 	~Renderer() {
 		glDeleteBuffers(sizeof(vbo)/sizeof(vbo[0]), vbo);
 		glDeleteTextures(1, &tex);
@@ -1972,6 +2025,7 @@ public:
 		if (player)
 			renderer.Draw(camera, *player.get());
 		renderer.Draw(camera, particles);
+		renderer.Draw(camera, std::vector<Text>{});
 		renderer.PostRender();
 	}
 

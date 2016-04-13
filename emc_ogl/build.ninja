@@ -14,6 +14,7 @@ build types.bc: cpp ${MeshLoaderPath}types.cpp
 build MeshSurface.bc: cpp ${MeshLoaderPath}MeshSurface.cpp
 build File.bc: cpp ${MeshLoaderPath}File.cpp
 build FileReader.bc: cpp ${MeshLoaderPath}FileReader.cpp
+build Img.bc: cpp ${MeshLoaderPath}Img.cpp
 build Tga.bc: cpp ${MeshLoaderPath}Tga.cpp
 build Log.bc: cpp ${MeshLoaderPath}Log.cpp
-build main.js: link main.bc MeshLoader.bc types.bc MeshSurface.bc FileReader.bc File.bc Tga.bc Log.bc
+build main.js: link main.bc MeshLoader.bc types.bc MeshSurface.bc FileReader.bc File.bc Img.bc Tga.bc Log.bc

@@ -19,6 +19,11 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\..\MeshLoader\File.cpp" />
+    <ClCompile Include="..\..\..\MeshLoader\FileReader.cpp" />
+    <ClCompile Include="..\..\..\MeshLoader\Img.cpp" />
+    <ClCompile Include="..\..\..\MeshLoader\Log.cpp" />
+    <ClCompile Include="..\..\..\MeshLoader\Tga.cpp" />
     <ClCompile Include="..\..\emc_ogl\main.cpp" />
     <ClCompile Include="..\..\..\MeshLoader\MeshLoader.cpp" />
     <ClCompile Include="..\..\..\MeshLoader\MeshSurface.cpp" />
@@ -26,10 +31,16 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\MeshLoader\Deserialize.h" />
+    <ClInclude Include="..\..\..\MeshLoader\File.h" />
+    <ClInclude Include="..\..\..\MeshLoader\FileReader.h" />
     <ClInclude Include="..\..\..\MeshLoader\Image.h" />
+    <ClInclude Include="..\..\..\MeshLoader\Img.h" />
+    <ClInclude Include="..\..\..\MeshLoader\Log.h" />
+    <ClInclude Include="..\..\..\MeshLoader\Logger.h" />
     <ClInclude Include="..\..\..\MeshLoader\MeshLoader.h" />
     <ClInclude Include="..\..\..\MeshLoader\MeshSurface.h" />
     <ClInclude Include="..\..\..\MeshLoader\pch.h" />
+    <ClInclude Include="..\..\..\MeshLoader\Tga.h" />
     <ClInclude Include="..\..\..\MeshLoader\types.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">

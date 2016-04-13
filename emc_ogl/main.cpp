@@ -29,6 +29,8 @@
 #include "../emc_socket/Socket.h"
 #include <GLFW/glfw3.h>
 #include <inttypes.h>
+#include "../../MeshLoader/Tga.h"
+#include "../../MeshLoader/File.h"
 //#define VAO_SUPPORT
 #define DEBUG_REL
 template<typename T>
@@ -47,14 +49,28 @@ inline glm::vec3 RotateZ(const glm::vec3& v, const glm::vec3& c, float r) {
 	//return{std::cos(r) * (v.x - c.x), std::sin(r) * (v.y - c.y), 0.f };
 	return glm::rotateZ(v - c, r);
 }
+static const glm::vec4 c64[] = {/* {0.f/255.f,0.f/255.f,0.f/255.f, 1.f},*/{ 255.f/255.f, 255.f/255.f, 255.f/255.f, 1.f},{ 152.f/255.f, 75.f/255.f, 67.f/255.f, 1.f},{ 121.f/255.f, 193.f/255.f, 200.f/255.f, 1.f},{ 155.f/255.f, 81.f/255.f, 165.f/255.f, 1.f},{ 104.f/255.f, 174.f/255.f, 92.f/255.f, 1.f},{ 82.f/255.f, 66.f/255.f, 157.f/255.f, 1.f},{ 201.f/255.f, 214.f/255.f, 132.f/255.f, 1.f},
+{ 155.f/255.f, 103.f/255.f, 57.f/255.f, 1.f},{ 106.f/255.f, 84.f/255.f, 0.f/255.f, 1.f},{ 195.f/255.f, 123.f/255.f, 117.f/255.f, 1.f},{ 99.f/255.f, 99.f/255.f, 99.f/255.f, 1.f},{ 138.f/255.f, 138.f/255.f, 138.f/255.f, 1.f},{ 163.f/255.f, 229.f/255.f, 153.f/255.f, 1.f},{ 138.f/255.f, 123.f/255.f, 206.f/255.f, 1.f},{ 173.f/255.f, 173.f/255.f, 173.f/255.f, 1.f } },
+cpc[] = {/* { 0.f/255.f,0.f/255.f,0.f/255.f, 1.f},*/{ 0.f/255.f, 0.f/255.f, 128.f/255.f, 1.f},{ 0.f/255.f, 0.f/255.f, 255.f/255.f, 1.f},{ 128.f/255.f, 0.f/255.f, 0.f/255.f, 1.f},{ 128.f/255.f, 0.f/255.f, 128.f/255.f, 1.f},{ 128.f/255.f, 0.f/255.f, 255.f/255.f, 1.f},{ 255.f/255.f, 0.f/255.f, 0.f/255.f, 1.f},{ 255.f/255.f, 0.f/255.f, 128.f/255.f, 1.f},{ 255.f/255.f, 0.f/255.f, 255.f/255.f, 1.f},
+{ 0.f/255.f, 128.f/255.f, 0.f/255.f, 1.f},{ 0.f/255.f, 128.f/255.f, 128.f/255.f, 1.f},{ 0.f/255.f, 128.f/255.f, 255.f/255.f, 1.f},{ 128.f/255.f, 128.f/255.f, 0.f/255.f, 1.f},{ 128.f/255.f, 128.f/255.f, 128.f/255.f, 1.f},{ 128.f/255.f, 128.f/255.f, 255.f/255.f, 1.f},{ 255.f/255.f, 128.f/255.f, 0.f/255.f, 1.f},{ 255.f/255.f, 128.f/255.f, 128.f/255.f, 1.f},{ 255.f/255.f, 128.f/255.f, 255.f/255.f, 1.f},
+{ 0.f/255.f, 255.f/255.f, 0.f/255.f, 1.f},{ 0.f/255.f, 255.f/255.f, 128.f/255.f, 1.f},{ 0.f/255.f, 255.f/255.f, 255.f/255.f, 1.f},{ 128.f/255.f, 255.f/255.f, 0.f/255.f, 1.f},{ 128.f/255.f, 255.f/255.f, 128.f/255.f, 1.f},{ 128.f/255.f, 255.f/255.f, 255.f/255.f, 1.f},{ 255.f/255.f, 255.f/255.f, 0.f/255.f, 1.f},{ 255.f/255.f, 255.f/255.f, 128.f/255.f, 1.f},{ 255.f/255.f, 255.f/255.f, 255.f/255.f, 1. } },
+speccy[] = {/* { 0.f/255.f,0.f/255.f,0.f/255.f, 1.f},*/{ 0.f/255.f, 0.f/255.f, 202.f/255.f, 1.f},{ 202.f/255.f, 0.f/255.f, 0.f/255.f, 1.f},{ 202.f/255.f, 0.f/255.f, 202.f/255.f, 1.f},{ 0.f/255.f, 202.f/255.f, 0.f/255.f, 1.f},{ 0.f/255.f, 202.f/255.f, 202.f/255.f, 1.f},{ 202.f/255.f, 202.f/255.f, 0.f/255.f, 1.f},{ 202.f/255.f, 202.f/255.f, 202.f/255.f, 1.f},
+/*{ 0.f/255.f,0.f/255.f,0.f/255.f, 1.f},*/{ 0.f/255.f, 0.f/255.f, 255.f/255.f, 1.f},{ 255.f/255.f, 0.f/255.f, 0.f/255.f, 1.f},{ 255.f/255.f, 0.f/255.f, 255.f/255.f, 1.f},{ 0.f/255.f, 255.f/255.f, 0.f/255.f, 1.f},{ 0.f/255.f, 255.f/255.f, 255.f/255.f, 1.f},{ 255.f/255.f, 255.f/255.f, 0.f/255.f, 1.f},{ 255.f/255.f, 255.f/255.f, 255.f/255.f, 1.f } };
+//const glm::vec4 colors[] = { { 1.0f,0.5f,0.5f , 1.f },{ 1.0f,0.75f,0.5f , 1.f },{ 1.0f,1.0f,0.5f , 1.f },{ 0.75f,1.0f,0.5f , 1.f },
+//{ 0.5f,1.0f,0.5f , 1.f },{ 0.5f,1.0f,0.75f , 1.f },{ 0.5f,1.0f,1.0f , 1.f },{ 0.5f,0.75f,1.0f , 1.f },
+//{ 0.5f,0.5f,1.0f , 1.f },{ 0.75f,0.5f,1.0f , 1.f },{ 1.0f,0.5f,1.0f , 1.f },{ 1.0f,0.5f,0.75f , 1.f } };
 class Scene;
-struct {
+static struct {
 #ifdef DEBUG_REL
-	const float invincibility = 0.f,
-		text_scale = 1200.f;
+	const float invincibility = 0.f;;
 #else
 	const float invincibility = 5000.f;
 #endif
+	const float	text_scale = 1200.f,
+		scale = 40.f,
+		propulsion_scale = 80.f;
+	const gsl::span<const glm::vec4, gsl::dynamic_range> palette = gsl::as_span(c64, sizeof(c64) / sizeof(c64[0]));
+
 	std::string host = "localhost";
 	unsigned short port = 8000;
 	int width = 640, height = 480;
@@ -304,7 +320,18 @@ namespace Asset {
 		return{ vertices,{ { {},{ Asset::Layer::Surface{ GLint(0), GLsizei(vertices.size()), {1.f, 1.f, 1.f} } } } } };
 	}
 
+	Img::ImgData LoadImage(const char* path) {
+		Img::CTga img;
+		auto res = img.Load(path);
+		if (res != ID_IMG_OK) throw exception("Image load error");
+		if (img.GetImage().pf == Img::PF_BGR || img.GetImage().pf == Img::PF_BGRA)
+			img.GetImage().ChangeComponentOrder();
+		return img.GetImage();
+	}
+
 	struct Assets {
+		std::vector<Img::ImgData> images;
+		size_t masks_image_index;
 		std::vector<Model*> models;
 		Model probe, propulsion, land, missile, debris, text, debug;
 		Assets() {
@@ -313,8 +340,32 @@ namespace Asset {
 #else
 #define PATH_PREFIX "..//..//emc_ogl//"
 #endif
-			const float scale = 40.f, propulsion_scale = 80.f;
+			{
+//				size_t i = 0;
+//				masks_start = images.size();
+//				while (1) {
+//					std::string path = PATH_PREFIX"asset//masks//mask" + std::to_string(++i) + ".tga";
+//					if (!IO::CFile::Exists(path.c_str())) break;
+//#ifdef __EMSCRIPTEN__
+//					emscripten_log(EM_LOG_CONSOLE, "mask image founad @ %s\n", path.c_str());
+//#endif
+//					auto img = std::make_unique<Img::CTga>();
+//					auto res = img->Load(path.c_str());
+//					assert(res == ID_IMG_OK);
+//					if (res != ID_IMG_OK) continue;
+//					if (img->GetImage().pf == Img::PF_BGR || img->GetImage().pf == Img::PF_BGRA)
+//						img->GetImage().ChangeComponentOrder();
+//					images.push_back(std::move(img));
+//				}
+//				masks_end = images.size();
+				images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x4.tga"));
+				masks_image_index = 0;
+				images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_staggered_6x8.tga"));
 
+#ifdef __EMSCRIPTEN__
+				emscripten_log(EM_LOG_CONSOLE, "image count %d\n", images.size());
+#endif
+			}
 			//{
 			//	MeshLoader::Mesh mesh;
 			//	ReadMeshFile(PATH_PREFIX"asset//debug2.mesh", mesh);
@@ -327,8 +378,8 @@ namespace Asset {
 				{ 1.f,0.f, 0.f },
 				{ 1.f, -1.f, 0.f } };
 				std::vector<MeshLoader::PolyLine> lines{ { 0, 1 },{ 2, 1 } };
-				const std::vector<glm::vec2> texcoord{ { 0.f, 0.f },{ .5f, 0.f },{ 1.f, 0.f } };
-				missile = Reconstruct(vertices, lines, texcoord, scale);
+				const std::vector<glm::vec2> texcoord{ { 0.f, 0.f },{.5f, 0.f },{ 1.f, 0.f } };
+				missile = Reconstruct(vertices, lines, texcoord, globals.scale);
 				models.push_back(&missile);
 			}
 			{
@@ -344,22 +395,22 @@ namespace Asset {
 					mesh.surfaces[1].color[1],
 					mesh.surfaces[1].color[2]);
 #endif
-				probe = Reconstruct(mesh, scale);
+				probe = Reconstruct(mesh, globals.scale);
 				models.push_back(&probe);
 				
-				debris = ExtractLines(mesh, scale);
+				debris = ExtractLines(mesh, globals.scale);
 				models.push_back(&debris);
 			}
 			{
 				MeshLoader::Mesh mesh;
 				ReadMeshFile(PATH_PREFIX"asset//propulsion.mesh", mesh);
-				propulsion = Reconstruct(mesh, propulsion_scale);
+				propulsion = Reconstruct(mesh, globals.propulsion_scale);
 				models.push_back(&propulsion);
 			}
 			{
 				MeshLoader::Mesh mesh;
 				ReadMeshFile(PATH_PREFIX"asset//land.mesh", mesh);
-				land = Reconstruct(mesh, scale);
+				land = Reconstruct(mesh, globals.scale);
 				models.push_back(&land);
 			}
 			{
@@ -373,7 +424,7 @@ namespace Asset {
 				{  0.5f, 0.f, 0.f },
 				{ 1.f, 0.f, 0.f } };
 				std::vector<MeshLoader::PolyLine> lines{ {0, 1}, {1, 2}};
-				const std::vector<glm::vec2> texcoord { { 0.f, 0.f },{ .5f, 0.f},{ 1.f, 0.f} };
+				const std::vector<glm::vec2> texcoord { { 0.f, 0.f },{.5f, 0.f},{ 1.f, 0.f} };
 				missile = Reconstruct(vertices, lines, texcoord, missile_size, 10.f);
 				models.push_back(&missile);
 			}
@@ -536,8 +587,8 @@ vec3 voronoi(vec2 x) {
 	for (int j = -1; j<=1; ++j)
 	{
 		vec2 o = vec2(float(i), float(j));
-		vec2 rnd_site = texture2D( smp1, (n + o + .5)/uTexSize).xy;
-		rnd_site = .5 + sin(uTotal*.001*rnd_site)*.5;
+		vec2 rnd_site = texture2D( smp1, (n + o +.5)/uTexSize).xy;
+		rnd_site =.5 + sin(uTotal*.001*rnd_site)*.5;
 		rnd_site += o - f ;	// distance to the current fragment
 		float d = dot(rnd_site, rnd_site);
 		if (d<min_d) {
@@ -552,8 +603,8 @@ vec3 voronoi(vec2 x) {
 	for (int j = -2; j<=2; ++j)
 	{
 		vec2 o = min_offset + vec2(float(i), float(j));
-		vec2 rnd_site = texture2D( smp1, (n + o + .5)/uTexSize).xy;
-		rnd_site = .5 + sin(uTotal*.001*rnd_site)*.5;
+		vec2 rnd_site = texture2D( smp1, (n + o +.5)/uTexSize).xy;
+		rnd_site =.5 + sin(uTotal*.001*rnd_site)*.5;
 		rnd_site += o - f ;	// distance to the current fragment
 		vec2 vd = rnd_site - min_site;
 		float d = dot(vd, vd);
@@ -569,8 +620,8 @@ void main()
 	vec2 p = uv1 * FACTOR;
 	vec3 res = voronoi(p);
 	float dis = 1.0 - smoothstep( 0.0, 0.2, res.x );
-	//color = vec3(HeatMapColor(smoothstep(.0, .8, res.x ), 0., 1.)) + dis * vec3(1.);
-	gl_FragColor = (dis + smoothstep(.0, .8, res.x ))*vec4(1.);
+	//color = vec3(HeatMapColor(smoothstep(.0,.8, res.x ), 0., 1.)) + dis * vec3(1.);
+	gl_FragColor = (dis + smoothstep(.0,.8, res.x ))*vec4(1.);
 }
 )", 0 };
 		GLuint uSmp, uElapsed, uTotal, uRes, uMVP, uTexSize;
@@ -595,13 +646,14 @@ void main()
 	#endif
 	R"(
 precision highp float;
-attribute vec3 pos;
-attribute vec2 uv_in;
+attribute vec3 aPos;
+attribute vec2 aRT, aMask;
 
-varying vec2 uv_fs;
+varying vec2 vRT, vMask;
 void main() {
-	gl_Position = vec4(pos, 1.0);
-	uv_fs = uv_in;
+	gl_Position = vec4(aPos, 1.0);
+	vRT = aRT;
+	vMask = aMask;
 }
 )",
 #ifndef __EMSCRIPTEN__
@@ -609,9 +661,10 @@ void main() {
 #endif
 R"(
 precision highp float;
-varying vec2 uv_fs;
-uniform sampler2D uSmp;
+varying vec2 vRT, vMask;
+uniform sampler2D uSmpRT, uSmpMask;
 uniform vec2 uScreenSize;
+uniform float uMaskOpacity, uMaskVRepeat;
 float less(float v, float cmp) {
 	return 1.0 - step(v, cmp);
 }
@@ -625,25 +678,10 @@ float in_between(float v, float l, float u) {
 }
 
 void main() {
-	vec2 fragment_pos = uScreenSize * uv_fs;
-	//vec4 frag1 = texture2D(uSmp, vec2(uv_fs.x, uv_fs.y)),
-	//	frag2 = texture2D(uSmp, vec2(uv_fs.x + 1.0, uv_fs.y)),
-	//	frag3 = texture2D(uSmp, vec2(uv_fs.x + 1.0, uv_fs.y + 1.0)),
-	//	frag4 = texture2D(uSmp, vec2(uv_fs.x, uv_fs.y + 1.0)); //*vec4(uv_fs, 1.0, 1.0);
-	//vec4 frag = max(frag1, max(frag2, max(frag3, frag4)));
-
-	vec4 frag1 = texture2D(uSmp, vec2(uv_fs.x, uv_fs.y)),
-		frag2 = texture2D(uSmp, vec2(uv_fs.x + 1.0, uv_fs.y)),
-		frag3 = texture2D(uSmp, vec2(uv_fs.x + 1.0, uv_fs.y + 1.0)),
-		frag4 = texture2D(uSmp, vec2(uv_fs.x, uv_fs.y + 1.0)),
-		frag5 = texture2D(uSmp, vec2(uv_fs.x - 1.0, uv_fs.y + 1.0)),
-		frag6 = texture2D(uSmp, vec2(uv_fs.x - 1.0, uv_fs.y)),
-		frag7 = texture2D(uSmp, vec2(uv_fs.x - 1.0, uv_fs.y - 1.0)),
-		frag8 = texture2D(uSmp, vec2(uv_fs.x, uv_fs.y - 1.0)),
-		frag9 = texture2D(uSmp, vec2(uv_fs.x + 1.0, uv_fs.y - 1.0));
-
-	vec4 frag = max(frag1, max(frag2, max(frag3, max(frag4, max(frag5, max(frag6, max(frag7, max(frag8, frag9))))))));
-	vec2 scan = mod(fragment_pos, 4.0);
+	vec2 fragment_pos = uScreenSize * vRT;
+	vec4 frag = texture2D(uSmpRT, vec2(vRT.x, vRT.y)),
+		mask = texture2D(uSmpMask, vec2(mod(vMask.x, uMaskVRepeat), vMask.y));
+	/*vec2 scan = mod(fragment_pos, 4.0);
 	float k1 = 0.4, k2 = 0.2;
 	vec4 mask1 = vec4(1.0, k1, k2, 1.0),
 		mask2 = vec4(k1, 1.0, k2, 1.0),
@@ -658,11 +696,11 @@ void main() {
 	else
 		frag *= mask4;
 	if (scan.y >= 3.0)
-		frag *= vec4(0.5);
-	gl_FragColor = frag;
+		frag *= vec4(0.5);*/
+	gl_FragColor = mix(frag, frag * mask,  uMaskOpacity);
 }
 )", 0 };
-		GLuint uSmp, uScreenSize;
+		GLuint uSmpRT, uSmpMask, uScreenSize, aPos, aRT, aMask, uMaskOpacity, uMaskVRepeat;
 		RTShader() {
 			ReloadProgram();
 		}
@@ -670,8 +708,15 @@ void main() {
 			if (program.id) glDeleteProgram(program.id);
 			program.id = LoadShaders(program.vs, program.fs);
 			if (!program.id) throw custom_exception("Shader program compilation/link error");
-			uSmp = glGetUniformLocation(program.id, "uSmp");
+			uSmpRT = glGetUniformLocation(program.id, "uSmpRT");
+			const GLubyte * err = glewGetErrorString(glGetError());
+			uSmpMask = glGetUniformLocation(program.id, "uSmpMask");
 			uScreenSize = glGetUniformLocation(program.id, "uScreenSize");
+			uMaskOpacity = glGetUniformLocation(program.id, "uMaskOpacity");
+			uMaskVRepeat = glGetUniformLocation(program.id, "uMaskVRepeat");
+			aPos = glGetAttribLocation(program.id, "aPos");
+			aRT = glGetAttribLocation(program.id, "aRT");
+			aMask = glGetAttribLocation(program.id, "aMask");
 		}
 	};
 
@@ -864,9 +909,11 @@ struct Camera {
 };
 class RT {
 	Shader::RTShader shader;
-	GLuint vao, vbo1, vbo2, txt, rbo, fbo;
-	const size_t w = 256, h = 256;
+	GLuint vao, vbo1, vbo2, txt, rbo, fbo, mask_uv;
+	const size_t w = globals.width, h = globals.height;
 public:
+	GLuint mask = 0;
+	float maskOpacity = 1.f, maskRepeat = .75f;
 	RT() {
 		static const GLfloat g_vertex_buffer_data[] = { -1.0f, -1.0f, 0.0f,
 			1.f, -1.0f, 0.0f,
@@ -877,7 +924,7 @@ public:
 		glBufferData(GL_ARRAY_BUFFER, sizeof(g_vertex_buffer_data), g_vertex_buffer_data, GL_STATIC_DRAW);
 
 		static const GLfloat g_uv_buffer_data[] = { 0.f, 0.f,
-			1.f, .0f,
+			1.f,.0f,
 			0.f,  1.0f,
 			1.f, 1.f};
 		glGenBuffers(1, &vbo2);
@@ -927,6 +974,26 @@ public:
 		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo);
 		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, txt, 0);
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+		glGenBuffers(1, &mask_uv);
+	}
+	
+	void GenMaskUVBufferData(float sw, float sh, float iw, float ih) {
+		//const GLfloat uv_buffer_data[] = { 0.f, 0.f,
+		//	1.f,.0f,
+		//	0.f,  1.0f,
+		//	1.f, 1.f }; 
+		/*const GLfloat uv_buffer_data[] = { 0.f, 0.f,
+			sw / iw,.0f,
+			0.f,  sh / ih,
+			sw / iw, sh / ih };*/
+		const auto w = sw / iw, h = sh / ih;
+		const GLfloat uv_buffer_data[] = { 0.f, 0.f,
+			w, .0f,
+			0.f, h,
+			w, h };
+		glBindBuffer(GL_ARRAY_BUFFER, mask_uv);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(uv_buffer_data), uv_buffer_data, GL_STATIC_DRAW);
 	}
 	void Set() {
 		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -944,33 +1011,51 @@ public:
 #ifdef VAO_SUPPORT
 		glBindVertexArray(vao);
 #else
+		// render target quad vertices
 		glEnableVertexAttribArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, vbo1);
-		glVertexAttribPointer(0,
+		glVertexAttribPointer(shader.aPos,
 			3,
 			GL_FLOAT,
 			GL_FALSE,
 			0,
 			(void*)0);
+		// render target uv
 		glEnableVertexAttribArray(1);
 		glBindBuffer(GL_ARRAY_BUFFER, vbo2);
-		glVertexAttribPointer(1,
+		glVertexAttribPointer(shader.aRT,
 			2,
 			GL_FLOAT,
 			GL_FALSE,
 			0,
-			(void*)0);	
+			(void*)0);
+		// mask uv
+		glEnableVertexAttribArray(2);
+		glBindBuffer(GL_ARRAY_BUFFER, mask_uv);
+		glVertexAttribPointer(shader.aMask,
+			2,
+			GL_FLOAT,
+			GL_FALSE,
+			0,
+			(void*)0);
 #endif
+		glUniform1f(shader.uMaskOpacity, maskOpacity);
+		glUniform1f(shader.uMaskVRepeat, maskRepeat);
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, txt);
-		glUniform1i(shader.uSmp, 0);
+		glUniform1i(shader.uSmpRT, 0);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, mask);
+		glUniform1i(shader.uSmpMask, 1);
 		glUniform2f(shader.uScreenSize, (GLfloat)globals.width, (GLfloat)globals.height);
 
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 		glDisable(GL_TEXTURE_2D);
+		glActiveTexture(GL_TEXTURE0);
 #ifndef VAO_SUPPORT
 		glDisableVertexAttribArray(0);
 		glDisableVertexAttribArray(1);
+		glDisableVertexAttribArray(2);
 #endif
 	}
 	~RT() {
@@ -978,6 +1063,7 @@ public:
 		glDeleteRenderbuffers(1, &rbo);
 		glDeleteBuffers(1, &vbo1);
 		glDeleteBuffers(1, &vbo2);
+		glDeleteBuffers(1, &mask_uv);
 #ifdef VAO_SUPPORT
 		glDeleteVertexArrays(1, &vao);
 #endif
@@ -1033,17 +1119,17 @@ struct ProtoX {
 	Client *ws;
 	const Asset::Model& debris_ref;
 	Asset::Model debris;
-	const float max_vel = .3f,
+	const float max_vel =.3f,
 		m = 500.f,
-		force = .1f,
-		slowdown = .0003f,
+		force =.1f,
+		slowdown =.0003f,
 		g = -.1f, /* m/ms2 */
 		ground_level = 20.f,
 		blink_rate = 50.f, // ms
 		blink_duration = globals.invincibility,  // ms
 		fade_out_time = 1500.f, // ms
-		debris_speed = .1f, //px/ ms
-		debris_centrifugal_speed = .01f; // rad/ms
+		debris_speed =.1f, //px/ ms
+		debris_centrifugal_speed =.01f; // rad/ms
 	// state...
 	float invincible, blink_time, fade_out, hit_time;
 	bool visible, hit, killed;
@@ -1110,7 +1196,7 @@ struct ProtoX {
 	void Shoot(std::vector<Missile>& missiles) {
 		const float missile_vel = 1.f;
 		auto rot = turret.rest_pos + turret.rot;
-		const glm::vec3 missile_vec{ std::cos(rot) * missile_vel, std::sin(rot) * missile_vel, .0f};
+		const glm::vec3 missile_vec{ std::cos(rot) * missile_vel, std::sin(rot) * missile_vel,.0f};
 		missiles.push_back({ pos + missile_start_offset, rot, glm::length(missile_vec), this, ++missile_id });
 		if (ws) {
 			auto& m = missiles.back();
@@ -1133,7 +1219,7 @@ struct ProtoX {
 		if (invincible > 0.f || hit || killed) return;
 		hit = true;
 		this->hit_pos = hit_pos - pos;
-		this->hit_time = hit_time;
+		this->hit_time = (float)hit_time;
 		debris = debris_ref;
 	}
 	void Update(const Time& t, const AABB& bounds) {
@@ -1221,7 +1307,7 @@ struct ProtoX {
 	}
 };
 void GenerateSquare(float x, float y, float s, std::vector<glm::vec3>& data) {
-	s *= .5f;
+	s *=.5f;
 	data.emplace_back(x - s, y - s, 0.f);
 	data.emplace_back(x + s, y - s, 0.f);
 	data.emplace_back(x - s, y + s, 0.f);
@@ -1230,9 +1316,7 @@ void GenerateSquare(float x, float y, float s, std::vector<glm::vec3>& data) {
 	data.emplace_back(x + s, y + s, 0.f);
 	data.emplace_back(x - s, y + s, 0.f);
 }
-const glm::vec4 colors[] = { { 1.0f,0.5f,0.5f , 1.f },{ 1.0f,0.75f,0.5f , 1.f },{ 1.0f,1.0f,0.5f , 1.f },{ 0.75f,1.0f,0.5f , 1.f },
-{ 0.5f,1.0f,0.5f , 1.f },{ 0.5f,1.0f,0.75f , 1.f },{ 0.5f,1.0f,1.0f , 1.f },{ 0.5f,0.75f,1.0f , 1.f },
-{ 0.5f,0.5f,1.0f , 1.f },{ 0.75f,0.5f,1.0f , 1.f },{ 1.0f,0.5f,1.0f , 1.f },{ 1.0f,0.5f,0.75f , 1.f } };
+
 struct Text {
 	glm::vec3 pos;
 	float scale;
@@ -1255,6 +1339,11 @@ struct Renderer {
 		VBO_DEBRIS = 8,
 		VBO_TEXT = 9,
 		VBO_COUNT = 10;
+	GLuint vbo[VBO_COUNT];
+	std::vector<GLuint> tex;
+#ifdef VAO_SUPPORT
+	GLuint vao;
+#endif
 	struct Missile{
 		GLuint texID;
 		~Missile() {
@@ -1265,8 +1354,8 @@ struct Renderer {
 		static GLuint vbo;
 		static GLsizei vertex_count;
 		static const size_t count = 100;
-		static constexpr float slowdown = .01f, g = -.00005f, init_mul = 1.f, min_fade = 750.f, max_fade = 1500.,
-			v_min = .05f, v_max = .2f, blink_rate = 33.;
+		static constexpr float slowdown =.01f, g = -.00005f, init_mul = 1.f, min_fade = 750.f, max_fade = 1500.,
+			v_min =.05f, v_max =.2f, blink_rate = 33.;
 		glm::vec3 pos;
 		bool kill = false;
 		float time;
@@ -1282,7 +1371,7 @@ struct Renderer {
 			static std::uniform_real_distribution<> rad_dist(.0, glm::two_pi<float>());
 			static std::uniform_real_distribution<float> fade_dist(min_fade, max_fade);
 			static std::uniform_real_distribution<> v_dist(v_min, v_max);
-			static std::uniform_int_distribution<> col_idx_dist(0, sizeof(colors) / sizeof(colors[0]) - 1);
+			static std::uniform_int_distribution<> col_idx_dist(0, globals.palette.size() - 1);
 			for (size_t i = 0; i < count; ++i) {
 				arr[i].col = { col_dist(mt), col_dist(mt), col_dist(mt), 1.f };
 				arr[i].pos = {};
@@ -1302,7 +1391,7 @@ struct Renderer {
 				arr[i].pos += arr[i].v * (float)t.frame;
 				//arr[i].v *= 1.f - arr[i].decay * (float)t.frame;
 				arr[i].v.y += g * (float)t.frame;
-				arr[i].col = colors[(arr[i].start_col_idx + size_t((t.total - time) / blink_rate)) % (sizeof(colors) / sizeof(colors[0]))];
+				arr[i].col = globals.palette[(arr[i].start_col_idx + size_t((t.total - time) / blink_rate)) % globals.palette.size()];
 				arr[i].col.a = arr[i].life;
 				auto fade_time = (float)(t.total - time) / arr[i].fade_duration;
 				arr[i].life = 1.f - fade_time * fade_time * fade_time * fade_time * fade_time;
@@ -1320,21 +1409,47 @@ struct Renderer {
 			glm::vec3 color;
 		}layer1, layer2, layer3;
 	}starField;
-	GLuint vbo[VBO_COUNT], tex;
-#ifdef VAO_SUPPORT
-	GLuint vao;
-#endif
 	static void DumpCircle(const size_t steps = 16) {
 		const float ratio = 0.5f;
 		for (size_t i = 0; i <= steps; ++i) {
 			std::cout << std::cos(glm::two_pi<float>() / steps * i) * ratio << "f, " <<
-				std::sin(glm::two_pi<float>() / steps * i) * ratio << "f, .0f,\n";
+				std::sin(glm::two_pi<float>() / steps * i) * ratio << "f,.0f,\n";
 		}
 	}
 	Renderer(Asset::Assets& assets, const AABB& scene_bounds) : assets(assets) {
 		Init(scene_bounds);
 	}
 	void Init(const AABB& scene_bounds) {
+		tex.resize(assets.images.size());
+		glGenTextures(tex.size(), &tex.front());
+		for (size_t i = 0; i < tex.size(); ++i) {
+		
+			GLint fmt, internalFmt;
+			auto& img = assets.images[i];
+			if (img.pf == Img::PF_RGBA)
+				fmt = internalFmt = GL_RGBA;
+			else if (img.pf == Img::PF_RGB)
+				fmt = internalFmt = GL_RGB;
+			else if (img.pf == Img::PF_BGR)
+				fmt = internalFmt = GL_BGR;
+			else if (img.pf == Img::PF_BGRA)
+				fmt = internalFmt = GL_BGRA;
+			else
+				throw exception("Image format is neiter RGBA nor RGB");
+
+			glBindTexture(GL_TEXTURE_2D, tex[i]);
+			glTexImage2D(GL_TEXTURE_2D, 0, internalFmt, img.width, img.height, 0, fmt, GL_UNSIGNED_BYTE, &img.data.front());
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		}
+		rt.mask = tex[assets.masks_image_index];
+
+		rt.GenMaskUVBufferData((float)globals.width, (float)globals.height, assets.images[assets.masks_image_index].width,
+			assets.images[assets.masks_image_index].height);
+		glBindTexture(GL_TEXTURE_2D, 0);
+
 		glGenBuffers(sizeof(vbo) / sizeof(vbo[0]), vbo);
 		// ProtoX
 		{
@@ -1466,7 +1581,7 @@ struct Renderer {
 			}
 			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_STARFIELD]);
 			glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * data.size(), &data.front(), GL_STATIC_DRAW);
-			starField = { count_per_layer, scene_bounds, vbo[VBO_STARFIELD], count_per_layer * layer_count, {1.f, {1.f, 1.f, 1.f}}, {.5f,{ .5f, .0f, .0f }}, {.25f,{ .0f, .0f, .5f } } };
+			starField = { count_per_layer, scene_bounds, vbo[VBO_STARFIELD], count_per_layer * layer_count, {1.f, {1.f, 1.f, 1.f}}, {.5f,{.5f,.0f,.0f }}, {.25f,{.0f,.0f,.5f } } };
 		}
 		
 		{
@@ -1492,13 +1607,13 @@ struct Renderer {
 		
 	}
 	void PreRender() {
-		//rt.Set();
+		rt.Set();
 		glClear(GL_COLOR_BUFFER_BIT);
 		//glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 	}
 	void PostRender() {
-		//rt.Render();
-		//rt.Reset();
+		rt.Render();
+		rt.Reset();
 	}
 	void DrawBackground(const Camera& cam) {
 		const auto& shader = colorShader;
@@ -1789,7 +1904,7 @@ struct Renderer {
 	}
 	~Renderer() {
 		glDeleteBuffers(sizeof(vbo)/sizeof(vbo[0]), vbo);
-		glDeleteTextures(1, &tex);
+		glDeleteTextures(tex.size(), &tex.front());
 #ifdef VAO_SUPPORT
 		glDeleteVertexArrays(1, &vao);
 #endif
@@ -1801,6 +1916,7 @@ GLsizei Renderer::Particles::vertex_count;
 struct InputHandler {
 	enum class Keys{Left, Right, W, A, D, Count};
 	enum class ButtonClick{LB, RB, MB};
+	static std::function<void(int key, int scancode, int action, int mods)> keyCb;
 	static bool keys[(size_t)Keys::Count];
 	static double x, y, px, py;
 	static bool lb, rb, mb;
@@ -1825,6 +1941,7 @@ struct InputHandler {
 			keys[(size_t)Keys::D] = action == GLFW_PRESS || action == GLFW_REPEAT;
 			break;
 		}
+		if (keyCb) keyCb(key, scancode, action, mods);
 	}
 	static void cursor_pos_callback(GLFWwindow* window, double xpos, double ypos)
 	{
@@ -1875,6 +1992,7 @@ bool InputHandler::lb = false, InputHandler::rb = false,InputHandler::mb = false
 double InputHandler::x, InputHandler::y, InputHandler::px, InputHandler::py;
 bool InputHandler::update = false;
 std::queue<InputHandler::ButtonClick> InputHandler::event_queue;
+std::function<void(int key, int scancode, int action, int mods)> InputHandler::keyCb;
 
 class Scene {
 public:
@@ -1947,6 +2065,7 @@ public:
 		auto& p = players[0xbeef];
 		p->pos.x = 100.f;
 #endif
+		inputHandler.keyCb = std::bind(&Scene::KeyCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
 		texID = GenTexture(texw, texh);
 		mesh.model = glm::translate(mesh.model, mesh.pos);
 		auto mvp = camera.proj * camera.view * mesh.model;
@@ -1963,7 +2082,7 @@ public:
 		glBufferData(GL_ARRAY_BUFFER, sizeof(g_vertex_buffer_data), g_vertex_buffer_data, GL_STATIC_DRAW);
 
 		static const GLfloat g_uv_buffer_data[] = { 0.f, 0.f,
-			1.f, .0f,
+			1.f,.0f,
 			.5f,  1.0f };
 
 		glGenBuffers(1, &uvbuffer);
@@ -2038,9 +2157,22 @@ public:
 		missiles.pop_back();
 		return true;
 	}
+	void KeyCallback(int key, int scancode, int action, int mods) {
+		static float w = assets.images[assets.masks_image_index].width, h =
+			assets.images[assets.masks_image_index].height;
+		if (key == GLFW_KEY_PAGE_UP && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+			renderer.rt.GenMaskUVBufferData( globals.width, globals.height, w+=.1f, h+=.1f);
+		} else if (key == GLFW_KEY_PAGE_DOWN && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+			renderer.rt.GenMaskUVBufferData(globals.width, globals.height, w-=.1f, h-=.1f);
+		}else if (key == GLFW_KEY_HOME && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+			renderer.rt.maskOpacity+=.05f;
+		}else if (key == GLFW_KEY_END && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+			renderer.rt.maskOpacity-=.05f;
+		}
+	}
 	void Update(const Time& t) {
-		const double scroll_speed = .5, // px/s
-			rot_ratio = .002;
+		const double scroll_speed =.5, // px/s
+			rot_ratio =.002;
 		if (inputHandler.keys[(size_t)InputHandler::Keys::Left])
 			camera.Translate(float(scroll_speed * t.frame), 0.f, 0.f);
 		if (inputHandler.keys[(size_t)InputHandler::Keys::Right])
@@ -2306,7 +2438,7 @@ void init(int width, int height) {
 	ThrowIf(glewInit() != GLEW_OK, "glew init failed");
 	ThrowIf(glewGetString(0) != NULL, (const char*)glewGetString(0));
 
-	glClearColor(0.f, .0f, .0f, 1.f);
+	glClearColor(0.f,.0f,.0f, 1.f);
 #ifdef REPORT_RESULT  
 	int result = 1;
 	REPORT_RESULT();

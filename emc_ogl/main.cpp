@@ -66,9 +66,10 @@ static struct {
 #else
 	const float invincibility = 5000.f;
 #endif
-	const float	text_scale = 1200.f,
-		scale = 40.f,
-		propulsion_scale = 80.f;
+	const float	scale = 40.f,
+		propulsion_scale = 80.f,
+		text_spacing = 30.f,
+		text_scale = 120.f;
 	const gsl::span<const glm::vec4, gsl::dynamic_range> palette = gsl::as_span(c64, sizeof(c64) / sizeof(c64[0]));
 
 	std::string host = "localhost";
@@ -1893,14 +1894,20 @@ struct Renderer {
 		auto& shader = colorShader;
 		glUseProgram(shader.program.id);
 		glm::vec3 pos;
-		for (const auto& layer : assets.text.layers)
-			for (const auto& p : layer.parts) {
+		for (const auto& str : texts) {
+			auto pos = str.pos;
+			for (const auto& c : str.str) {
 				glm::mat4 mvp = glm::translate(cam.vp, pos);
-				pos.x -= 30.f;
-				glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-				glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, 1.f);
-				glDrawArrays(GL_TRIANGLES, p.first, p.count);
+				if (c - 0x20 >= assets.text.layers.size()) continue;
+				const auto& layer = assets.text.layers[c - 0x20];
+				for (const auto& p : layer.parts) {
+					glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+					glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, 1.f);
+					glDrawArrays(GL_TRIANGLES, p.first, p.count);
+					pos.x += layer.aabb.r - layer.aabb.l + globals.text_spacing;
+				}
 			}
+		}
 	}
 	~Renderer() {
 		glDeleteBuffers(sizeof(vbo)/sizeof(vbo[0]), vbo);
@@ -2004,6 +2011,7 @@ public:
 	std::vector<Missile> missiles;
 	std::map<size_t, std::unique_ptr<ProtoX>> players;
 	std::list<Renderer::Particles> particles;
+	std::vector<Text> texts;
 	Object mesh{ { 5.f, 0.f, 0.f } };
 	Camera camera{ globals.width, globals.height };
 	InputHandler inputHandler;
@@ -2057,6 +2065,7 @@ public:
 		player(std::make_unique<ProtoX>(0xdeadbeef, assets.probe, assets.debris, assets.propulsion.layers.size())),
 #endif
 		renderer(assets, bounds) {
+		texts.push_back(Text{ {}, 1.f, "A !\"'()&%$#0123456789:;<=>?AMKXR" });
 		/*bounds.t = float((height >> 1) + (height >> 2));
 		bounds.b = -float((height >> 1) + (height >> 2));*/
 #ifdef DEBUG_REL
@@ -2144,7 +2153,7 @@ public:
 		if (player)
 			renderer.Draw(camera, *player.get());
 		renderer.Draw(camera, particles);
-		renderer.Draw(camera, std::vector<Text>{});
+		renderer.Draw(camera, texts);
 		renderer.PostRender();
 	}
 

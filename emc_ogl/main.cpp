@@ -70,7 +70,7 @@ static struct {
 		propulsion_scale = 80.f,
 		text_spacing = 30.f,
 		text_scale = 120.f;
-	const gsl::span<const glm::vec4, gsl::dynamic_range> palette = gsl::as_span(c64, sizeof(c64) / sizeof(c64[0]));
+	const gsl::span<const glm::vec4, gsl::dynamic_range> palette = gsl::as_span(cpc, sizeof(cpc) / sizeof(cpc[0]));
 
 	std::string host = "localhost";
 	unsigned short port = 8000;
@@ -1120,6 +1120,7 @@ struct ProtoX {
 	Client *ws;
 	const Asset::Model& debris_ref;
 	Asset::Model debris;
+	std::vector<float> debris_centrifugal_speed, debris_speed;
 	const float max_vel =.3f,
 		m = 500.f,
 		force =.1f,
@@ -1129,8 +1130,9 @@ struct ProtoX {
 		blink_rate = 50.f, // ms
 		blink_duration = globals.invincibility,  // ms
 		fade_out_time = 1500.f, // ms
-		debris_speed =.1f, //px/ ms
-		debris_centrifugal_speed =.01f; // rad/ms
+		max_debris_speed =.3f, //px/ ms
+		min_debris_speed = .05f, //px/ ms
+		debris_max_centrifugal_speed =.02f; // rad/ms
 	// state...
 	float invincible, blink_time, fade_out, hit_time;
 	bool visible, hit, killed;
@@ -1188,6 +1190,8 @@ struct ProtoX {
 		right({ -25.f, 15.f, 0.f }, -glm::half_pi<float>(), frame_count),
 		bottom({}, 0.f, frame_count),
 		turret(model.layers.back()) {
+		debris_centrifugal_speed.resize(debris.vertices.size() / 6);
+		debris_speed.resize(debris.vertices.size() / 6);
 		Init();
 #ifdef __EMSCRIPTEN__
 		emscripten_log(EM_LOG_CONSOLE, "Player connected");
@@ -1222,6 +1226,10 @@ struct ProtoX {
 		this->hit_pos = hit_pos - pos;
 		this->hit_time = (float)hit_time;
 		debris = debris_ref;
+		static std::uniform_real_distribution<> dist_cfs(-debris_max_centrifugal_speed, debris_max_centrifugal_speed),
+			dist_sp(min_debris_speed, max_debris_speed);
+		for (auto& cfs : debris_centrifugal_speed) cfs = dist_cfs(mt);
+		for (auto& sp : debris_speed) sp = dist_sp(mt);
 	}
 	void Update(const Time& t, const AABB& bounds) {
 		if (invincible > 0.f) {
@@ -1242,16 +1250,16 @@ struct ProtoX {
 			fade_out = 1.f - fade_time * fade_time * fade_time * fade_time * fade_time;
 			if (killed = fade_out <= 0.0001f) return;
 			// TODO:: refactor to continuous fx instead of incremental
-			for (size_t i = 0; i < debris.vertices.size(); i += 6) {
+			for (size_t i = 0, cfs = 0; i < debris.vertices.size(); i += 6, ++cfs) {
 				// TODO:: only enough to have the average of the furthest vertices
 				auto center = (debris.vertices[i] + debris.vertices[i + 1] + debris.vertices[i + 2] +
 					debris.vertices[i + 3] + debris.vertices[i + 4] + debris.vertices[i + 5]) / 6.f;
 				auto v = center - hit_pos;
 				float len = glm::length(v);
 				v /= len;
-				v *= debris_speed * (float)t.frame;
+				v *= debris_speed[cfs] * (float)t.frame;
 				//v.y += g * (float)t.frame;
-				auto incr = debris_centrifugal_speed * (float)t.frame;
+				auto incr = debris_centrifugal_speed[cfs] * (float)t.frame;
 //				auto r = RotateZ(debris.vertices[i], center, incr);
 				debris.vertices[i] += v;
 				debris.vertices[i] = center + RotateZ(debris.vertices[i], center, incr);
@@ -1354,9 +1362,9 @@ struct Renderer {
 	struct Particles {
 		static GLuint vbo;
 		static GLsizei vertex_count;
-		static const size_t count = 100;
+		static const size_t count = 200;
 		static constexpr float slowdown =.01f, g = -.00005f, init_mul = 1.f, min_fade = 750.f, max_fade = 1500.,
-			v_min =.05f, v_max =.2f, blink_rate = 33.;
+			v_min =.05f, v_max =.35f, blink_rate = 33.;
 		glm::vec3 pos;
 		bool kill = false;
 		float time;

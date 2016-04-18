@@ -140,6 +140,25 @@ wss.on('connection', function(ws) {
                 ws.terminate();
                 return;
             }
+            var lower, upper;
+            for (i = 0;i<session.length;++i) {
+                var client = session[i];
+                if (client.lower == undefined) {
+                    lower = ws;
+                    upper = client;
+                    break;
+                }
+                if (client.upper == undefined) {
+                    upper = ws;
+                    lower = client;
+                    break;
+                }
+            }
+            if (lower && upper) {
+                lower.upper = upper; upper.lower = lower;
+                lower.send(str2ab('CTRL' + upper.clientID + '1'));
+                upper.send(str2ab('CTRL' + lower.clientID + '0'));
+            }
             session.push(ws);
             ws.session = session;
             console.log('session player count: ' + session.length);
@@ -155,6 +174,18 @@ wss.on('connection', function(ws) {
     });
     ws.on('close', function (code, message) {
         if (ws.session) {
+            for (i = 0; i < ws.session.length; ++i) {
+                var client = ws.session[i];
+                if (client.lower == ws) {
+                    client.lower = undefined;
+                    break;
+                }
+                if (client.upper == ws) {
+                    client.upper = undefined;
+                    break;
+                }
+            }
+
             broadcastToSession(ws, ws.session, str2ab('KILL' + ws.clientID));
             if (ws.session.length > 1)
                 ws.session[ws.session.indexOf(ws)] = ws.session[ws.session.length - 1];

@@ -33,6 +33,7 @@
 #include "../../MeshLoader/File.h"
 //#define VAO_SUPPORT
 #define DEBUG_REL
+#define CLIENTID_LEN 5
 template<typename T>
 constexpr size_t ID5(const T& t, size_t offset) {
 	return ((t[offset + 4] - '0') << 20) | ((t[offset + 3] - '0') << 15) | ((t[offset + 2] - '0') << 10) | ((t[offset + 1] - '0') << 5) | (t[offset] - '0');
@@ -911,7 +912,7 @@ struct Camera {
 class RT {
 	Shader::RTShader shader;
 	GLuint vao, vbo1, vbo2, txt, rbo, fbo, mask_uv;
-	const size_t w = globals.width, h = globals.height;
+	const size_t w = 512/*globals.width*/, h = 512/*globals.height*/;
 public:
 	GLuint mask = 0;
 	float maskOpacity = 1.f, maskRepeat = .75f;
@@ -954,10 +955,10 @@ public:
 #endif
 		glGenTextures(1, &txt);
 		glBindTexture(GL_TEXTURE_2D, txt);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 		//glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_FALSE);
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0,
 			GL_RGBA, GL_UNSIGNED_BYTE, 0);
@@ -1099,20 +1100,26 @@ struct Missile {
 			pos.y > bounds.t;
 	}
 };
+struct Ctrl {
+	const size_t tag;
+	const char other_id[CLIENTID_LEN];
+	const char upper;
+};
 struct Plyr {
-	size_t tag, id;
-	float x, y, rot, invincible;
+	const size_t tag, id;
+	const float x, y, rot, invincible;
 };
 struct Misl {
-	size_t tag, player_id, missile_id;
-	float x, y, rot, vel;
+	const size_t tag, player_id, missile_id;
+	const float x, y, rot, vel;
 };
 struct Scor {
-	size_t tag, owner_id, target_id, missile_id;
-	float x, y;
+	const size_t tag, owner_id, target_id, missile_id;
+	const float x, y;
 };
 struct Kill {
-	size_t tag, client_id;
+	const size_t tag;
+	const char client_id[CLIENTID_LEN];
 };
 struct ProtoX {
 	const size_t id;
@@ -1134,7 +1141,8 @@ struct ProtoX {
 		min_debris_speed = .05f, //px/ ms
 		debris_max_centrifugal_speed =.02f; // rad/ms
 	// state...
-	float invincible, blink_time, fade_out, hit_time;
+	float invincible, blink_time, fade_out;
+	double hit_time;
 	bool visible, hit, killed;
 	glm::vec3 pos, vel, f, hit_pos;
 	const glm::vec3 missile_start_offset;
@@ -1175,9 +1183,8 @@ struct ProtoX {
 			max_rot = glm::radians(225.f) - rest_pos;
 		const Asset::Layer& layer;
 		Turret(const Asset::Layer& layer) :layer(layer) {}
-		void Update(const Time& t) {
-			rot = std::max(min_rot, rot);
-			rot = std::min(max_rot, rot);
+		void SetRot(const float rot) {
+			this->rot = std::min(max_rot, std::max(min_rot, rot));
 		}
 	}turret;
 	ProtoX(const size_t id, const Asset::Model& model, const Asset::Model& debris, size_t frame_count, Client* ws = nullptr) : id(id),
@@ -1199,6 +1206,7 @@ struct ProtoX {
 		
 	}
 	void Shoot(std::vector<Missile>& missiles) {
+		if (killed) return;
 		const float missile_vel = 1.f;
 		auto rot = turret.rest_pos + turret.rot;
 		const glm::vec3 missile_vec{ std::cos(rot) * missile_vel, std::sin(rot) * missile_vel,.0f};
@@ -1224,9 +1232,9 @@ struct ProtoX {
 		if (invincible > 0.f || hit || killed) return;
 		hit = true;
 		this->hit_pos = hit_pos - pos;
-		this->hit_time = (float)hit_time;
+		this->hit_time = hit_time;
 		debris = debris_ref;
-		static std::uniform_real_distribution<> dist_cfs(-debris_max_centrifugal_speed, debris_max_centrifugal_speed),
+		static std::uniform_real_distribution<float> dist_cfs(-debris_max_centrifugal_speed, debris_max_centrifugal_speed),
 			dist_sp(min_debris_speed, max_debris_speed);
 		for (auto& cfs : debris_centrifugal_speed) cfs = dist_cfs(mt);
 		for (auto& sp : debris_speed) sp = dist_sp(mt);
@@ -1248,7 +1256,7 @@ struct ProtoX {
 		else if (hit) {
 			auto fade_time = (float)(t.total - hit_time) / fade_out_time;
 			fade_out = 1.f - fade_time * fade_time * fade_time * fade_time * fade_time;
-			if (killed = fade_out <= 0.0001f) return;
+			if (killed = (fade_out <= 0.0001f)) return;
 			// TODO:: refactor to continuous fx instead of incremental
 			for (size_t i = 0, cfs = 0; i < debris.vertices.size(); i += 6, ++cfs) {
 				// TODO:: only enough to have the average of the furthest vertices
@@ -1279,7 +1287,6 @@ struct ProtoX {
 		left.Update(t);
 		right.Update(t);
 		bottom.Update(t);
-		turret.Update(t);
 		vel += (f / m) * (float)t.frame;
 		pos += vel * (float)t.frame;
 		vel.x = std::max(-max_vel, std::min(max_vel, vel.x));
@@ -1582,7 +1589,7 @@ struct Renderer {
 			for (size_t j = 0; j < layer_count; ++j) {
 				std::uniform_real_distribution<> dist_x(scene_bounds.l * mul,
 					scene_bounds.r * mul),
-					dist_y(scene_bounds.b * mul, scene_bounds.t * mul);
+					dist_y(0.f/*scene_bounds.b * mul*/, scene_bounds.t * mul);
 				mul -=.5f;
 				for (size_t i = 0; i < count_per_layer; ++i) {
 					GenerateSquare((float)dist_x(mt), (float)dist_y(mt), star_size, data);
@@ -2196,7 +2203,8 @@ public:
 			camera.Translate(float(scroll_speed * t.frame), 0.f, 0.f);
 		if (player) {
 			if (inputHandler.update)
-				player->turret.rot += float((inputHandler.px - inputHandler.x) * rot_ratio);
+				player->turret.SetRot(float((globals.width>>1) - inputHandler.x) * rot_ratio);
+				//player->turret.rot += float((inputHandler.px - inputHandler.x) * rot_ratio);
 
 			player->Move(t, inputHandler.keys[(size_t)InputHandler::Keys::A],
 				inputHandler.keys[(size_t)InputHandler::Keys::D],
@@ -2216,10 +2224,14 @@ public:
 			p.second->Update(t, bounds);
 		}
 
-		for (auto p = std::begin(players); p != std::end(players);){
-			if (p->second->killed)
+		for (auto p = std::begin(players); p != std::end(players);) {
+			if (p->second->killed) {
 				players.erase(p++);
+			}
 			else ++p;
+		}
+		if (player->killed) {
+			player = std::make_unique<ProtoX>(player->id, assets.probe, assets.debris, assets.propulsion.layers.size(), globals.ws.get());
 		}
 		for (auto& m : missiles) {
 			m.Update(t);
@@ -2342,21 +2354,20 @@ public:
 		globals.ws->Send(msg.arr, sizeof(msg.str));
 	}
 	void OnPlyr(const std::vector<unsigned char>& msg) {
-		Plyr player;
-		memcpy(&player, &msg.front(), msg.size());
+		const Plyr* player = reinterpret_cast<const Plyr*>(&msg.front());
 //#ifdef __EMSCRIPTEN__
 //		emscripten_log(EM_LOG_CONSOLE, "OnPlyr %d ", player.id, player.x, player.y, player.rot, player.invincible);
 //#endif
-		auto it = players.find(player.id);
+		auto it = players.find(player->id);
 		ProtoX * proto;
 		if (it == players.end()) {
-			auto ptr = std::make_unique<ProtoX>( player.id, assets.probe, assets.debris, assets.propulsion.layers.size() );
+			auto ptr = std::make_unique<ProtoX>( player->id, assets.probe, assets.debris, assets.propulsion.layers.size() );
 			proto = ptr.get();
-			players[player.id] = std::move(ptr);
+			players[player->id] = std::move(ptr);
 		}
 		else
 			proto = it->second.get();
-		proto->pos.x = player.x; proto->pos.y = player.y; proto->turret.rot = player.rot; proto->invincible = player.invincible;
+		proto->pos.x = player->x; proto->pos.y = player->y; proto->turret.rot = player->rot; proto->invincible = player->invincible;
 	}
 	void OnMisl(const std::vector<unsigned char>& msg) {
 		const Misl* misl = reinterpret_cast<const Misl*>(&msg.front());
@@ -2364,41 +2375,47 @@ public:
 		if (it != players.end())
 			missiles.push_back({ { misl->x, misl->y, 0.f }, misl->rot, misl->vel, it->second.get(), misl->missile_id });
 	}
-	void OnScor(const std::vector<unsigned char>& msg) {
+	void OnScor(const std::vector<unsigned char>& msg, const Time& t) {
 		if (!player) return;
 		const Scor* scor = reinterpret_cast<const Scor*>(&msg.front());
-		particles.push_back({ glm::vec3{scor->x, scor->y, 0.f}, (double)timer.Total() });
+		particles.push_back({ glm::vec3{scor->x, scor->y, 0.f}, t.total });
 		auto it = std::find_if(missiles.begin(), missiles.end(), [=](const Missile& m) {
 			return m.owner->id == scor->owner_id && m.id == scor->missile_id;});
 		if (it != missiles.end()) {
-			printf("remove %d\n", missiles.size());
 			RemoveMissile(*it);
-			printf("after %d\n", missiles.size());
 		}
 		if (scor->target_id == player->id)
-			player->Kill({ scor->x, scor->y, 0.f }, (double)timer.Total());
+			player->Kill({ scor->x, scor->y, 0.f }, t.total);
 		else {
 			auto it = players.find(scor->target_id);
 			if (it != players.end())
-				it->second->Kill({ scor->x, scor->y, 0.f }, (double)timer.Total());
+				it->second->Kill({ scor->x, scor->y, 0.f }, t.total);
 		}
 	}
-	void OnKill(const std::vector<unsigned char>& msg) {
+	void OnKill(const std::vector<unsigned char>& msg, const Time& t) {
 		const Kill* kill = reinterpret_cast<const Kill*>(&msg.front());
+		auto clientID = ID5(kill->client_id, 0);
 		auto it = std::find_if(std::begin(players), std::end(players), [&](const auto& p) {
-			return p.second->id == kill->client_id; });
+			return p.second->id == clientID;
+		});
 		if (it == std::end(players)) return;
 		auto& p = it->second;
 		auto hit_pos = p->pos + glm::vec3{ p->aabb.r - p->aabb.l, p->aabb.t - p->aabb.b, 0.f };
-		p->Kill(hit_pos, (double)timer.Total());
+		particles.push_back({hit_pos, t.total });
+		p->Kill(hit_pos, t.total);
 	}
-	void Dispatch(const std::vector<unsigned char>& msg) {
+	void OnCtrl(const std::vector<unsigned char>& msg) {
+		const Ctrl* ctrl = reinterpret_cast<const Ctrl*>(&msg.front());
+		// TODO::
+	}
+	void Dispatch(const std::vector<unsigned char>& msg, const Time& t) {
 		size_t tag = Tag(msg);
-		constexpr size_t conn = Tag("CONN"), // clientID
-			kill = Tag("KILL"),	// clientID
+		constexpr size_t conn = Tag("CONN"), // str clientID
+			kill = Tag("KILL"),	// str clientID
 			plyr = Tag("PLYR"), // clientID, pos.x, pos.y, invincible
 			misl = Tag("MISL"), // clientID, pos.x, pos.y, v.x, v.y
-			scor = Tag("SCOR"); // clientID, clientID
+			scor = Tag("SCOR"), // clientID, clientID
+			ctrl = Tag("CTRL"); // other str clientID , upper = '1' / lower = '0'
 //#ifdef __EMSCRIPTEN__
 //		emscripten_log(EM_LOG_CONSOLE, "Dispatch %x ", tag);
 //#endif
@@ -2413,20 +2430,23 @@ public:
 			OnMisl(msg);
 			break;
 		case scor:
-			OnScor(msg);
+			OnScor(msg, t);
 			break;
 		case kill:
+			OnKill(msg, t);
+			break;
+		case ctrl:
 		#ifdef __EMSCRIPTEN__
-			emscripten_log(EM_LOG_CONSOLE, "kill %x ", ID5(msg, 4));
+			emscripten_log(EM_LOG_CONSOLE, "ctrl %x ", ID5(msg, 4));
 		#endif
-			OnKill(msg);
+			OnCtrl(msg);
 			break;
 		}
 	}
-	void ProcessMessages() {
+	void ProcessMessages(const Time& t) {
 		while (messages.size()) {
 			auto& msg = messages.front();
-			Dispatch(msg);
+			Dispatch(msg, t);
 			messages.pop();
 		}
 	}
@@ -2518,7 +2538,7 @@ int main(int argc, char** argv) {
 void main_loop() {
 //	try {
 		timer.Tick();
-		globals.scene->ProcessMessages();
+		globals.scene->ProcessMessages({ (double)timer.Total(), (double)timer.Elapsed() });
 		globals.scene->Update({ (double)timer.Total(), (double)timer.Elapsed() });
 		globals.scene->Render();
 		InputHandler::Reset();

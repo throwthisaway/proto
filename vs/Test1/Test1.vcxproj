@@ -24,10 +24,17 @@
     <ClCompile Include="..\..\..\MeshLoader\Img.cpp" />
     <ClCompile Include="..\..\..\MeshLoader\Log.cpp" />
     <ClCompile Include="..\..\..\MeshLoader\Tga.cpp" />
+    <ClCompile Include="..\..\emc_ogl\Exception.cpp" />
     <ClCompile Include="..\..\emc_ogl\main.cpp" />
     <ClCompile Include="..\..\..\MeshLoader\MeshLoader.cpp" />
     <ClCompile Include="..\..\..\MeshLoader\MeshSurface.cpp" />
     <ClCompile Include="..\..\..\MeshLoader\types.cpp" />
+    <ClCompile Include="..\..\emc_ogl\shader\Color.cpp" />
+    <ClCompile Include="..\..\emc_ogl\shader\ColorPosAttrib.cpp" />
+    <ClCompile Include="..\..\emc_ogl\shader\RTShader.cpp" />
+    <ClCompile Include="..\..\emc_ogl\shader\Shader.cpp" />
+    <ClCompile Include="..\..\emc_ogl\shader\Simple.cpp" />
+    <ClCompile Include="..\..\emc_ogl\shader\Texture.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\MeshLoader\Deserialize.h" />
@@ -42,6 +49,14 @@
     <ClInclude Include="..\..\..\MeshLoader\pch.h" />
     <ClInclude Include="..\..\..\MeshLoader\Tga.h" />
     <ClInclude Include="..\..\..\MeshLoader\types.h" />
+    <ClInclude Include="..\..\emc_ogl\Exception.h" />
+    <ClInclude Include="..\..\emc_ogl\Logging.h" />
+    <ClInclude Include="..\..\emc_ogl\shader\Color.h" />
+    <ClInclude Include="..\..\emc_ogl\shader\ColorPosAttrib.h" />
+    <ClInclude Include="..\..\emc_ogl\shader\RTShader.h" />
+    <ClInclude Include="..\..\emc_ogl\shader\Shader.h" />
+    <ClInclude Include="..\..\emc_ogl\shader\Simple.h" />
+    <ClInclude Include="..\..\emc_ogl\shader\Texture.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{DE93DCEE-D835-438C-A0C2-565C0C4463F9}</ProjectGuid>
@@ -115,6 +130,8 @@
       <PreprocessorDefinitions>_WINSOCK_DEPRECATED_NO_WARNINGS;GLM;GLEW_STATIC;WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;..\..\..\..\3rdparty\GSL\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <MinimalRebuild>false</MinimalRebuild>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -132,6 +149,8 @@
       <PreprocessorDefinitions>_WINSOCK_DEPRECATED_NO_WARNINGS;GLM;GLEW_STATIC;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;..\..\..\..\3rdparty\GSL\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <MinimalRebuild>false</MinimalRebuild>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -151,6 +170,7 @@
       <PreprocessorDefinitions>_WINSOCK_DEPRECATED_NO_WARNINGS;GLM;GLEW_STATIC;WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;..\..\..\..\3rdparty\GSL\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -172,6 +192,7 @@
       <PreprocessorDefinitions>_WINSOCK_DEPRECATED_NO_WARNINGS;GLM;GLEW_STATIC;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;..\..\..\..\3rdparty\GSL\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

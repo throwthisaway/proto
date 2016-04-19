@@ -1,11 +1,4 @@
 #include <GL/glew.h>
-#ifdef __EMSCRIPTEN__
-#include <emscripten.h>
-#include <html5.h>
-#else
-#include <iostream>
-#include <iomanip>
-#endif
 #include <assert.h>
 #include <string.h>
 #include <sstream>
@@ -31,6 +24,14 @@
 #include <inttypes.h>
 #include "../../MeshLoader/Tga.h"
 #include "../../MeshLoader/File.h"
+
+#include "Exception.h"
+#include "Logging.h"
+#include "Shader/Simple.h"
+#include "Shader/Color.h"
+#include "Shader/ColorPosAttrib.h"
+#include "Shader/Texture.h"
+#include "Shader/RTShader.h"
 //#define VAO_SUPPORT
 #define DEBUG_REL
 #define CLIENTID_LEN 5
@@ -80,11 +81,7 @@ static struct {
 	std::unique_ptr<Scene> scene;
 	std::unique_ptr<Client> ws;
 }globals;
-class exception : std::exception {
-public:
-	exception(const std::string& message) : message(message) {}
-	const std::string message;
-};
+
 static const size_t texw = 256, texh = 256;
 static GLFWwindow * window;
 static std::random_device rd;
@@ -99,7 +96,7 @@ static void ReadMeshFile(const char* fname, MeshLoader::Mesh& mesh) {
 	if (!f) {
 		std::stringstream ss;
 		ss << "Can't open file: " << fname;
-		throw exception(ss.str());
+		throw custom_exception(ss.str());
 	}
 	::fseek(f, 0, SEEK_END);
 	auto fpos = ::ftell(f);
@@ -325,7 +322,7 @@ namespace Asset {
 	Img::ImgData LoadImage(const char* path) {
 		Img::CTga img;
 		auto res = img.Load(path);
-		if (res != ID_IMG_OK) throw exception("Image load error");
+		ThrowIf(res != ID_IMG_OK, "Image load error");
 		if (img.GetImage().pf == Img::PF_BGR || img.GetImage().pf == Img::PF_BGRA)
 			img.GetImage().ChangeComponentOrder();
 		return img.GetImage();
@@ -448,85 +445,12 @@ namespace Asset {
 		}
 	};
 }
-#ifdef __EMSCRIPTEN__
-#define LOG_ERR(error, msg) emscripten_log(EM_LOG_ERROR, "ERROR: %d : %s\n", error, msg)
-#define LOG_INFO(msg) emscripten_log(EM_LOG_CONSOLE, "%s", msg)
-#else
-#define LOG_ERR(error, msg) std::cerr << "ERROR: " << error << " : " << msg << "\n";
-#define LOG_INFO(msg) std::cerr << msg;
-#endif
 
 static void errorcb(int error, const char *msg) {
 	LOG_ERR(error, msg);
 }
-class custom_exception : public std::exception {
-	const char* _what;
-public:
-	custom_exception(const char* what) : _what(what) {}
-	const char * what() const _NOEXCEPT override { return _what; }
-};
-void ThrowIf(bool exp, const char* msg) {
-	if (exp) throw custom_exception(msg);
-}
 
-GLuint LoadShaders(const char* vs, const char* fs) {
 
-	using namespace std;
-	// Create the shaders
-	GLuint VertexShaderID = glCreateShader(GL_VERTEX_SHADER);
-	GLuint FragmentShaderID = glCreateShader(GL_FRAGMENT_SHADER);
-	GLuint ProgramID = 0;
-	GLint result = GL_FALSE;
-	int InfoLogLength;
-
-	glShaderSource(VertexShaderID, 1, &vs, NULL);
-	glCompileShader(VertexShaderID);
-
-	// Check Vertex Shader
-	glGetShaderiv(VertexShaderID, GL_COMPILE_STATUS, &result);
-	glGetShaderiv(VertexShaderID, GL_INFO_LOG_LENGTH, &InfoLogLength);
-	if (!result) {
-		std::vector<char> VertexShaderErrorMessage(InfoLogLength + 1);
-		glGetShaderInfoLog(VertexShaderID, InfoLogLength, NULL, &VertexShaderErrorMessage[0]);
-		LOG_INFO("Vertex Shader:");
-		LOG_ERR(-1, &VertexShaderErrorMessage[0]);
-		return 0;
-	}
-
-	glShaderSource(FragmentShaderID, 1, &fs, NULL);
-	glCompileShader(FragmentShaderID);
-
-	// Check Fragment Shader
-	glGetShaderiv(FragmentShaderID, GL_COMPILE_STATUS, &result);
-	glGetShaderiv(FragmentShaderID, GL_INFO_LOG_LENGTH, &InfoLogLength);
-	if (!result) {
-		std::vector<char> FragmentShaderErrorMessage(InfoLogLength + 1);
-		glGetShaderInfoLog(FragmentShaderID, InfoLogLength, NULL, &FragmentShaderErrorMessage[0]);
-		LOG_INFO("Fragment Shader:");
-		LOG_ERR(-1, &FragmentShaderErrorMessage[0]);
-		return 0;
-	}
-
-	ProgramID = glCreateProgram();
-	glAttachShader(ProgramID, VertexShaderID);
-	glAttachShader(ProgramID, FragmentShaderID);
-	glLinkProgram(ProgramID);
-
-	// Check the program
-	glGetProgramiv(ProgramID, GL_LINK_STATUS, &result);
-	glGetProgramiv(ProgramID, GL_INFO_LOG_LENGTH, &InfoLogLength);
-	if (!result) {
-		glDeleteProgram(ProgramID);
-		std::vector<char> ProgramErrorMessage(InfoLogLength + 1);
-		glGetProgramInfoLog(ProgramID, InfoLogLength, NULL, &ProgramErrorMessage[0]);
-		LOG_ERR(-1, &ProgramErrorMessage[0]);
-		return 0;
-	}
-
-	glDeleteShader(VertexShaderID);
-	glDeleteShader(FragmentShaderID);
-	return ProgramID;
-}
 // http://gizma.com/easing/
 // cubic easing out
 // t - current time
@@ -541,308 +465,7 @@ auto easeOutCubic(double t, double b, double c, double d) {
 auto linearTween(double t, double b, double c, double d) {
 	return c*t / d + b;
 };
-namespace Shader {
-	struct Program {
-		const char* vs, *fs;
-		GLuint id;
-		~Program() {
-			glDeleteShader(id);
-		}
-	};
-	struct Simple {
-		Program program{
-	#ifndef __EMSCRIPTEN__
-	"#version 130\n"
-	#endif
-	R"(
-precision mediump float;
-// Input vertex data, different for all executions of this shader.
-attribute vec3 pos;
-attribute vec2 uv1_in;
 
-uniform mat4 uMVP;
-
-varying vec2 uv1;
-
-void main() {
-	gl_Position = uMVP * vec4(pos, 1.);
-	uv1 = uv1_in;
-}
-)",
-#ifndef __EMSCRIPTEN__
-"#version 130\n"
-#endif
-R"(
-precision mediump float;
-varying vec2 uv1;
-
-uniform sampler2D smp1;
-uniform vec2 uRes, uTexSize;
-uniform float uElapsed, uTotal;
-#define FACTOR 8.0
-vec3 voronoi(vec2 x) {
-	vec2 n = floor(x);
-	vec2 f = fract(x);
-	float min_d = FACTOR + 1.0;
-	vec2 min_site, min_offset;
-	for (int i = -1; i<=1; ++i)
-	for (int j = -1; j<=1; ++j)
-	{
-		vec2 o = vec2(float(i), float(j));
-		vec2 rnd_site = texture2D( smp1, (n + o +.5)/uTexSize).xy;
-		rnd_site =.5 + sin(uTotal*.001*rnd_site)*.5;
-		rnd_site += o - f ;	// distance to the current fragment
-		float d = dot(rnd_site, rnd_site);
-		if (d<min_d) {
-			min_d = d;
-			min_site = rnd_site;
-			min_offset =  o;
-		}
-	}
-
-			min_d = FACTOR + 1.;
-	for (int i = -2; i<=2; ++i)
-	for (int j = -2; j<=2; ++j)
-	{
-		vec2 o = min_offset + vec2(float(i), float(j));
-		vec2 rnd_site = texture2D( smp1, (n + o +.5)/uTexSize).xy;
-		rnd_site =.5 + sin(uTotal*.001*rnd_site)*.5;
-		rnd_site += o - f ;	// distance to the current fragment
-		vec2 vd = rnd_site - min_site;
-		float d = dot(vd, vd);
-		if (d>0.00001)
-			min_d = min(min_d, dot(0.5*(min_site + rnd_site), normalize(vd)));
-	}
-	min_d = sqrt(min_d);
-	return vec3(min_d, min_site.x, min_site.y);
-}
-
-void main()
-{
-	vec2 p = uv1 * FACTOR;
-	vec3 res = voronoi(p);
-	float dis = 1.0 - smoothstep( 0.0, 0.2, res.x );
-	//color = vec3(HeatMapColor(smoothstep(.0,.8, res.x ), 0., 1.)) + dis * vec3(1.);
-	gl_FragColor = (dis + smoothstep(.0,.8, res.x ))*vec4(1.);
-}
-)", 0 };
-		GLuint uSmp, uElapsed, uTotal, uRes, uMVP, uTexSize;
-		void ReloadProgram() {
-			if (program.id) glDeleteProgram(program.id);
-			program.id = LoadShaders(program.vs, program.fs);
-			if (!program.id) throw custom_exception("Shader program compilation/link error");
-			uSmp = glGetUniformLocation(program.id, "smp1");
-			const GLubyte * err = glewGetErrorString(glGetError());
-			uElapsed = glGetUniformLocation(program.id, "uElapsed");
-			uTotal = glGetUniformLocation(program.id, "uTotal");
-			uRes = glGetUniformLocation(program.id, "uRes");
-			uMVP = glGetUniformLocation(program.id, "uMVP");
-			uTexSize = glGetUniformLocation(program.id, "uTexSize");
-		}
-	};
-
-	struct RTShader {
-		Program program{
-	#ifndef __EMSCRIPTEN__
-	"#version 130\n"
-	#endif
-	R"(
-precision highp float;
-attribute vec3 aPos;
-attribute vec2 aRT, aMask;
-
-varying vec2 vRT, vMask;
-void main() {
-	gl_Position = vec4(aPos, 1.0);
-	vRT = aRT;
-	vMask = aMask;
-}
-)",
-#ifndef __EMSCRIPTEN__
-"#version 130\n"
-#endif
-R"(
-precision highp float;
-varying vec2 vRT, vMask;
-uniform sampler2D uSmpRT, uSmpMask;
-uniform vec2 uScreenSize;
-uniform float uMaskOpacity, uMaskVRepeat;
-float less(float v, float cmp) {
-	return 1.0 - step(v, cmp);
-}
-
-float ge(float v, float cmp) {
-	return step(v, cmp);
-}
-
-float in_between(float v, float l, float u) {
-	return (1.0 - step(v, l)) * step(v, u);
-}
-
-void main() {
-	vec2 fragment_pos = uScreenSize * vRT;
-	vec4 frag = texture2D(uSmpRT, vec2(vRT.x, vRT.y)),
-		mask = texture2D(uSmpMask, vec2(mod(vMask.x, uMaskVRepeat), vMask.y));
-	/*vec2 scan = mod(fragment_pos, 4.0);
-	float k1 = 0.4, k2 = 0.2;
-	vec4 mask1 = vec4(1.0, k1, k2, 1.0),
-		mask2 = vec4(k1, 1.0, k2, 1.0),
-		mask3 = vec4(k1, k2, 1.0, 1.0),
-		mask4 = vec4(0.0, k1, k2, 1.0) ;
-	if (scan.x <= 1.0)
-		frag *= mask1;
-	else if (scan.x <= 2.0)
-		frag *= mask2;
-	else if (scan.x <= 3.0)
-		frag *= mask3;
-	else
-		frag *= mask4;
-	if (scan.y >= 3.0)
-		frag *= vec4(0.5);*/
-	gl_FragColor = mix(frag, frag * mask,  uMaskOpacity);
-}
-)", 0 };
-		GLuint uSmpRT, uSmpMask, uScreenSize, aPos, aRT, aMask, uMaskOpacity, uMaskVRepeat;
-		RTShader() {
-			ReloadProgram();
-		}
-		void ReloadProgram() {
-			if (program.id) glDeleteProgram(program.id);
-			program.id = LoadShaders(program.vs, program.fs);
-			if (!program.id) throw custom_exception("Shader program compilation/link error");
-			uSmpRT = glGetUniformLocation(program.id, "uSmpRT");
-			const GLubyte * err = glewGetErrorString(glGetError());
-			uSmpMask = glGetUniformLocation(program.id, "uSmpMask");
-			uScreenSize = glGetUniformLocation(program.id, "uScreenSize");
-			uMaskOpacity = glGetUniformLocation(program.id, "uMaskOpacity");
-			uMaskVRepeat = glGetUniformLocation(program.id, "uMaskVRepeat");
-			aPos = glGetAttribLocation(program.id, "aPos");
-			aRT = glGetAttribLocation(program.id, "aRT");
-			aMask = glGetAttribLocation(program.id, "aMask");
-		}
-	};
-
-	struct Color {
-		Program program{
-	#ifndef __EMSCRIPTEN__
-	"#version 130\n"
-	#endif
-	R"(
-precision highp float;
-attribute vec3 pos;
-uniform mat4 uMVP;
-void main() {
-	gl_Position = uMVP * vec4(pos, 1.0);
-}
-)",
-#ifndef __EMSCRIPTEN__
-"#version 130\n"
-#endif
-R"(
-precision highp float;
-uniform vec4 uCol;
-void main() {
-	gl_FragColor = uCol;
-}
-)", 0 };
-		GLuint uMVP, uCol;
-		Color() {
-			ReloadProgram();
-		}
-		void ReloadProgram() {
-			if (program.id) glDeleteProgram(program.id);
-			program.id = LoadShaders(program.vs, program.fs);
-			if (!program.id) throw custom_exception("Shader program compilation/link error");
-			uMVP = glGetUniformLocation(program.id, "uMVP");
-			uCol = glGetUniformLocation(program.id, "uCol");
-		}
-	};
-
-	struct ColorPosAttrib {
-		Program program{
-#ifndef __EMSCRIPTEN__
-			"#version 130\n"
-#endif
-			R"(
-precision highp float;
-attribute vec3 v, pos;
-uniform mat4 uMVP;
-void main() {
-	gl_Position = uMVP * vec4(v + pos, 1.0);
-}
-)",
-#ifndef __EMSCRIPTEN__
-"#version 130\n"
-#endif
-R"(
-precision highp float;
-uniform vec4 uCol;
-void main() {
-	gl_FragColor = uCol;
-}
-)", 0 };
-		GLuint uMVP, uCol;
-		ColorPosAttrib() {
-			ReloadProgram();
-		}
-		void ReloadProgram() {
-			if (program.id) glDeleteProgram(program.id);
-			program.id = LoadShaders(program.vs, program.fs);
-			if (!program.id) throw custom_exception("Shader program compilation/link error");
-			uMVP = glGetUniformLocation(program.id, "uMVP");
-			uCol = glGetUniformLocation(program.id, "uCol");
-		}
-	};
-
-	struct Texture {
-		Program program{
-	#ifndef __EMSCRIPTEN__
-			"#version 130\n"
-	#endif
-			R"(
-precision mediump float;
-attribute vec3 pos;
-attribute vec2 uv1_in;
-
-uniform mat4 uMVP;
-varying vec2 uv1;
-
-void main() {
-	gl_Position = uMVP * vec4(pos, 1.);
-	uv1 = uv1_in;
-}
-)",
-#ifndef __EMSCRIPTEN__
-"#version 130\n"
-#endif
-R"(
-precision mediump float;
-varying vec2 uv1;
-
-uniform sampler2D smp1;
-//uniform float uElapsed, uTotal;
-
-void main()
-{
-	gl_FragColor = texture2D( smp1, uv1);
-}
-)", 0 };
-		GLuint uSmp, uElapsed, uTotal, uMVP;
-		Texture() {
-			ReloadProgram();
-		}
-		void ReloadProgram() {
-			if (program.id) glDeleteProgram(program.id);
-			program.id = LoadShaders(program.vs, program.fs);
-			if (!program.id) throw custom_exception("Shader program compilation/link error");
-			uSmp = glGetUniformLocation(program.id, "smp1");
-			const GLubyte * err = glewGetErrorString(glGetError());
-			uElapsed = glGetUniformLocation(program.id, "uElapsed");
-			uTotal = glGetUniformLocation(program.id, "uTotal");
-			uMVP = glGetUniformLocation(program.id, "uMVP");
-		}
-	};
-}
 class Timer
 {
 	std::chrono::duration<double> _elapsed;
@@ -1009,7 +632,7 @@ public:
 	void Render() {
 		Reset();
 		glEnable(GL_TEXTURE_2D);
-		glUseProgram(shader.program.id);
+		glUseProgram(shader.id);
 #ifdef VAO_SUPPORT
 		glBindVertexArray(vao);
 #else
@@ -1451,7 +1074,7 @@ struct Renderer {
 			else if (img.pf == Img::PF_BGRA)
 				fmt = internalFmt = GL_BGRA;
 			else
-				throw exception("Image format is neiter RGBA nor RGB");
+				throw custom_exception("Image format is neiter RGBA nor RGB");
 
 			glBindTexture(GL_TEXTURE_2D, tex[i]);
 			glTexImage2D(GL_TEXTURE_2D, 0, internalFmt, img.width, img.height, 0, fmt, GL_UNSIGNED_BYTE, &img.data.front());
@@ -1633,7 +1256,7 @@ struct Renderer {
 	}
 	void DrawBackground(const Camera& cam) {
 		const auto& shader = colorShader;
-		glUseProgram(shader.program.id);
+		glUseProgram(shader.id);
 		glEnableVertexAttribArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, starField.vbo);
 		glVertexAttribPointer(0,
@@ -1661,7 +1284,7 @@ struct Renderer {
 	}
 	void Draw(const Camera& cam, const Asset::Model& model, size_t vbo_index) {
 		const auto& shader = colorShader;
-		glUseProgram(shader.program.id);
+		glUseProgram(shader.id);
 		glEnableVertexAttribArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, vbo[vbo_index]);
 		glVertexAttribPointer(0,
@@ -1683,21 +1306,22 @@ struct Renderer {
 		glEnable(GL_BLEND);
 		glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
 		glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
+		const auto& shader = colorPosAttribShader;
+		glUseProgram(shader.id);
 		glEnableVertexAttribArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, Particles::vbo);
-		glVertexAttribPointer(0,
+		glVertexAttribPointer(shader.aPos,
 			3,
 			GL_FLOAT,
 			GL_FALSE,
 			0,
 			(void*)0);
-		const auto& shader = colorPosAttribShader;
-		glUseProgram(shader.program.id);
+
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &cam.vp[0][0]);
 		for (const auto& p : particles) {
 			for (size_t i = 0; i < p.arr.size(); ++i) {
 				glUniform4f(shader.uCol, p.arr[i].col.r, p.arr[i].col.g, p.arr[i].col.b, p.arr[i].col.a);
-				glVertexAttrib3fv(1, &(p.pos + p.arr[i].pos)[0]);
+				glVertexAttrib3fv(shader.aVertex, &(p.pos + p.arr[i].pos)[0]);
 				glDrawArrays(GL_TRIANGLES, 0, Particles::vertex_count);
 			}
 		}
@@ -1720,7 +1344,7 @@ struct Renderer {
 			0,
 			(void*)0);
 		const auto& shader = colorShader;
-		glUseProgram(shader.program.id);
+		glUseProgram(shader.id);
 		const glm::mat4& mvp = cam.vp;
 		glUniform4f(shader.uCol, 1.f, 1.f, 1.f, 1.f);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
@@ -1729,7 +1353,7 @@ struct Renderer {
 	}
 	void Draw(const Camera& cam, const ProtoX& proto, const ProtoX::Propulsion& prop) {
 		auto& shader = colorShader;
-		glUseProgram(shader.program.id);
+		glUseProgram(shader.id);
 		glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_PROPULSION]);
 		glVertexAttribPointer(0,
 			3,
@@ -1769,7 +1393,7 @@ struct Renderer {
 				0,
 				(void*)0);
 			const auto& shader = colorShader;
-			glUseProgram(shader.program.id);
+			glUseProgram(shader.id);
 			auto& p = assets.debris.layers.front().parts.front();
 			glm::mat4 mvp = glm::translate(cam.vp, proto.pos);
 			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
@@ -1792,7 +1416,7 @@ struct Renderer {
 			(void*)0);
 #endif
 		auto& shader = colorShader;
-		glUseProgram(shader.program.id);
+		glUseProgram(shader.id);
 		for (const auto& p : proto.layer.parts) {
 			glm::mat4 mvp = glm::translate(cam.vp, proto.pos);
 			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
@@ -1851,11 +1475,11 @@ struct Renderer {
 		glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
 		glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
 		auto& shader = textureShader;
-		glUseProgram(shader.program.id);
+		glUseProgram(shader.id);
 		// vertex data
 		glEnableVertexAttribArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_MISSILE_VERTEX]);
-		glVertexAttribPointer(0,
+		glVertexAttribPointer(shader.aPos,
 			3,
 			GL_FLOAT,
 			GL_FALSE,
@@ -1865,7 +1489,7 @@ struct Renderer {
 		// uv data
 		glEnableVertexAttribArray(1);
 		glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_MISSILE_UV]);
-		glVertexAttribPointer(1,
+		glVertexAttribPointer(shader.aUV1,
 			2,
 			GL_FLOAT,
 			GL_FALSE,
@@ -1907,7 +1531,7 @@ struct Renderer {
 			0,
 			(void*)0);
 		auto& shader = colorShader;
-		glUseProgram(shader.program.id);
+		glUseProgram(shader.id);
 		glm::vec3 pos;
 		for (const auto& str : texts) {
 			auto pos = str.pos;
@@ -2505,11 +2129,11 @@ int main(int argc, char** argv) {
 	try {
 		globals.scene = std::make_unique<Scene>();
 	}
-	catch (exception& ex) {
+	catch (custom_exception& ex) {
 #ifdef __EMSCRIPTEN__
-		emscripten_log(EM_LOG_ERROR, ex.message.c_str());
+		emscripten_log(EM_LOG_ERROR, ex.what());
 #else
-		std::cout << ex.message;
+		std::cout << ex.what();
 #endif
 		throw;
 	}

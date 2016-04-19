@@ -17,4 +17,11 @@ build FileReader.bc: cpp ${MeshLoaderPath}FileReader.cpp
 build Img.bc: cpp ${MeshLoaderPath}Img.cpp
 build Tga.bc: cpp ${MeshLoaderPath}Tga.cpp
 build Log.bc: cpp ${MeshLoaderPath}Log.cpp
-build main.js: link main.bc MeshLoader.bc types.bc MeshSurface.bc FileReader.bc File.bc Img.bc Tga.bc Log.bc
+build Exception.bc: cpp Exception.cpp
+build Shader.bc: cpp Shader\Shader.cpp
+build Color.bc: cpp Shader\Color.cpp
+build ColorPosAttrib.bc: cpp Shader\ColorPosAttrib.cpp
+build RTShader.bc: cpp Shader\RTShader.cpp
+build Simple.bc: cpp Shader\Simple.cpp
+build Texture.bc: cpp Shader\Texture.cpp
+build main.js: link main.bc MeshLoader.bc types.bc MeshSurface.bc FileReader.bc File.bc Img.bc Tga.bc Log.bc Exception.bc Shader.bc Color.bc ColorPosAttrib.bc RTShader.bc Simple.bc Texture.bc

@@ -55,25 +55,22 @@ protected:
 
 	void finish(int result) {
 		cleanup();
-#ifdef __EMSCRIPTEN__
-		//REPORT_RESULT();
-		emscripten_force_exit(result);
-#else
-		exit(result);
-#endif
+//#ifdef __EMSCRIPTEN__
+//		//REPORT_RESULT();
+//		emscripten_force_exit(result);
+//#else
+//		exit(result);
+//#endif
 	}
 
 	static void error_callback(int fd, int err, const char* msg, void* _this)
 	{
-#ifdef __EMSCRIPTEN__
-		emscripten_log(EM_LOG_CONSOLE, "error");
-#endif
 		char error;
 		socklen_t len = sizeof(error);
 
 		int ret = getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len);
-		printf("error_callback\n");
-		printf("error message: %s\n", msg);
+
+		std::cerr << "error message: " << msg << "\n";
 		auto socket = (Socket*)_this;
 		if (err == error)
 		{
@@ -276,6 +273,7 @@ public:
 		return res;
 	}
 	int Send(const char* msg, size_t len) {
+		if (!fd) return -1;
 		int res = 0;
 		fd_set fdr;
 		fd_set fdw;

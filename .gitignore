@@ -9,3 +9,4 @@ node_modules/
 .ninja_deps
 .ninja_log
 *.bc
+*.VC.db

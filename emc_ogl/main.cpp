@@ -631,7 +631,7 @@ public:
 	}
 	void Render() {
 		Reset();
-		glEnable(GL_TEXTURE_2D);
+		//glEnable(GL_TEXTURE);
 		glUseProgram(shader.id);
 #ifdef VAO_SUPPORT
 		glBindVertexArray(vao);
@@ -675,7 +675,7 @@ public:
 		glUniform2f(shader.uScreenSize, (GLfloat)globals.width, (GLfloat)globals.height);
 
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-		glDisable(GL_TEXTURE_2D);
+		//glDisable(GL_TEXTURE);
 		glActiveTexture(GL_TEXTURE0);
 #ifndef VAO_SUPPORT
 		glDisableVertexAttribArray(0);
@@ -1005,12 +1005,26 @@ struct Renderer {
 			size_t start_col_idx;
 		};
 		std::array<Particle, count> arr;
+//		struct A {
+//			int a, b;
+//			A(int a, int b) : a(a), b(b) {
+//#ifdef __EMSCRIPTEN__
+//				emscripten_log(EM_LOG_CONSOLE, "A ctor. %d %d", a, b);
+//#endif
+//			}
+//		};
 		Particles(const glm::vec3& pos, double time) : pos(pos), time((float)time) {
+			//static A a(1, 2), b(3, 4), c(5, 6), d(7, 8), e(9, 10), f(11, 12), g(13, 14), h(15, 16);
+			//static A a1(17, 18) , b1(31, 41), /*missing*/c1(51, 61), d1(71, 81), e1(91, 101), f1(111, 121), g1(131, 141), h1(151, 161);
 			static std::uniform_real_distribution<> col_dist(0., 1.);
 			static std::uniform_real_distribution<> rad_dist(.0, glm::two_pi<float>());
 			static std::uniform_real_distribution<float> fade_dist(min_fade, max_fade);
 			static std::uniform_real_distribution<> v_dist(v_min, v_max);
-			static std::uniform_int_distribution<> col_idx_dist(0, globals.palette.size() - 1);
+			/* TODO:: tls bug??? static*/ std::uniform_int_distribution<> col_idx_dist(0, globals.palette.size() - 1);
+
+#ifdef __EMSCRIPTEN__
+			emscripten_log(EM_LOG_CONSOLE, "%d %x %x", sizeof(col_idx_dist), *reinterpret_cast<int*>(&col_idx_dist), *(reinterpret_cast<int*>(&col_idx_dist) + 1));
+#endif
 			for (size_t i = 0; i < count; ++i) {
 				arr[i].col = { col_dist(mt), col_dist(mt), col_dist(mt), 1.f };
 				arr[i].pos = {};
@@ -1308,15 +1322,14 @@ struct Renderer {
 		glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
 		const auto& shader = colorPosAttribShader;
 		glUseProgram(shader.id);
-		glEnableVertexAttribArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, Particles::vbo);
+		glEnableVertexAttribArray(shader.aPos);
 		glVertexAttribPointer(shader.aPos,
 			3,
 			GL_FLOAT,
 			GL_FALSE,
 			0,
 			(void*)0);
-
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &cam.vp[0][0]);
 		for (const auto& p : particles) {
 			for (size_t i = 0; i < p.arr.size(); ++i) {
@@ -1325,7 +1338,7 @@ struct Renderer {
 				glDrawArrays(GL_TRIANGLES, 0, Particles::vertex_count);
 			}
 		}
-		glDisableVertexAttribArray(0);
+		glDisableVertexAttribArray(shader.aPos);
 		glDisable(GL_BLEND);
 	}
 	void Draw(const Camera& cam, const AABB& aabb) {
@@ -1699,6 +1712,7 @@ public:
 		return textureID;
 	}
 public:
+
 	Scene() : bounds(assets.land.aabb),
 #ifdef DEBUG_REL
 		player(std::make_unique<ProtoX>(0xdeadbeef, assets.probe, assets.debris, assets.propulsion.layers.size())),

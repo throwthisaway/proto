@@ -360,11 +360,12 @@ namespace Asset {
 //				}
 //				masks_end = images.size();
 				images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x4.tga"));
+				masks_image_index = images.size() - 1;
 				images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_staggered_6x8.tga"));
 				images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x3_scanline.tga"));
 				images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x4_scanline.tga"));
 				images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x4_scanline2.tga"));
-				masks_image_index = 4;
+				
 #ifdef __EMSCRIPTEN__
 				emscripten_log(EM_LOG_CONSOLE, "image count %d\n", images.size());
 #endif
@@ -653,7 +654,7 @@ struct ProtoX {
 		}
 	}turret;
 	ProtoX(const size_t id, const Asset::Model& model, const Asset::Model& debris, size_t frame_count, Client* ws = nullptr) : id(id),
-		aabb{model.aabb},
+		aabb(model.aabb),
 		ws(ws),
 		debris_ref(debris),
 		missile_start_offset(model.layers[model.layers.size() - 1].pivot),
@@ -915,6 +916,7 @@ struct Renderer {
 		Init(scene_bounds);
 	}
 	void Init(const AABB& scene_bounds) {
+		glDisable(GL_DEPTH_TEST);
 		tex.resize(assets.images.size());
 		glGenTextures(tex.size(), &tex.front());
 		for (size_t i = 0; i < tex.size(); ++i) {
@@ -1108,7 +1110,6 @@ struct Renderer {
 	}
 	void PostRender() {
 		rt.Render();
-		rt.Reset();
 	}
 	void DrawBackground(const Camera& cam) {
 		const auto& shader = colorShader;
@@ -1507,7 +1508,7 @@ public:
 	std::list<Renderer::Particles> particles;
 	std::vector<Text> texts;
 	Object mesh{ { 5.f, 0.f, 0.f } };
-	Camera camera{ globals.width, globals.height };
+	Camera camera{ (int)globals.width, (int)globals.height };
 	InputHandler inputHandler;
 	Timer timer;
 	GLuint VertexArrayID;
@@ -1662,8 +1663,8 @@ public:
 		return true;
 	}
 	void KeyCallback(int key, int scancode, int action, int mods) {
-		static float w = assets.images[assets.masks_image_index].width, h =
-			assets.images[assets.masks_image_index].height;
+		static float w = (float)assets.images[assets.masks_image_index].width, h =
+			(float)assets.images[assets.masks_image_index].height;
 		if (key == GLFW_KEY_PAGE_UP && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
 			renderer.rt.GenMaskUVBufferData( globals.width, globals.height, w+=.1f, h+=.1f);
 		} else if (key == GLFW_KEY_PAGE_DOWN && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
@@ -1672,6 +1673,14 @@ public:
 			renderer.rt.maskOpacity+=.05f;
 		}else if (key == GLFW_KEY_END && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
 			renderer.rt.maskOpacity-=.05f;
+		} else if (key == GLFW_KEY_LEFT_BRACKET && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+			renderer.rt.contrast -= .05f;
+		} else if (key == GLFW_KEY_RIGHT_BRACKET && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+			renderer.rt.contrast += .05f;
+		} else if (key == GLFW_KEY_COMMA && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+			renderer.rt.brightness -= .05f;
+		} else if (key == GLFW_KEY_PERIOD && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+			renderer.rt.brightness += .05f;
 		}
 	}
 	void Update(const Time& t) {

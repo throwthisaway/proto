@@ -1,1 +1,231 @@
 #include "RT.h"
+
+RT::RT(int width, int height)  : width(width), height(height), current(0) {
+	static const GLfloat data[] = { -1.0f, -1.0f, 0.0f,
+		1.f, -1.0f, 0.0f,
+		-1.0f,  1.0f, 0.0f,
+		1.f, 1.f, 0.0f };
+	glGenBuffers(1, &vbo1);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo1);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
+
+	glGenBuffers(1, &mask_uv);
+
+	// Depth texture...
+	glGenRenderbuffers(1, &rbo);
+	glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_STENCIL, RoundToPowerOf2(width), RoundToPowerOf2(height));
+	//...Depth texture
+
+	glGenBuffers(COUNT, uv);
+	glGenTextures(COUNT, txt);
+	glGenFramebuffers(COUNT, fbo);
+	size_t index = 0;
+	rt[index] = GenTarget(256, 192, index);
+	index++;
+	rt[index] = GenTarget(width, height, index);
+	index++;
+	rt[index] = GenTarget(width, height, index);
+#ifdef VAO_SUPPORT
+	glGenVertexArrays(1, &vao);
+	glBindVertexArray(vao);
+	glEnableVertexAttribArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo1);
+	glVertexAttribPointer(0,
+		3,
+		GL_FLOAT,
+		GL_FALSE,
+		0,
+		(void*)0);
+	glEnableVertexAttribArray(1);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo2);
+	glVertexAttribPointer(1,
+		2,
+		GL_FLOAT,
+		GL_FALSE,
+		0,
+		(void*)0);
+	glBindVertexArray(0);
+#endif
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	//glBindRenderbuffer(GL_RENDERBUFFER, 0);
+}
+
+void RT::GenMaskUVBufferData(float sw, float sh, float iw, float ih) {
+	const auto w = sw / iw, h = sh / ih;
+	const GLfloat data[] = { 0.f, 0.f,
+		w, .0f,
+		0.f, h,
+		w, h };
+	glBindBuffer(GL_ARRAY_BUFFER, mask_uv);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
+}
+size_t RT::Set(size_t index) {
+	auto res = current;
+	current = index;
+	glBindFramebuffer(GL_FRAMEBUFFER, rt[index].fbo);
+	glViewport(0, 0, rt[index].w, rt[index].h);
+	return res;
+}
+
+size_t RT::Reset() {
+	auto res = current;
+	current = 0;
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glViewport(0, 0, width, height);
+	return res;
+}
+void RT::Render() {
+	auto prev = Set(1);
+	ShadowMaskStage(prev);
+	prev = Set(2);
+	BlurStage(vBlur3x, prev);
+	prev = Set(1);
+	BlurStage(hBlur3x, prev);
+	prev = Reset();
+	ContrastStage(prev);
+	glActiveTexture(GL_TEXTURE0);
+#ifndef VAO_SUPPORT
+	glDisableVertexAttribArray(0);
+	glDisableVertexAttribArray(1);
+	glDisableVertexAttribArray(2);
+#endif
+}
+RT::~RT() {
+	glDeleteFramebuffers(sizeof(fbo) / sizeof(fbo[0]), fbo);
+	glDeleteBuffers(sizeof(uv) / sizeof(uv[0]), uv);
+	glDeleteTextures(sizeof(txt) / sizeof(txt[0]), txt);
+	glDeleteRenderbuffers(1, &rbo);
+	glDeleteBuffers(1, &vbo1);
+	glDeleteBuffers(1, &mask_uv);
+#ifdef VAO_SUPPORT
+	glDeleteVertexArrays(1, &vao);
+#endif
+}
+void RT::ShadowMaskStage(size_t index) {
+	auto& shader = shadowMask;
+	glUseProgram(shader.id);
+#ifdef VAO_SUPPORT
+	glBindVertexArray(vao);
+#else
+	// render target quad vertices
+	glEnableVertexAttribArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo1);
+	glVertexAttribPointer(shader.aPos,
+		3,
+		GL_FLOAT,
+		GL_FALSE,
+		0,
+		(void*)0);
+	// render target uv
+	glEnableVertexAttribArray(1);
+	glBindBuffer(GL_ARRAY_BUFFER, rt[index].uv);
+	glVertexAttribPointer(shader.aRT,
+		2,
+		GL_FLOAT,
+		GL_FALSE,
+		0,
+		(void*)0);
+	// mask uv
+	glEnableVertexAttribArray(2);
+	glBindBuffer(GL_ARRAY_BUFFER, mask_uv);
+	glVertexAttribPointer(shader.aMask,
+		2,
+		GL_FLOAT,
+		GL_FALSE,
+		0,
+		(void*)0);
+#endif
+	glUniform1f(shader.uMaskOpacity, maskOpacity);
+	glUniform1f(shader.uMaskVRepeat, maskRepeat);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, rt[index].txt);
+	glUniform1i(shader.uSmpRT, 0);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, mask);
+	glUniform1i(shader.uSmpMask, 1);
+	//glUniform2f(shader.uScreenSize, (GLfloat)sw, (GLfloat)hw);
+
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+template<typename T>
+void RT::BlurStage(T& shader, size_t index) {
+	// render target quad vertices
+	glEnableVertexAttribArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo1);
+	glVertexAttribPointer(shader.aPos,
+		3,
+		GL_FLOAT,
+		GL_FALSE,
+		0,
+		(void*)0);
+	// render target uv
+	glEnableVertexAttribArray(1);
+	glBindBuffer(GL_ARRAY_BUFFER, rt[index].uv);
+	glVertexAttribPointer(shader.aUV,
+		2,
+		GL_FLOAT,
+		GL_FALSE,
+		0,
+		(void*)0);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, rt[index].txt);
+	glUseProgram(shader.id);
+	glUniform1i(shader.uSmp, 0);
+	glUniform2f(shader.uOffset, rt[index].uw, rt[index].vh);
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+void RT::ContrastStage(size_t index) {
+	auto& shader = contrastShader;
+	glUseProgram(shader.id);
+	glEnableVertexAttribArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo1);
+	glVertexAttribPointer(shader.aPos,
+		3,
+		GL_FLOAT,
+		GL_FALSE,
+		0,
+		(void*)0);
+	// render target uv
+	glEnableVertexAttribArray(1);
+	glBindBuffer(GL_ARRAY_BUFFER, rt[index].uv);
+	glVertexAttribPointer(shader.aUV,
+		2,
+		GL_FLOAT,
+		GL_FALSE,
+		0,
+		(void*)0);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, rt[index].txt);
+	glUniform1f(shader.uContrast, contrast);
+	glUniform1f(shader.uBrightness, brightness);
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+RT::Target RT::GenTarget(int width, int height, size_t index) {
+	const GLsizei w = (GLsizei)RoundToPowerOf2(width), h = (GLsizei)RoundToPowerOf2(height);
+	const GLfloat u = (GLfloat)width / w, v = (GLfloat)height / h;
+	 Target res{ fbo[index], txt[index], uv[index], u/w, v/h, width, height};
+	 const GLfloat data[] = { 0.f, 0.f,
+		u, .0f,
+		0.f, v,
+		u, v };
+	glBindBuffer(GL_ARRAY_BUFFER, uv[index]);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
+
+	glBindTexture(GL_TEXTURE_2D, txt[index]);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	//glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_FALSE);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0,
+		GL_RGBA, GL_UNSIGNED_BYTE, 0);
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo[index]);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, txt[index], 0);
+	return res;
+}

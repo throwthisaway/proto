@@ -75,6 +75,15 @@
     <ClCompile Include="..\..\emc_ogl\Helpers.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\emc_ogl\shader\VBlur3x.cpp">
+      <Filter>Source Files\shader</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\emc_ogl\shader\HBlur3x.cpp">
+      <Filter>Source Files\shader</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\emc_ogl\shader\Contrast.cpp">
+      <Filter>Source Files\shader</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\MeshLoader\Deserialize.h">
@@ -142,6 +151,15 @@
     </ClInclude>
     <ClInclude Include="..\..\emc_ogl\Helpers.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\emc_ogl\shader\VBlur3x.h">
+      <Filter>Header Files\shader</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\emc_ogl\shader\HBlur3x.h">
+      <Filter>Header Files\shader</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\emc_ogl\shader\Contrast.h">
+      <Filter>Header Files\shader</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

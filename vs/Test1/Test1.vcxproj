@@ -33,10 +33,13 @@
     <ClCompile Include="..\..\emc_ogl\RT.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\Color.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\ColorPosAttrib.cpp" />
+    <ClCompile Include="..\..\emc_ogl\shader\Contrast.cpp" />
+    <ClCompile Include="..\..\emc_ogl\shader\HBlur3x.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\RTShader.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\Shader.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\Simple.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\Texture.cpp" />
+    <ClCompile Include="..\..\emc_ogl\shader\VBlur3x.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\MeshLoader\Deserialize.h" />
@@ -57,10 +60,13 @@
     <ClInclude Include="..\..\emc_ogl\RT.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Color.h" />
     <ClInclude Include="..\..\emc_ogl\shader\ColorPosAttrib.h" />
+    <ClInclude Include="..\..\emc_ogl\shader\Contrast.h" />
+    <ClInclude Include="..\..\emc_ogl\shader\HBlur3x.h" />
     <ClInclude Include="..\..\emc_ogl\shader\RTShader.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Shader.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Simple.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Texture.h" />
+    <ClInclude Include="..\..\emc_ogl\shader\VBlur3x.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{DE93DCEE-D835-438C-A0C2-565C0C4463F9}</ProjectGuid>

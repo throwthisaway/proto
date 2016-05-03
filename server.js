@@ -39,11 +39,11 @@ function generateID(count) {
     }
     return "" + res;
 }
-function generateClientID(count) {
-    var symbols = '0123456789:;<=>?@ABCDEFGHIJKLMNO',
-        res = '';
+function generate0ToOClientID(count) {
+    //var symbols = '0123456789:;<=>?@ABCDEFGHIJKLMNO',
+    var res = '';
     for (i = 0; i < count; ++i) {
-        res += symbols[(Math.random() * symbols.length) | 0];
+        res += String.fromCharCode((48 + Math.random() * 32) | 0);
     }
     return ""+res;
 }
@@ -134,6 +134,9 @@ wss.on('connection', function(ws) {
     ws.on('message', function (message, flags) {
         //console.log('received: %s', message);
         if (String.fromCharCode(message[0], message[1], message[2], message[3]) === 'SESS') {
+            ws.clientID = generate0ToOClientID(clientIDLen);
+            ws.send(str2ab("CONN" + ws.clientID + "0"));
+
             var sessionID = getSessionIDFromMsg(message);
             var session = sessions[sessionID]
             if (session == undefined) {
@@ -200,8 +203,6 @@ wss.on('connection', function(ws) {
         }
         console.log('Client ' + ws.clientID + ' disconnected ' + code + ' ' + message);
     });
-    ws.clientID = generateClientID(clientIDLen);
-    ws.send(str2ab("CONN" + ws.clientID));
 });
 
 /*function isAllowedOrigin(origin) {

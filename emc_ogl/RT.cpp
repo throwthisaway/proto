@@ -11,11 +11,11 @@ RT::RT(int width, int height)  : width(width), height(height), current(0) {
 
 	glGenBuffers(1, &mask_uv);
 
-	// Depth texture...
-	glGenRenderbuffers(1, &rbo);
-	glBindRenderbuffer(GL_RENDERBUFFER, rbo);
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_STENCIL, RoundToPowerOf2(width), RoundToPowerOf2(height));
-	//...Depth texture
+	//// Depth texture...
+	//glGenRenderbuffers(1, &rbo);
+	//glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+	//glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_STENCIL, RoundToPowerOf2(width), RoundToPowerOf2(height));
+	////...Depth texture
 
 	glGenBuffers(COUNT, uv);
 	glGenTextures(COUNT, txt);

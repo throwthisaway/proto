@@ -571,6 +571,10 @@ struct Ctrl {
 	const char other_id[CLIENTID_LEN];
 	const char upper;
 };
+struct Sess{
+	size_t tag;
+	char sessionID[5];
+};
 struct Plyr {
 	const size_t tag, id;
 	const float x, y, rot, invincible;
@@ -586,6 +590,11 @@ struct Scor {
 struct Kill {
 	const size_t tag;
 	const char client_id[CLIENTID_LEN];
+};
+struct Conn {
+	const size_t tag;
+	const char client_id[CLIENTID_LEN];
+	const unsigned char ctrl;
 };
 struct ProtoX {
 	const size_t id;
@@ -614,6 +623,8 @@ struct ProtoX {
 	const glm::vec3 missile_start_offset;
 	const Asset::Layer& layer;
 	size_t score = 0, missile_id = 0;
+	enum class Ctrl{Full, Prop, Turret};
+	Ctrl ctrl = Ctrl::Full;
 	struct Propulsion {
 		const glm::vec3 pos;
 		const float rot;
@@ -1811,6 +1822,7 @@ public:
 #ifdef __EMSCRIPTEN__
 		emscripten_log(EM_LOG_CONSOLE, "Socket open");
 #endif
+		SendSessionID();
 	}
 	void OnMessage(const char* msg, int len) {
 //#ifdef __EMSCRIPTEN__
@@ -1819,28 +1831,25 @@ public:
 //#endif
 		messages.push(std::vector<unsigned char>{ msg, msg + (size_t)len });
 	}
-	void OnConn(size_t id) {
+	void OnConn(const std::vector<unsigned char>& msg) {
+		const Conn* conn = reinterpret_cast<const Conn*>(msg.data());
+		size_t id = ID5(conn->client_id, 0);
 		player = std::make_unique<ProtoX>(id, assets.probe, assets.debris, assets.propulsion.layers.size(), globals.ws.get());
+		player->ctrl = static_cast<ProtoX::Ctrl>(conn->ctrl - 48/*TODO:: eliminate conversion*/);
+		#ifdef __EMSCRIPTEN__
+				emscripten_log(EM_LOG_CONSOLE, "OnConn ctrl: %d", player->ctrl);
+		#endif
 #ifndef DEBUG_REL
 		float dx = (assets.probe.aabb.r - assets.probe.aabb.l) / 2.f,
 			dy = (assets.probe.aabb.t - assets.probe.aabb.b) / 2.f;
 		std::uniform_real_distribution<> x_dist(bounds.l + dx, bounds.r - dx), y_dist(bounds.b + dy, bounds.t - dy);
 		player->pos = { x_dist(mt), y_dist(mt), 0.f };
 #endif
-		SendSessionID();
 	}
 	void SendSessionID() {
-		constexpr size_t sess = Tag("SESS"); // sessionID
-		union {
-			struct {
-				size_t tag;
-				char sessionID[5];
-			}str;
-			char arr[128];
-		}msg;
-		msg.str.tag = sess;
-		std::copy(std::begin(globals.sessionID), std::end(globals.sessionID), msg.str.sessionID);
-		globals.ws->Send(msg.arr, sizeof(msg.str));
+		Sess msg{ Tag("SESS") };
+		std::copy(std::begin(globals.sessionID), std::end(globals.sessionID), msg.sessionID);
+		globals.ws->Send((char*)&msg, sizeof(msg));
 	}
 	void OnPlyr(const std::vector<unsigned char>& msg) {
 		const Plyr* player = reinterpret_cast<const Plyr*>(&msg.front());
@@ -1910,7 +1919,7 @@ public:
 //#endif
 		switch (tag) {
 		case conn:
-			OnConn(ID5(msg, 4));
+			OnConn(msg);
 			break;
 		case plyr:
 			OnPlyr(msg);

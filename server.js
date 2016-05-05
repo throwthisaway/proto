@@ -129,38 +129,44 @@ function broadcastToSession(sender, session, data) {
             client.send(data);
     });
 };
+function findClientToCtrl(session) {
+    for (i = 0; i < session.length; ++i) {
+        console.log('findClient: ' + session[i].ctrl);
+        if (session[i].ctrl === 0) return session[i];
+    }
+    console.log('findClient: not found ');
+    return null;
+}
+function findClientByID(session, id) {
+    for (i = 0; i < session.length; ++i) {
+        console.log('findClientbyid: ' + session[i].clientID + " " + id);
+        if (session[i].clientID === id) return session[i];
+    }
+    console.log('findClientbyid: not found ');
+    return null;
+}
 wss.on('connection', function(ws) {
     console.log("New connection");
     ws.on('message', function (message, flags) {
         //console.log('received: %s', message);
         if (String.fromCharCode(message[0], message[1], message[2], message[3]) === 'SESS') {
-            ws.clientID = generate0ToOClientID(clientIDLen);
-            ws.send(str2ab("CONN" + ws.clientID + "0"));
-
             var sessionID = getSessionIDFromMsg(message);
             var session = sessions[sessionID]
             if (session == undefined) {
                 ws.terminate();
                 return;
             }
-            var lower, upper;
-            for (i = 0;i<session.length;++i) {
-                var client = session[i];
-                if (client.lower == undefined) {
-                    lower = ws;
-                    upper = client;
-                    break;
-                }
-                if (client.upper == undefined) {
-                    upper = ws;
-                    lower = client;
-                    break;
-                }
-            }
-            if (lower && upper) {
-                lower.upper = upper; upper.lower = lower;
-                lower.send(str2ab('CTRL' + upper.clientID + '1'));
-                upper.send(str2ab('CTRL' + lower.clientID + '0'));
+            client = findClientToCtrl(session);
+            if (client) {
+                client.ctrl = 1;
+                client.send(str2ab('CTRL1'));
+                ws.ctrl = 2;
+                ws.clientID = client.clientID;
+                ws.send(str2ab("CONN" + client.clientID + "2"));
+            } else {
+                ws.ctrl = 0;
+                ws.clientID = generate0ToOClientID(clientIDLen);
+                ws.send(str2ab("CONN" + ws.clientID + "0"));
             }
             session.push(ws);
             ws.session = session;
@@ -177,23 +183,14 @@ wss.on('connection', function(ws) {
     });
     ws.on('close', function (code, message) {
         if (ws.session) {
-            for (i = 0; i < ws.session.length; ++i) {
-                var client = ws.session[i];
-                if (client.lower == ws) {
-                    client.lower = undefined;
-                    break;
-                }
-                if (client.upper == ws) {
-                    client.upper = undefined;
-                    break;
-                }
-            }
-
             broadcastToSession(ws, ws.session, str2ab('KILL' + ws.clientID));
             if (ws.session.length > 1)
                 ws.session[ws.session.indexOf(ws)] = ws.session[ws.session.length - 1];
-            if (ws.session.length > 0)
-                ws.session.pop();
+            ws.session.pop();
+            if (client = findClientByID(ws.session, ws.clientID)) {
+                client.ctrl = 0;
+                client.send(str2ab('CTRL0'));
+            }
             console.log('session player count: ' + ws.session.length);
             if (ws.session.length < 1) {
                 console.log('deleting session: ' + ws.session.id);

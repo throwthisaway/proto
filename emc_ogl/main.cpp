@@ -568,8 +568,7 @@ struct Missile {
 };
 struct Ctrl {
 	const size_t tag;
-	const char other_id[CLIENTID_LEN];
-	const char upper;
+	const char ctrl;
 };
 struct Sess{
 	size_t tag;
@@ -1837,7 +1836,7 @@ public:
 		player = std::make_unique<ProtoX>(id, assets.probe, assets.debris, assets.propulsion.layers.size(), globals.ws.get());
 		player->ctrl = static_cast<ProtoX::Ctrl>(conn->ctrl - 48/*TODO:: eliminate conversion*/);
 		#ifdef __EMSCRIPTEN__
-				emscripten_log(EM_LOG_CONSOLE, "OnConn ctrl: %d", player->ctrl);
+				emscripten_log(EM_LOG_CONSOLE, "OnConn id: %5s ctrl: %d", conn->client_id, player->ctrl);
 		#endif
 #ifndef DEBUG_REL
 		float dx = (assets.probe.aabb.r - assets.probe.aabb.l) / 2.f,
@@ -1904,7 +1903,10 @@ public:
 	}
 	void OnCtrl(const std::vector<unsigned char>& msg) {
 		const Ctrl* ctrl = reinterpret_cast<const Ctrl*>(&msg.front());
-		// TODO::
+		player->ctrl = static_cast<ProtoX::Ctrl>(ctrl->ctrl - 48/*TODO:: eliminate conversion*/);
+#ifdef __EMSCRIPTEN__
+		emscripten_log(EM_LOG_CONSOLE, "ctrl %x ", player->ctrl);
+#endif
 	}
 	void Dispatch(const std::vector<unsigned char>& msg, const Time& t) {
 		size_t tag = Tag(msg);
@@ -1934,9 +1936,6 @@ public:
 			OnKill(msg, t);
 			break;
 		case ctrl:
-		#ifdef __EMSCRIPTEN__
-			emscripten_log(EM_LOG_CONSOLE, "ctrl %x ", ID5(msg, 4));
-		#endif
 			OnCtrl(msg);
 			break;
 		}

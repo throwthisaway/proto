@@ -67,6 +67,7 @@
     <ClInclude Include="..\..\emc_ogl\shader\Simple.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Texture.h" />
     <ClInclude Include="..\..\emc_ogl\shader\VBlur3x.h" />
+    <ClInclude Include="..\..\emc_socket\Socket.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{DE93DCEE-D835-438C-A0C2-565C0C4463F9}</ProjectGuid>

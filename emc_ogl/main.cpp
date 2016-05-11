@@ -36,6 +36,7 @@
 //#define VAO_SUPPORT
 #define DEBUG_REL
 #define CLIENTID_LEN 5
+#define LINE_RENDER
 template<typename T>
 constexpr size_t ID5(const T& t, size_t offset) {
 	return ((t[offset + 4] - '0') << 20) | ((t[offset + 3] - '0') << 15) | ((t[offset + 2] - '0') << 10) | ((t[offset + 1] - '0') << 5) | (t[offset] - '0');
@@ -73,7 +74,8 @@ static struct {
 	const float	scale = 40.f,
 		propulsion_scale = 80.f,
 		text_spacing = 30.f,
-		text_scale = 120.f;
+		text_scale = 120.f,
+		missile_size = 120.f;
 	const gsl::span<const glm::vec4, gsl::dynamic_range> palette = gsl::as_span(cpc, sizeof(cpc) / sizeof(cpc[0]));
 
 	std::string host = "localhost";
@@ -147,7 +149,6 @@ static AABB RecalcAABB(const AABB& aabb, const float rot) {
 		std::min(lt.y, std::min(lb.y, std::min(rt.y, rb.y))) };
 }
 namespace Asset {
-	const float missile_size = 120.f;
 	struct Layer {
 		struct Surface {
 			GLint first;
@@ -155,7 +156,7 @@ namespace Asset {
 			glm::vec3 col;
 		};
 		glm::vec3 pivot;
-		std::vector<Surface> parts;
+		std::vector<Surface> parts, line_parts;
 		AABB aabb;
 	};
 	struct Model {
@@ -248,16 +249,14 @@ namespace Asset {
 
 	Model Reconstruct(MeshLoader::Mesh& mesh, float scale, float lineWidth = 3.f) {
 		std::vector<glm::vec3> vertices;
-		size_t count, start;
 		std::vector<Layer> layers;
-		std::vector<glm::vec2> vertexNormals = GenLineNormals(mesh.vertices, mesh.lines, lineWidth);
 		layers.reserve(mesh.layers.size());
 		for (const auto& layer : mesh.layers) {
 			layers.push_back({ glm::vec3{ layer.pivot.x, layer.pivot.y, layer.pivot.z } * scale });
 			auto& layerInfo = layers.back();
-			for (size_t section = 0; section < layer.poly.n; ++section) {
+			for (size_t section = 0, count = 0, start = vertices.size(); section < layer.poly.n; ++section) {
 				auto end = layer.poly.sections[section].start + layer.poly.sections[section].count;
-				start = vertices.size(); count = 0;
+				;
 				for (size_t poly = layer.poly.sections[section].start; poly < end; ++poly) {
 					const auto& p = mesh.polygons[poly];
 					vertices.push_back(mesh.vertices[p.v[0]] * scale);
@@ -271,10 +270,25 @@ namespace Asset {
 						mesh.surfaces[layer.poly.sections[section].index].color[1],
 						mesh.surfaces[layer.poly.sections[section].index].color[2] } });
 			}
-
-			for (size_t section = 0; section < layer.line.n; ++section) {
+#ifdef LINE_RENDER
+			for (size_t section = 0, count = 0, start = vertices.size(); section < layer.line.n; ++section) {
 				auto end = layer.line.sections[section].start + layer.line.sections[section].count;
-				start = vertices.size(); count = 0;
+				for (size_t line = layer.line.sections[section].start; line < end; ++line) {
+					const auto& l = mesh.lines[line];
+					vertices.push_back(mesh.vertices[l.v1] * scale);
+					vertices.push_back(mesh.vertices[l.v2] * scale);
+					count += 2;
+				}
+				if (count)
+					layerInfo.line_parts.push_back({ GLint(start), GLsizei(count),
+						glm::vec3{ mesh.surfaces[layer.line.sections[section].index].color[0],
+						mesh.surfaces[layer.line.sections[section].index].color[1],
+						mesh.surfaces[layer.line.sections[section].index].color[2] } });
+			}
+#else
+			std::vector<glm::vec2> vertexNormals = GenLineNormals(mesh.vertices, mesh.lines, lineWidth);
+			for (size_t section = 0, count = 0, start = vertices.size(); section < layer.line.n; ++section) {
+				auto end = layer.line.sections[section].start + layer.line.sections[section].count;
 				for (size_t line = layer.line.sections[section].start; line < end; ++line) {
 					const auto& l = mesh.lines[line];
 					GenVertices(l, vertexNormals, mesh.vertices, scale, vertices);
@@ -286,6 +300,7 @@ namespace Asset {
 						mesh.surfaces[layer.line.sections[section].index].color[1],
 						mesh.surfaces[layer.line.sections[section].index].color[2] } });
 			}
+#endif
 		}
 
 		return { vertices, layers };
@@ -296,6 +311,15 @@ namespace Asset {
 		const std::vector<glm::vec2>& mesh_texcoord, float scale = 1.f, float lineWidth = 3.f) {
 		std::vector<glm::vec3> vertices;
 		std::vector<glm::vec2> texcoord;
+#ifdef LINE_RENDER
+		for (const auto& l : lines) {
+			vertices.push_back(mesh_vertices[l.v1] * scale);
+			vertices.push_back(mesh_vertices[l.v2] * scale);
+			texcoord.push_back(mesh_texcoord[l.v1]);
+			texcoord.push_back(mesh_texcoord[l.v2]);
+		}
+		return{ vertices,{ { {},{/*parts*/}, { Asset::Layer::Surface{ GLint(0), GLsizei(vertices.size()) ,{ 1.f, 1.f, 1.f } } } } }, texcoord };
+#else
 		std::vector<glm::vec2> vertexNormals = GenLineNormals(mesh_vertices, lines, lineWidth);
 		for (const auto& l : lines) {
 			GenVertices(l, vertexNormals, mesh_vertices, scale, vertices);
@@ -308,8 +332,9 @@ namespace Asset {
 			texcoord.push_back(mesh_texcoord[l.v2]);
 			texcoord.push_back(mesh_texcoord[l.v1]);
 		}
+		return{ vertices,{ { {},{ Asset::Layer::Surface{ GLint(0), GLsizei(vertices.size()) ,{ 1.f, 1.f, 1.f } } } } }, texcoord };
+#endif
 		
-		return{ vertices,{ { {},{ Asset::Layer::Surface{ GLint(0), GLsizei(vertices.size()) , { 1.f, 1.f, 1.f } } } } }, texcoord };
 	}
 
 	Model ExtractLines(MeshLoader::Mesh& mesh, float scale = 1.f, float lineWidth = 3.f) {
@@ -429,7 +454,7 @@ namespace Asset {
 				{ 1.f, 0.f, 0.f } };
 				std::vector<MeshLoader::PolyLine> lines{ {0, 1}, {1, 2}};
 				const std::vector<glm::vec2> texcoord { { 0.f, 0.f },{.5f, 0.f},{ 1.f, 0.f} };
-				missile = Reconstruct(vertices, lines, texcoord, missile_size, 10.f);
+				missile = Reconstruct(vertices, lines, texcoord, globals.missile_size, 10.f);
 				models.push_back(&missile);
 			}
 			for (auto& m : models) {
@@ -540,23 +565,27 @@ struct Camera {
 
 struct ProtoX;
 struct Missile {
-	glm::vec3 pos;
+	glm::vec3 pos, prev;
 	float rot;
 	float vel;
 	ProtoX* owner;
 	size_t id;
 	Missile& operator=(const Missile&) = default;
+	Missile(const glm::vec3 pos, float rot, float vel, ProtoX* owner, size_t id) : pos(pos), prev(pos),
+		rot(rot), vel(vel), owner(owner), id(id) {}
 	void Update(const Time& t) {
+		prev = pos;
 		pos += glm::vec3{ std::cos(rot), std::sin(rot), 0.f } * vel * (float)t.frame;
 	}
 	bool HitTest(const AABB& bounds, glm::vec3& end) {
+		if (pos == prev) return false;
 		/* AABB intersection
 		const glm::vec3 end = glm::vec3{ std::cos(rot), std::sin(rot), 0.f } * size + pos;
 		const glm::vec2 min{ std::min(end.x, pos.x), std::min(end.y, pos.y) }, max{ std::max(end.x, pos.x), std::max(end.y, pos.y) };
 		const AABB aabb_union{ std::min(min.x, bounds.l), std::max(max.y, bounds.t), std::max(max.x, bounds.r), std::min(min.y, bounds.b)};
 		const float xd1 = max.x - min.x, yd1 = max.y - min.y, xd2 = bounds.r - bounds.l, yd2 = bounds.t - bounds.b;
 		return xd1 + xd2 >= aabb_union.r - aabb_union.l && yd1 + yd2 >= aabb_union.t - aabb_union.b;*/
-		end = glm::vec3{ std::cos(rot), std::sin(rot), 0.f } * Asset::missile_size + pos;
+		end = glm::vec3{ std::cos(rot), std::sin(rot), 0.f } * globals.missile_size + pos;
 		return end.x >= bounds.l && end.x <= bounds.r && end.y >= bounds.b && end.y <= bounds.t;
 	}
 	bool IsOutOfBounds(const AABB& bounds) {
@@ -686,7 +715,7 @@ struct ProtoX {
 		const float missile_vel = 1.f;
 		auto rot = turret.rest_pos + turret.rot;
 		const glm::vec3 missile_vec{ std::cos(rot) * missile_vel, std::sin(rot) * missile_vel,.0f};
-		missiles.push_back({ pos + missile_start_offset, rot, glm::length(missile_vec), this, ++missile_id });
+		missiles.emplace_back(pos + missile_start_offset, rot, glm::length(missile_vec), this, ++missile_id );
 		if (ws) {
 			auto& m = missiles.back();
 			Misl misl{ Tag("MISL"), id, m.id, m.pos.x, m.pos.y, m.rot, m.vel};
@@ -847,7 +876,7 @@ struct Renderer {
 		static GLsizei vertex_count;
 		static const size_t count = 200;
 		static constexpr float slowdown =.01f, g = -.00005f, init_mul = 1.f, min_fade = 750.f, max_fade = 1500.,
-			v_min =.05f, v_max =.35f, blink_rate = 33.;
+			v_min =.05f, v_max =.35f, blink_rate = 16.;
 		glm::vec3 pos;
 		bool kill = false;
 		float time;
@@ -873,7 +902,7 @@ struct Renderer {
 			static std::uniform_real_distribution<> rad_dist(.0, glm::two_pi<float>());
 			static std::uniform_real_distribution<float> fade_dist(min_fade, max_fade);
 			static std::uniform_real_distribution<> v_dist(v_min, v_max);
-			/* TODO:: tls bug??? static*/ std::uniform_int_distribution<> col_idx_dist(0, globals.palette.size() - 1);
+			static std::uniform_int_distribution<> col_idx_dist(0, globals.palette.size() - 1);
 
 #ifdef __EMSCRIPTEN__
 			emscripten_log(EM_LOG_CONSOLE, "%d %x %x", sizeof(col_idx_dist), *reinterpret_cast<int*>(&col_idx_dist), *(reinterpret_cast<int*>(&col_idx_dist) + 1));
@@ -951,9 +980,7 @@ struct Renderer {
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 		}
-		rt.mask = tex[assets.masks_image_index];
-
-		rt.GenMaskUVBufferData((float)globals.width, (float)globals.height, assets.images[assets.masks_image_index].width,
+		rt.GenRenderTargets(tex[assets.masks_image_index], assets.images[assets.masks_image_index].width,
 			assets.images[assets.masks_image_index].height);
 		glBindTexture(GL_TEXTURE_2D, 0);
 
@@ -1119,6 +1146,7 @@ struct Renderer {
 		//glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 	}
 	void PostRender() {
+		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 		rt.Render();
 	}
 	void DrawBackground(const Camera& cam) {
@@ -1160,13 +1188,12 @@ struct Renderer {
 			GL_FALSE,
 			0,
 			(void*)0);
-		glm::mat4 mvp = cam.vp;
+		const auto& mvp = cam.vp;
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		for (const auto& l : model.layers)
-			for (const auto& p : l.parts) {
-				glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, 1.f);
-				glDrawArrays(GL_TRIANGLES, p.first, p.count);
-			}
+		for (const auto& l : model.layers) {
+			Draw<GL_TRIANGLES>(shader.uCol, l.parts);
+			Draw<GL_LINES>(shader.uCol, l.line_parts);
+		}
 		glDisableVertexAttribArray(0);
 	}
 	void Draw(const Camera& cam, const std::list<Particles>& particles) {
@@ -1242,6 +1269,13 @@ struct Renderer {
 			}
 		}
 	}
+	template<GLenum mode>
+	void Draw(GLuint uCol, const std::vector<Asset::Layer::Surface> parts) {
+		for (const auto& p : parts) {
+			glUniform4f(uCol, p.col.r, p.col.g, p.col.b, 1.f);
+			glDrawArrays(mode, p.first, p.count);
+		}
+	}
 	void Draw(const Camera& cam, const ProtoX& proto) {
 		if (!proto.visible)
 			return;
@@ -1283,23 +1317,19 @@ struct Renderer {
 #endif
 		auto& shader = colorShader;
 		glUseProgram(shader.id);
-		for (const auto& p : proto.layer.parts) {
-			glm::mat4 mvp = glm::translate(cam.vp, proto.pos);
+		const glm::mat4 mvp = glm::translate(cam.vp, proto.pos);
+		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+		Draw<GL_TRIANGLES>(shader.uCol, proto.layer.parts);
+		Draw<GL_LINES>(shader.uCol, proto.layer.line_parts);
+		{ 
+			const glm::mat4 m = glm::translate(
+				glm::rotate(
+					glm::translate({}, proto.pos + proto.turret.layer.pivot), proto.turret.rot, { 0.f, 0.f, 1.f }), -proto.turret.layer.pivot);
+			const glm::mat4 mvp = cam.vp * m;
 			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-			glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, 1.f);
-			glDrawArrays(GL_TRIANGLES, p.first, p.count);
+			Draw<GL_TRIANGLES>(shader.uCol, proto.turret.layer.parts);
+			Draw<GL_LINES>(shader.uCol, proto.turret.layer.line_parts);
 		}
-		for (const auto& p : proto.turret.layer.parts) {
-			glm::mat4 m = glm::translate({}, proto.pos + proto.turret.layer.pivot);
-			m = glm::rotate(m, proto.turret.rot, { 0.f, 0.f, 1.f });
-			m = glm::translate(m, -proto.turret.layer.pivot);
-			
-			glm::mat4 mvp = cam.vp * m;
-			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-			glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, 1.f);
-			glDrawArrays(GL_TRIANGLES, p.first, p.count);
-		}
-
 		Draw(cam, proto, proto.left);
 		Draw(cam, proto, proto.right);
 		Draw(cam, proto, proto.bottom);
@@ -1368,17 +1398,18 @@ struct Renderer {
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, this->missile.texID);
 		glUniform1i(textureShader.uSmp, 0);
-
+		const auto vp = cam.proj * cam.view;
 		for (const auto& missile : missiles) {
-			glm::mat4 mvp = cam.proj * cam.view,
-				m = glm::translate({}, missile.pos) *
-				glm::rotate(glm::mat4{}, missile.rot, { 0.f, 0.f, 1.f });
-			mvp *= m;
+			const glm::mat4 mvp = glm::rotate(glm::translate(vp, missile.pos), missile.rot, { 0.f, 0.f, 1.f });
 			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-			for (const auto& l : assets.missile.layers)
+			for (const auto& l : assets.missile.layers) {
 				for (const auto& p : l.parts) {
 					glDrawArrays(GL_TRIANGLES, p.first, p.count);
 				}
+				for (const auto& p : l.line_parts) {
+					glDrawArrays(GL_LINES, p.first, p.count);
+				}
+			}
 		}
 
 		glDisableVertexAttribArray(0);
@@ -1398,19 +1429,16 @@ struct Renderer {
 			(void*)0);
 		auto& shader = colorShader;
 		glUseProgram(shader.id);
-		glm::vec3 pos;
 		for (const auto& str : texts) {
 			auto pos = str.pos;
 			for (const auto& c : str.str) {
-				glm::mat4 mvp = glm::translate(cam.vp, pos);
 				if (c - 0x20 >= assets.text.layers.size()) continue;
 				const auto& layer = assets.text.layers[c - 0x20];
-				for (const auto& p : layer.parts) {
-					glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-					glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, 1.f);
-					glDrawArrays(GL_TRIANGLES, p.first, p.count);
-					pos.x += layer.aabb.r - layer.aabb.l + globals.text_spacing;
-				}
+				const glm::mat4 mvp = glm::translate(cam.vp, pos);
+				glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+				Draw<GL_TRIANGLES>(shader.uCol, layer.parts);
+				Draw<GL_LINES>(shader.uCol, layer.line_parts);
+				pos.x += layer.aabb.r - layer.aabb.l + globals.text_spacing;
 			}
 		}
 	}
@@ -1520,7 +1548,6 @@ public:
 	Object mesh{ { 5.f, 0.f, 0.f } };
 	Camera camera{ (int)globals.width, (int)globals.height };
 	InputHandler inputHandler;
-	Timer timer;
 	GLuint VertexArrayID;
 	GLuint vertexbuffer;
 	GLuint uvbuffer;
@@ -1547,8 +1574,6 @@ public:
 		std::vector<unsigned char> pv(w*h*3);
 		unsigned char r, g, b;
 		r = g = b = 0;
-		static std::random_device rd;
-		std::mt19937 mt(rd());
 		std::uniform_int_distribution<uint32_t> dist(0, 255);
 		for (size_t i = 0; i < w*h * 3;i+=3) {
 			pv[i] = dist(mt);
@@ -1949,7 +1974,7 @@ public:
 	}
 };
 
-void init(int width, int height) {
+static void init(int width, int height) {
 	glfwSetErrorCallback(errorcb);
 	ThrowIf(glfwInit() != GL_TRUE, "glfw init failed");
 	
@@ -1978,7 +2003,7 @@ void init(int width, int height) {
 	REPORT_RESULT();
 #endif
 }
-Timer timer;
+static Timer timer;
 void main_loop();
 int main(int argc, char** argv) {
 	//Renderer::DumpCircle();
@@ -2002,7 +2027,7 @@ int main(int argc, char** argv) {
 	try {
 		globals.scene = std::make_unique<Scene>();
 	}
-	catch (custom_exception& ex) {
+	catch (const custom_exception& ex) {
 #ifdef __EMSCRIPTEN__
 		emscripten_log(EM_LOG_ERROR, ex.what());
 #else

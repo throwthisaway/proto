@@ -20,12 +20,7 @@ RT::RT(int width, int height)  : width(width), height(height), current(0) {
 	glGenBuffers(COUNT, uv);
 	glGenTextures(COUNT, txt);
 	glGenFramebuffers(COUNT, fbo);
-	size_t index = 0;
-	rt[index] = GenTarget(256, 192, index);
-	index++;
-	rt[index] = GenTarget(width, height, index);
-	index++;
-	rt[index] = GenTarget(width, height, index);
+
 #ifdef VAO_SUPPORT
 	glGenVertexArrays(1, &vao);
 	glBindVertexArray(vao);
@@ -77,6 +72,19 @@ size_t RT::Reset() {
 	glViewport(0, 0, width, height);
 	return res;
 }
+
+void RT::GenRenderTargets(GLuint mask, int maskW, int maskH) {
+	size_t index = 0;
+	rt[index] = GenTarget(width / (maskW * maskRepeat), width / maskH, index);
+	index++;
+	rt[index] = GenTarget(width, height, index);
+	index++;
+	rt[index] = GenTarget(width, height, index);
+
+	this->mask = mask;
+	GenMaskUVBufferData((float)width, (float)height, maskW, maskH);
+}
+
 void RT::Render() {
 	auto prev = Set(1);
 	ShadowMaskStage(prev);

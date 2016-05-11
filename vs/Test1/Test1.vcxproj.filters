@@ -161,5 +161,8 @@
     <ClInclude Include="..\..\emc_ogl\shader\Contrast.h">
       <Filter>Header Files\shader</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\emc_socket\Socket.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

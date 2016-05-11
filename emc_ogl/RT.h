@@ -32,5 +32,6 @@ public:
 	void GenMaskUVBufferData(float sw, float sh, float iw, float ih);
 	void Render();
 	size_t Set(size_t index = 0);
+	void GenRenderTargets(GLuint mask, int maskW, int maskH);
 	~RT();
 };

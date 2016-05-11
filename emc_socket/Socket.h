@@ -70,7 +70,7 @@ protected:
 
 		int ret = getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len);
 
-		std::cerr << "error message: " << msg << "\n";
+		printf("error message: %s\n", msg);
 		auto socket = (Socket*)_this;
 		if (err == error)
 		{

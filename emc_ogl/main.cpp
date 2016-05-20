@@ -1,13 +1,11 @@
 #include <GL/glew.h>
 #include <assert.h>
-#include <string.h>
 #include <sstream>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtx/rotate_vector.hpp>
 #include <chrono>
-
 #include <stdio.h>
 #include <vector>
 #include <array>
@@ -18,6 +16,9 @@
 #include <fstream>
 #include <algorithm>
 #include <random>
+#include <string>
+#include <memory>
+#include "Globals.h"
 #include "../../MeshLoader/MeshLoader.h"
 #include "../emc_socket/Socket.h"
 #include <GLFW/glfw3.h>
@@ -33,10 +34,6 @@
 #include "Shader/Texture.h"
 #include "RT.h"
 
-//#define VAO_SUPPORT
-#define DEBUG_REL
-#define CLIENTID_LEN 5
-#define LINE_RENDER
 template<typename T>
 constexpr size_t ID5(const T& t, size_t offset) {
 	return ((t[offset + 4] - '0') << 20) | ((t[offset + 3] - '0') << 15) | ((t[offset + 2] - '0') << 10) | ((t[offset + 1] - '0') << 5) | (t[offset] - '0');
@@ -53,19 +50,24 @@ inline glm::vec3 RotateZ(const glm::vec3& v, const glm::vec3& c, float r) {
 	//return{std::cos(r) * (v.x - c.x), std::sin(r) * (v.y - c.y), 0.f };
 	return glm::rotateZ(v - c, r);
 }
+static const size_t texw = 256, texh = 256;
+static GLFWwindow * window;
+static std::random_device rd;
+static std::mt19937 mt(rd());
 
-static const glm::vec4 c64[] = {/* {0.f/255.f,0.f/255.f,0.f/255.f, 1.f},*/{ 255.f/255.f, 255.f/255.f, 255.f/255.f, 1.f},{ 152.f/255.f, 75.f/255.f, 67.f/255.f, 1.f},{ 121.f/255.f, 193.f/255.f, 200.f/255.f, 1.f},{ 155.f/255.f, 81.f/255.f, 165.f/255.f, 1.f},{ 104.f/255.f, 174.f/255.f, 92.f/255.f, 1.f},{ 82.f/255.f, 66.f/255.f, 157.f/255.f, 1.f},{ 201.f/255.f, 214.f/255.f, 132.f/255.f, 1.f},
-{ 155.f/255.f, 103.f/255.f, 57.f/255.f, 1.f},{ 106.f/255.f, 84.f/255.f, 0.f/255.f, 1.f},{ 195.f/255.f, 123.f/255.f, 117.f/255.f, 1.f},{ 99.f/255.f, 99.f/255.f, 99.f/255.f, 1.f},{ 138.f/255.f, 138.f/255.f, 138.f/255.f, 1.f},{ 163.f/255.f, 229.f/255.f, 153.f/255.f, 1.f},{ 138.f/255.f, 123.f/255.f, 206.f/255.f, 1.f},{ 173.f/255.f, 173.f/255.f, 173.f/255.f, 1.f } },
-cpc[] = {/* { 0.f/255.f,0.f/255.f,0.f/255.f, 1.f},*/{ 0.f/255.f, 0.f/255.f, 128.f/255.f, 1.f},{ 0.f/255.f, 0.f/255.f, 255.f/255.f, 1.f},{ 128.f/255.f, 0.f/255.f, 0.f/255.f, 1.f},{ 128.f/255.f, 0.f/255.f, 128.f/255.f, 1.f},{ 128.f/255.f, 0.f/255.f, 255.f/255.f, 1.f},{ 255.f/255.f, 0.f/255.f, 0.f/255.f, 1.f},{ 255.f/255.f, 0.f/255.f, 128.f/255.f, 1.f},{ 255.f/255.f, 0.f/255.f, 255.f/255.f, 1.f},
-{ 0.f/255.f, 128.f/255.f, 0.f/255.f, 1.f},{ 0.f/255.f, 128.f/255.f, 128.f/255.f, 1.f},{ 0.f/255.f, 128.f/255.f, 255.f/255.f, 1.f},{ 128.f/255.f, 128.f/255.f, 0.f/255.f, 1.f},{ 128.f/255.f, 128.f/255.f, 128.f/255.f, 1.f},{ 128.f/255.f, 128.f/255.f, 255.f/255.f, 1.f},{ 255.f/255.f, 128.f/255.f, 0.f/255.f, 1.f},{ 255.f/255.f, 128.f/255.f, 128.f/255.f, 1.f},{ 255.f/255.f, 128.f/255.f, 255.f/255.f, 1.f},
-{ 0.f/255.f, 255.f/255.f, 0.f/255.f, 1.f},{ 0.f/255.f, 255.f/255.f, 128.f/255.f, 1.f},{ 0.f/255.f, 255.f/255.f, 255.f/255.f, 1.f},{ 128.f/255.f, 255.f/255.f, 0.f/255.f, 1.f},{ 128.f/255.f, 255.f/255.f, 128.f/255.f, 1.f},{ 128.f/255.f, 255.f/255.f, 255.f/255.f, 1.f},{ 255.f/255.f, 255.f/255.f, 0.f/255.f, 1.f},{ 255.f/255.f, 255.f/255.f, 128.f/255.f, 1.f},{ 255.f/255.f, 255.f/255.f, 255.f/255.f, 1. } },
-speccy[] = {/* { 0.f/255.f,0.f/255.f,0.f/255.f, 1.f},*/{ 0.f/255.f, 0.f/255.f, 202.f/255.f, 1.f},{ 202.f/255.f, 0.f/255.f, 0.f/255.f, 1.f},{ 202.f/255.f, 0.f/255.f, 202.f/255.f, 1.f},{ 0.f/255.f, 202.f/255.f, 0.f/255.f, 1.f},{ 0.f/255.f, 202.f/255.f, 202.f/255.f, 1.f},{ 202.f/255.f, 202.f/255.f, 0.f/255.f, 1.f},{ 202.f/255.f, 202.f/255.f, 202.f/255.f, 1.f},
-/*{ 0.f/255.f,0.f/255.f,0.f/255.f, 1.f},*/{ 0.f/255.f, 0.f/255.f, 255.f/255.f, 1.f},{ 255.f/255.f, 0.f/255.f, 0.f/255.f, 1.f},{ 255.f/255.f, 0.f/255.f, 255.f/255.f, 1.f},{ 0.f/255.f, 255.f/255.f, 0.f/255.f, 1.f},{ 0.f/255.f, 255.f/255.f, 255.f/255.f, 1.f},{ 255.f/255.f, 255.f/255.f, 0.f/255.f, 1.f},{ 255.f/255.f, 255.f/255.f, 255.f/255.f, 1.f } };
+static const glm::vec4 c64[] = {/* {0.f/255.f,0.f/255.f,0.f/255.f, 1.f},*/{ 255.f / 255.f, 255.f / 255.f, 255.f / 255.f, 1.f },{ 152.f / 255.f, 75.f / 255.f, 67.f / 255.f, 1.f },{ 121.f / 255.f, 193.f / 255.f, 200.f / 255.f, 1.f },{ 155.f / 255.f, 81.f / 255.f, 165.f / 255.f, 1.f },{ 104.f / 255.f, 174.f / 255.f, 92.f / 255.f, 1.f },{ 82.f / 255.f, 66.f / 255.f, 157.f / 255.f, 1.f },{ 201.f / 255.f, 214.f / 255.f, 132.f / 255.f, 1.f },
+{ 155.f / 255.f, 103.f / 255.f, 57.f / 255.f, 1.f },{ 106.f / 255.f, 84.f / 255.f, 0.f / 255.f, 1.f },{ 195.f / 255.f, 123.f / 255.f, 117.f / 255.f, 1.f },{ 99.f / 255.f, 99.f / 255.f, 99.f / 255.f, 1.f },{ 138.f / 255.f, 138.f / 255.f, 138.f / 255.f, 1.f },{ 163.f / 255.f, 229.f / 255.f, 153.f / 255.f, 1.f },{ 138.f / 255.f, 123.f / 255.f, 206.f / 255.f, 1.f },{ 173.f / 255.f, 173.f / 255.f, 173.f / 255.f, 1.f } },
+cpc[] = {/* { 0.f/255.f,0.f/255.f,0.f/255.f, 1.f},*/{ 0.f / 255.f, 0.f / 255.f, 128.f / 255.f, 1.f },{ 0.f / 255.f, 0.f / 255.f, 255.f / 255.f, 1.f },{ 128.f / 255.f, 0.f / 255.f, 0.f / 255.f, 1.f },{ 128.f / 255.f, 0.f / 255.f, 128.f / 255.f, 1.f },{ 128.f / 255.f, 0.f / 255.f, 255.f / 255.f, 1.f },{ 255.f / 255.f, 0.f / 255.f, 0.f / 255.f, 1.f },{ 255.f / 255.f, 0.f / 255.f, 128.f / 255.f, 1.f },{ 255.f / 255.f, 0.f / 255.f, 255.f / 255.f, 1.f },
+{ 0.f / 255.f, 128.f / 255.f, 0.f / 255.f, 1.f },{ 0.f / 255.f, 128.f / 255.f, 128.f / 255.f, 1.f },{ 0.f / 255.f, 128.f / 255.f, 255.f / 255.f, 1.f },{ 128.f / 255.f, 128.f / 255.f, 0.f / 255.f, 1.f },{ 128.f / 255.f, 128.f / 255.f, 128.f / 255.f, 1.f },{ 128.f / 255.f, 128.f / 255.f, 255.f / 255.f, 1.f },{ 255.f / 255.f, 128.f / 255.f, 0.f / 255.f, 1.f },{ 255.f / 255.f, 128.f / 255.f, 128.f / 255.f, 1.f },{ 255.f / 255.f, 128.f / 255.f, 255.f / 255.f, 1.f },
+{ 0.f / 255.f, 255.f / 255.f, 0.f / 255.f, 1.f },{ 0.f / 255.f, 255.f / 255.f, 128.f / 255.f, 1.f },{ 0.f / 255.f, 255.f / 255.f, 255.f / 255.f, 1.f },{ 128.f / 255.f, 255.f / 255.f, 0.f / 255.f, 1.f },{ 128.f / 255.f, 255.f / 255.f, 128.f / 255.f, 1.f },{ 128.f / 255.f, 255.f / 255.f, 255.f / 255.f, 1.f },{ 255.f / 255.f, 255.f / 255.f, 0.f / 255.f, 1.f },{ 255.f / 255.f, 255.f / 255.f, 128.f / 255.f, 1.f },{ 255.f / 255.f, 255.f / 255.f, 255.f / 255.f, 1. } },
+speccy[] = {/* { 0.f/255.f,0.f/255.f,0.f/255.f, 1.f},*/{ 0.f / 255.f, 0.f / 255.f, 202.f / 255.f, 1.f },{ 202.f / 255.f, 0.f / 255.f, 0.f / 255.f, 1.f },{ 202.f / 255.f, 0.f / 255.f, 202.f / 255.f, 1.f },{ 0.f / 255.f, 202.f / 255.f, 0.f / 255.f, 1.f },{ 0.f / 255.f, 202.f / 255.f, 202.f / 255.f, 1.f },{ 202.f / 255.f, 202.f / 255.f, 0.f / 255.f, 1.f },{ 202.f / 255.f, 202.f / 255.f, 202.f / 255.f, 1.f },
+/*{ 0.f/255.f,0.f/255.f,0.f/255.f, 1.f},*/{ 0.f / 255.f, 0.f / 255.f, 255.f / 255.f, 1.f },{ 255.f / 255.f, 0.f / 255.f, 0.f / 255.f, 1.f },{ 255.f / 255.f, 0.f / 255.f, 255.f / 255.f, 1.f },{ 0.f / 255.f, 255.f / 255.f, 0.f / 255.f, 1.f },{ 0.f / 255.f, 255.f / 255.f, 255.f / 255.f, 1.f },{ 255.f / 255.f, 255.f / 255.f, 0.f / 255.f, 1.f },{ 255.f / 255.f, 255.f / 255.f, 255.f / 255.f, 1.f } };
 //const glm::vec4 colors[] = { { 1.0f,0.5f,0.5f , 1.f },{ 1.0f,0.75f,0.5f , 1.f },{ 1.0f,1.0f,0.5f , 1.f },{ 0.75f,1.0f,0.5f , 1.f },
 //{ 0.5f,1.0f,0.5f , 1.f },{ 0.5f,1.0f,0.75f , 1.f },{ 0.5f,1.0f,1.0f , 1.f },{ 0.5f,0.75f,1.0f , 1.f },
 //{ 0.5f,0.5f,1.0f , 1.f },{ 0.75f,0.5f,1.0f , 1.f },{ 1.0f,0.5f,1.0f , 1.f },{ 1.0f,0.5f,0.75f , 1.f } };
+
 class Scene;
-static struct {
+struct {
 #ifdef DEBUG_REL
 	const float invincibility = 0.f;;
 #else
@@ -75,21 +77,20 @@ static struct {
 		propulsion_scale = 80.f,
 		text_spacing = 30.f,
 		text_scale = 120.f,
-		missile_size = 120.f;
+		missile_size = 120.f,
+		player_blink_rate = 500., // ms
+		player_blink_ratio = .5f;
+	const glm::vec4 radar_dot_color{ 1.f, 1.f, 1.f, 1.f };
 	const gsl::span<const glm::vec4, gsl::dynamic_range> palette = gsl::as_span(cpc, sizeof(cpc) / sizeof(cpc[0]));
 
 	std::string host = "localhost";
 	unsigned short port = 8000;
-	unsigned int width = 640, height = 480;
+	int width = 640, height = 480;
 	std::string sessionID;
 	std::unique_ptr<Scene> scene;
 	std::unique_ptr<Client> ws;
 }globals;
 
-static const size_t texw = 256, texh = 256;
-static GLFWwindow * window;
-static std::random_device rd;
-static std::mt19937 mt(rd());
 static void ReadMeshFile(const char* fname, MeshLoader::Mesh& mesh) {
 	FILE *f;
 #ifdef __EMSCRIPTEN__
@@ -359,7 +360,7 @@ namespace Asset {
 		std::vector<Img::ImgData> images;
 		size_t masks_image_index;
 		std::vector<Model*> models;
-		Model probe, propulsion, land, missile, debris, text, debug;
+		Model probe, propulsion, land, missile, debris, text, debug, radar;
 		Assets() {
 #ifdef __EMSCRIPTEN__
 #define PATH_PREFIX ""
@@ -449,6 +450,12 @@ namespace Asset {
 				models.push_back(&text);
 			}
 			{
+				MeshLoader::Mesh mesh;
+				ReadMeshFile(PATH_PREFIX"asset//radar.mesh", mesh);
+				radar = Reconstruct(mesh, globals.scale);
+				models.push_back(&radar);
+			}
+			{
 				const std::vector<glm::vec3> vertices{ { 0.f, 0.f, 0.f },
 				{  0.5f, 0.f, 0.f },
 				{ 1.f, 0.f, 0.f } };
@@ -459,11 +466,21 @@ namespace Asset {
 			}
 			for (auto& m : models) {
 				for (auto& l : m->layers) {
-					if (l.parts.empty()) continue;
-					l.aabb = CalcAABB(m->vertices, l.parts.front().first, l.parts.front().count);
-					for (size_t i = 1; i < l.parts.size(); ++i) {
-						auto aabb = CalcAABB(m->vertices, l.parts[i].first, l.parts[i].count);
+					// have lines or triangles?
+					const auto& parts = (l.parts.empty()) ? l.line_parts : l.parts;
+					if (parts.empty()) continue;
+					l.aabb = CalcAABB(m->vertices, parts.front().first, parts.front().count);
+					for (size_t i = 1; i < parts.size(); ++i) {
+						auto aabb = CalcAABB(m->vertices, parts[i].first, parts[i].count);
 						l.aabb = Union(l.aabb, aabb);
+					}
+					// ...or both
+					if (&parts != &l.line_parts) {
+						const auto& parts = l.line_parts;
+						for (size_t i = 1; i < parts.size(); ++i) {
+							auto aabb = CalcAABB(m->vertices, parts[i].first, parts[i].count);
+							l.aabb = Union(l.aabb, aabb);
+						}
 					}
 				}
 
@@ -523,6 +540,9 @@ struct Object {
 };
 struct Camera {
 	glm::vec3 pos{ 0.f, 0.f, -10.f };
+	struct {
+		int x, y, w, h;
+	}viewport;
 	glm::mat4 view, proj, vp;
 	void SetPos(float x, float y, float z) {
 		pos = { x, y, z };
@@ -534,9 +554,12 @@ struct Camera {
 		view = glm::translate({}, pos);
 		vp = proj * view;
 	}
-	Camera(int w, int h) : view(glm::translate(glm::mat4{}, pos)),
-		proj(glm::ortho((float)(-(w >> 1)), (float)(w>>1), (float)(-(h >> 1)), (float)(h>>1), 0.1f, 100.f)),
-		vp(proj * view) {
+	void SetProj(int w, int h) {
+		proj = glm::ortho((float)(-(w >> 1)), (float)(w >> 1), (float)(-(h >> 1)), (float)(h >> 1), 0.1f, 100.f);
+		vp = proj * view;
+	}
+	Camera(int w, int h) : viewport{ 0, 0, w, h }, view(glm::translate(glm::mat4{}, pos)) {
+		SetProj(w, h);
 	}
 	void Update(const Time&) {}
 	void Tracking(const glm::vec3& tracking_pos, const AABB& scene_aabb, const AABB& player_aabb) {
@@ -644,7 +667,7 @@ struct ProtoX {
 		min_debris_speed = .05f, //px/ ms
 		debris_max_centrifugal_speed =.02f; // rad/ms
 	// state...
-	float invincible, blink_time, fade_out;
+	float invincible, blink_time, fade_out, blink;
 	double hit_time;
 	bool visible, hit, killed;
 	glm::vec3 pos, vel, f, hit_pos;
@@ -745,6 +768,7 @@ struct ProtoX {
 		for (auto& sp : debris_speed) sp = dist_sp(mt);
 	}
 	void Update(const Time& t, const AABB& bounds) {
+		blink = std::fmod(t.total, globals.player_blink_rate);
 		if (invincible > 0.f) {
 			blink_time -= (float)t.frame;
 			if (blink_time < 0.f) {
@@ -826,6 +850,9 @@ struct ProtoX {
 		}
 		return 0.f;
 	}
+	float CalcBlinkState() const {
+		return (blink < globals.player_blink_rate / 2.f) ? globals.player_blink_ratio : 1.f;
+	}
 };
 void GenerateSquare(float x, float y, float s, std::vector<glm::vec3>& data) {
 	s *=.5f;
@@ -839,8 +866,10 @@ void GenerateSquare(float x, float y, float s, std::vector<glm::vec3>& data) {
 }
 
 struct Text {
+	enum class Align{Left, Center, Right};
 	glm::vec3 pos;
 	float scale;
+	Align align;
 	std::string str;
 };
 struct Renderer {
@@ -859,7 +888,8 @@ struct Renderer {
 		VBO_PROPULSION = 7,
 		VBO_DEBRIS = 8,
 		VBO_TEXT = 9,
-		VBO_COUNT = 10;
+		VBO_RADAR = 10,
+		VBO_COUNT = 11;
 	GLuint vbo[VBO_COUNT];
 	std::vector<GLuint> tex;
 #ifdef VAO_SUPPORT
@@ -951,7 +981,8 @@ struct Renderer {
 				std::sin(glm::two_pi<float>() / steps * i) * ratio << "f,.0f,\n";
 		}
 	}
-	Renderer(Asset::Assets& assets, const AABB& scene_bounds) : assets(assets), rt(globals.width, globals.height) {
+	Renderer(Asset::Assets& assets, const AABB& scene_bounds) : assets(assets),
+		rt(globals.width, globals.height) {
 		Init(scene_bounds);
 	}
 	void Init(const AABB& scene_bounds) {
@@ -1138,14 +1169,23 @@ struct Renderer {
 			glBufferData(GL_ARRAY_BUFFER, assets.text.vertices.size() * sizeof(assets.text.vertices[0]), &assets.text.vertices.front(), GL_STATIC_DRAW);
 			glBindBuffer(GL_ARRAY_BUFFER, 0);
 		}
-		
+
+		{
+			// raadar
+			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_RADAR]);
+			glBufferData(GL_ARRAY_BUFFER, assets.radar.vertices.size() * sizeof(assets.radar.vertices[0]), &assets.radar.vertices.front(), GL_STATIC_DRAW);
+			glBindBuffer(GL_ARRAY_BUFFER, 0);
+		}
 	}
 	void PreRender() {
 		rt.Set();
 		glClear(GL_COLOR_BUFFER_BIT);
 		//glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+		//glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
+
 	void PostRender() {
+		glViewport(0, 0, globals.width, globals.height);
 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 		rt.Render();
 	}
@@ -1263,20 +1303,36 @@ struct Renderer {
 			glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 
 			auto& layer = assets.propulsion.layers[proto.left.frame];
-			for (const auto& p : layer.parts) {
-				glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, 1.f);
-				glDrawArrays(GL_TRIANGLES, p.first, p.count);
-			}
+			Draw<GL_TRIANGLES>(shader.uCol, layer.parts);
+			Draw<GL_LINES>(shader.uCol, layer.line_parts);
 		}
 	}
 	template<GLenum mode>
-	void Draw(GLuint uCol, const std::vector<Asset::Layer::Surface> parts) {
+	void Draw(GLuint uCol, const std::vector<Asset::Layer::Surface> parts, float brightness = 1.f) {
 		for (const auto& p : parts) {
-			glUniform4f(uCol, p.col.r, p.col.g, p.col.b, 1.f);
+			const auto col = p.col * brightness;
+			glUniform4f(uCol, col.r, col.g, col.b, 1.f);
 			glDrawArrays(mode, p.first, p.count);
 		}
 	}
-	void Draw(const Camera& cam, const ProtoX& proto) {
+	void Draw(const Camera& cam, GLuint vbo, const glm::vec3& pos, const Asset::Model& model) {
+		auto& shader = colorShader;
+		glUseProgram(shader.id);
+		glBindBuffer(GL_ARRAY_BUFFER, vbo);
+		glVertexAttribPointer(0,
+			3,
+			GL_FLOAT,
+			GL_FALSE,
+			0,
+			(void*)0);
+		const glm::mat4 mvp = glm::translate(cam.vp, pos);
+		glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+		for (const auto& l : model.layers) {
+			Draw<GL_TRIANGLES>(shader.uCol, l.parts);
+			Draw<GL_LINES>(shader.uCol, l.line_parts);
+		}
+	}
+	void Draw(const Camera& cam, const ProtoX& proto, bool player = false) {
 		if (!proto.visible)
 			return;
 		if (proto.hit) {
@@ -1319,16 +1375,23 @@ struct Renderer {
 		glUseProgram(shader.id);
 		const glm::mat4 mvp = glm::translate(cam.vp, proto.pos);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		Draw<GL_TRIANGLES>(shader.uCol, proto.layer.parts);
-		Draw<GL_LINES>(shader.uCol, proto.layer.line_parts);
+		float prop_blink = 1.f, turret_blink = 1.f;
+		if (player) {
+			if (proto.ctrl == ProtoX::Ctrl::Full || proto.ctrl == ProtoX::Ctrl::Prop)
+				prop_blink = proto.CalcBlinkState();
+			if (proto.ctrl == ProtoX::Ctrl::Full || proto.ctrl == ProtoX::Ctrl::Turret)
+				turret_blink = proto.CalcBlinkState();
+		}
+		Draw<GL_TRIANGLES>(shader.uCol, proto.layer.parts, prop_blink);
+		Draw<GL_LINES>(shader.uCol, proto.layer.line_parts, prop_blink);
 		{ 
 			const glm::mat4 m = glm::translate(
 				glm::rotate(
 					glm::translate({}, proto.pos + proto.turret.layer.pivot), proto.turret.rot, { 0.f, 0.f, 1.f }), -proto.turret.layer.pivot);
 			const glm::mat4 mvp = cam.vp * m;
 			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-			Draw<GL_TRIANGLES>(shader.uCol, proto.turret.layer.parts);
-			Draw<GL_LINES>(shader.uCol, proto.turret.layer.line_parts);
+			Draw<GL_TRIANGLES>(shader.uCol, proto.turret.layer.parts, turret_blink);
+			Draw<GL_LINES>(shader.uCol, proto.turret.layer.line_parts, turret_blink);
 		}
 		Draw(cam, proto, proto.left);
 		Draw(cam, proto, proto.right);
@@ -1361,6 +1424,47 @@ struct Renderer {
 #else
 		glDisableVertexAttribArray(0);
 #endif
+	}
+
+	void RenderHUD(const Camera& cam, const AABB& bounds, const ProtoX* player, const std::map<size_t, std::unique_ptr<ProtoX>>& players) {
+		const float score_scale = 2.f, text_y = -assets.text.aabb.t - assets.text.aabb.b / 2.f;
+		const glm::vec3 pos1{ -cam.viewport.w, text_y, 0.f }, pos2 = { cam.viewport.w, text_y, 0.f };
+		Draw(cam, vbo[VBO_RADAR], {/*radar pos*/}, assets.radar);
+		std::vector<Text> texts;
+		texts.push_back({pos1, score_scale, Text::Align::Left, std::to_string(player->score) });
+		const auto& shader = colorPosAttribShader;
+		glUseProgram(shader.id);
+		glBindBuffer(GL_ARRAY_BUFFER, Particles::vbo);
+		glEnableVertexAttribArray(shader.aPos);
+		glVertexAttribPointer(shader.aPos,
+			3,
+			GL_FLOAT,
+			GL_FALSE,
+			0,
+			(void*)0);
+		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &cam.vp[0][0]);
+		const auto col = globals.radar_dot_color * player->CalcBlinkState();
+		glUniform4f(shader.uCol, col.r, col.g, col.b, col.a);
+		const AABB& aabb = assets.radar.aabb;
+		const auto rw = aabb.r - aabb.l, rh = aabb.t - aabb.b, sw = bounds.r - bounds.l, sh = bounds.t - bounds.b,
+			rx = rw / sw, ry = rh / sh;
+
+		const glm::vec3 pos(player->pos.x * rx, player->pos.y * ry, 0.f);
+		glVertexAttrib3fv(shader.aVertex, &(pos)[0]);
+		glDrawArrays(GL_TRIANGLES, 0, Particles::vertex_count);
+
+		glUniform4f(shader.uCol, globals.radar_dot_color.r, globals.radar_dot_color.g, globals.radar_dot_color.b, globals.radar_dot_color.a);
+		size_t max = 0;
+		for (const auto& p : players) {
+			max = std::max(max, p.second->score);
+			const glm::vec3 pos(p.second->pos.x * rx, p.second->pos.y * ry, 0.f);
+			const auto col = globals.radar_dot_color * player->CalcBlinkState();
+			glVertexAttrib3fv(shader.aVertex, &(pos)[0]);
+			glDrawArrays(GL_TRIANGLES, 0, Particles::vertex_count);
+		}
+		texts.push_back({pos2, score_scale, Text::Align::Right, std::to_string(max) });
+		glDisableVertexAttribArray(shader.aPos);
+		Draw(cam, texts);
 	}
 
 	void DrawLandscape(const Camera& cam) {
@@ -1431,10 +1535,15 @@ struct Renderer {
 		glUseProgram(shader.id);
 		for (const auto& str : texts) {
 			auto pos = str.pos;
+			if (str.align == Text::Align::Right || str.align == Text::Align::Center) {
+				auto ofs = str.str.size() * globals.text_spacing * str.scale;
+				if (str.align == Text::Align::Center) ofs /= 2.f;
+				pos.x -= ofs;
+			}
 			for (const auto& c : str.str) {
 				if (c - 0x20 >= assets.text.layers.size()) continue;
 				const auto& layer = assets.text.layers[c - 0x20];
-				const glm::mat4 mvp = glm::translate(cam.vp, pos);
+				const glm::mat4 mvp = glm::scale(glm::translate(cam.vp, pos), { str.scale, str.scale, 1.f });
 				glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 				Draw<GL_TRIANGLES>(shader.uCol, layer.parts);
 				Draw<GL_LINES>(shader.uCol, layer.line_parts);
@@ -1546,14 +1655,14 @@ public:
 	std::list<Renderer::Particles> particles;
 	std::vector<Text> texts;
 	Object mesh{ { 5.f, 0.f, 0.f } };
-	Camera camera{ (int)globals.width, (int)globals.height };
+	Camera camera{ (int)globals.width, (int)globals.height }, hud{ (int)globals.width, (int)globals.height };
 	InputHandler inputHandler;
 	GLuint VertexArrayID;
 	GLuint vertexbuffer;
 	GLuint uvbuffer;
 	GLuint texID;
 	GLuint uTexSize;
-	glm::mat4x4 mvp;
+	///glm::mat4x4 mvp;
 	std::queue<std::vector<unsigned char>> messages;
 #ifndef __EMSCRIPTEN__
 	void* operator new(size_t i)
@@ -1590,13 +1699,24 @@ public:
 		return textureID;
 	}
 public:
-
+	void SetHudVp(int w, int h) {
+		camera.viewport = { 0, h / 4, w, h * 3 / 4 };
+		//camera.viewport = { 0, 0, w, h};
+		double aspect = (double)camera.viewport.h / camera.viewport.w;
+		camera.SetProj(globals.width, globals.height * aspect);
+		// TODO:: correct aspect ratio
+		hud.viewport = { 0, 0, w, h / 4 };
+		aspect = (double)hud.viewport.h / hud.viewport.w;
+		hud.SetProj(globals.width, globals.height * aspect);
+	}
 	Scene() : bounds(assets.land.aabb),
 #ifdef DEBUG_REL
 		player(std::make_unique<ProtoX>(0xdeadbeef, assets.probe, assets.debris, assets.propulsion.layers.size())),
 #endif
 		renderer(assets, bounds) {
-		texts.push_back(Text{ {}, 1.f, "A !\"'()&%$#0123456789:;<=>?AMKXR" });
+		const auto size = renderer.rt.GetCurrentRes();
+		SetHudVp(size.x, size.y);
+		texts.push_back(Text{ {}, 1.f, Text::Align::Center, "A !\"'()&%$#0123456789:;<=>?AMKXR" });
 		/*bounds.t = float((height >> 1) + (height >> 2));
 		bounds.b = -float((height >> 1) + (height >> 2));*/
 #ifdef DEBUG_REL
@@ -1654,26 +1774,7 @@ public:
 	}
 	void Render() {
 		renderer.PreRender();
-		//glUseProgram(simple.program.id);
-
-		//glUniformMatrix4fv(simple.uMVP, 1, GL_FALSE, &mvp[0][0]);
-
-		//glUniform2f(simple.uRes, (GLfloat)width, (GLfloat)height);
-
-		//glUniform1f(simple.uTotal, (GLfloat)timer.Total());
-		//glUniform1f(simple.uElapsed, (GLfloat)timer.Elapsed());
-		//glActiveTexture(GL_TEXTURE0);
-		//glBindTexture(GL_TEXTURE_2D, texID);
-		//glUniform1i(simple.uSmp, 0);
-		//glUniform2f(simple.uTexSize, (GLfloat)texw, (GLfloat)texh);
-
-		//glBindVertexArray(VertexArrayID);
-
-		//glEnableVertexAttribArray(0);
-
-		//glDrawArrays(GL_TRIANGLES, 0, 3);
-	
-		//glBindVertexArray(0);
+		glViewport(camera.viewport.x, camera.viewport.y, camera.viewport.w, camera.viewport.h);
 		renderer.DrawBackground(camera);
 		renderer.DrawLandscape(camera);
 		renderer.Draw(camera, missiles);
@@ -1682,9 +1783,11 @@ public:
 			renderer.Draw(camera, p.second->aabb.Translate(p.second->pos));
 		}
 		if (player)
-			renderer.Draw(camera, *player.get());
+			renderer.Draw(camera, *player.get(), true);
 		renderer.Draw(camera, particles);
 		renderer.Draw(camera, texts);
+		glViewport(hud.viewport.x, hud.viewport.y, hud.viewport.w, hud.viewport.h);
+		renderer.RenderHUD(hud, bounds, player.get(), players);
 		renderer.PostRender();
 	}
 
@@ -1701,9 +1804,9 @@ public:
 		static float w = (float)assets.images[assets.masks_image_index].width, h =
 			(float)assets.images[assets.masks_image_index].height;
 		if (key == GLFW_KEY_PAGE_UP && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-			renderer.rt.GenMaskUVBufferData( globals.width, globals.height, w+=.1f, h+=.1f);
+			renderer.rt.GenMaskUVBufferData( (float)globals.width, (float)globals.height, w+=.1f, h+=.1f);
 		} else if (key == GLFW_KEY_PAGE_DOWN && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-			renderer.rt.GenMaskUVBufferData(globals.width, globals.height, w-=.1f, h-=.1f);
+			renderer.rt.GenMaskUVBufferData((float)globals.width, (float)globals.height, w-=.1f, h-=.1f);
 		}else if (key == GLFW_KEY_HOME && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
 			renderer.rt.maskOpacity+=.05f;
 		}else if (key == GLFW_KEY_END && (action == GLFW_PRESS || action == GLFW_REPEAT)) {

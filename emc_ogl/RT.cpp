@@ -76,6 +76,7 @@ size_t RT::Reset() {
 void RT::GenRenderTargets(GLuint mask, int maskW, int maskH) {
 	size_t index = 0;
 	rt[index] = GenTarget(width / (maskW * maskRepeat), width / maskH, index);
+	//rt[index] = GenTarget(width, height, index);
 	index++;
 	rt[index] = GenTarget(width, height, index);
 	index++;
@@ -236,4 +237,8 @@ RT::Target RT::GenTarget(int width, int height, size_t index) {
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, txt[index], 0);
 	return res;
+}
+
+glm::ivec2 RT::GetCurrentRes() const {
+	return{ rt[current].w, rt[current].h };
 }

@@ -25,6 +25,7 @@
     <ClCompile Include="..\..\..\MeshLoader\Log.cpp" />
     <ClCompile Include="..\..\..\MeshLoader\Tga.cpp" />
     <ClCompile Include="..\..\emc_ogl\Exception.cpp" />
+    <ClCompile Include="..\..\emc_ogl\Globals.cpp" />
     <ClCompile Include="..\..\emc_ogl\Helpers.cpp" />
     <ClCompile Include="..\..\emc_ogl\main.cpp" />
     <ClCompile Include="..\..\..\MeshLoader\MeshLoader.cpp" />
@@ -55,6 +56,7 @@
     <ClInclude Include="..\..\..\MeshLoader\Tga.h" />
     <ClInclude Include="..\..\..\MeshLoader\types.h" />
     <ClInclude Include="..\..\emc_ogl\Exception.h" />
+    <ClInclude Include="..\..\emc_ogl\Globals.h" />
     <ClInclude Include="..\..\emc_ogl\Helpers.h" />
     <ClInclude Include="..\..\emc_ogl\Logging.h" />
     <ClInclude Include="..\..\emc_ogl\RT.h" />

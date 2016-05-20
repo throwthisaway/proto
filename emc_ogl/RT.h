@@ -1,4 +1,5 @@
 #pragma once
+#include <glm/glm.hpp>
 #include "Helpers.h"
 #include "Shader/RTShader.h"
 #include "Shader/VBlur3x.h"
@@ -33,5 +34,6 @@ public:
 	void Render();
 	size_t Set(size_t index = 0);
 	void GenRenderTargets(GLuint mask, int maskW, int maskH);
+	glm::ivec2 GetCurrentRes() const;
 	~RT();
 };

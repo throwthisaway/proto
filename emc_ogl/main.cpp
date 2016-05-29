@@ -79,7 +79,9 @@ struct {
 		text_scale = 120.f,
 		missile_size = 120.f,
 		player_blink_rate = 500., // ms
-		player_blink_ratio = .5f;
+		player_blink_ratio = .5f,
+		tracking_height_ratio = .75f,
+		tracking_width_ratio = .75f;
 	const glm::vec4 radar_dot_color{ 1.f, 1.f, 1.f, 1.f };
 	const gsl::span<const glm::vec4, gsl::dynamic_range> palette = gsl::as_span(cpc, sizeof(cpc) / sizeof(cpc[0]));
 
@@ -477,7 +479,7 @@ namespace Asset {
 					// ...or both
 					if (&parts != &l.line_parts) {
 						const auto& parts = l.line_parts;
-						for (size_t i = 1; i < parts.size(); ++i) {
+						for (size_t i = 0; i < parts.size(); ++i) {
 							auto aabb = CalcAABB(m->vertices, parts[i].first, parts[i].count);
 							l.aabb = Union(l.aabb, aabb);
 						}
@@ -540,9 +542,9 @@ struct Object {
 };
 struct Camera {
 	glm::vec3 pos{ 0.f, 0.f, -10.f };
-	struct {
-		int x, y, w, h;
-	}viewport;
+	//struct {
+	//	int x, y, w, h;
+	//}viewport;
 	glm::mat4 view, proj, vp;
 	void SetPos(float x, float y, float z) {
 		pos = { x, y, z };
@@ -558,29 +560,41 @@ struct Camera {
 		proj = glm::ortho((float)(-(w >> 1)), (float)(w >> 1), (float)(-(h >> 1)), (float)(h >> 1), 0.1f, 100.f);
 		vp = proj * view;
 	}
-	Camera(int w, int h) : viewport{ 0, 0, w, h }, view(glm::translate(glm::mat4{}, pos)) {
+	Camera(int w, int h) : view(glm::translate(glm::mat4{}, pos)) {
 		SetProj(w, h);
 	}
 	void Update(const Time&) {}
 	void Tracking(const glm::vec3& tracking_pos, const AABB& scene_aabb, const AABB& player_aabb) {
-		// TODO:: camera tracking bounds
-		const float max_x = float(globals.width>>2), top =  float(globals.height >> 2), bottom = -float(globals.height >> 2);
-		auto d = tracking_pos + pos;
+		const glm::vec4 player_tl = vp * (glm::vec4(player_aabb.l, player_aabb.t, 0.f, 0.f)),
+			player_br = vp * (glm::vec4(player_aabb.r, player_aabb.b, 0.f, 0.f));
 
-		auto dx = max_x + d.x;
-		if (d.x < -max_x) {
-			pos.x -= d.x + max_x;
-		}
-		else if (d.x > max_x)
-			pos.x -= d.x - max_x;
+		const auto tracking_screen_pos = vp * glm::vec4(tracking_pos, 1.f);
+		glm::vec4 d;
+		if (tracking_screen_pos.x + player_tl.x < -globals.tracking_width_ratio)
+			d.x = tracking_screen_pos.x + globals.tracking_width_ratio + player_tl.x;
+		else if (tracking_screen_pos.x + player_br.x > globals.tracking_width_ratio)
+			d.x = tracking_screen_pos.x - globals.tracking_width_ratio + player_br.x;
+		if (tracking_screen_pos.y + player_br.y < -globals.tracking_height_ratio)
+			d.y = tracking_screen_pos.y + globals.tracking_height_ratio + player_br.y;
+		else if (tracking_screen_pos.y + player_tl.y > globals.tracking_height_ratio)
+			d.y = tracking_screen_pos.y - globals.tracking_height_ratio + player_tl.y;
 
-		auto dy = bottom + d.y;
-		if (d.y < bottom) {
-			pos.y -= d.y - bottom;
-		}
-		dy = top + d.y;
-		if (d.y > top)
-			pos.y -= d.y - top;
+		pos -= glm::vec3(glm::inverse(vp) * d);
+		view = glm::translate({}, pos);
+		vp = proj * view;
+
+		const glm::vec4 scene_tl = vp * (glm::vec4(scene_aabb.l, scene_aabb.t, 0.f, 1.f)),
+			scene_br = vp * (glm::vec4(scene_aabb.r, scene_aabb.b, 0.f, 1.f));
+		d = {};
+		if (scene_br.y > -1.f)
+			d.y = scene_br.y + 1.f;
+		else if (scene_tl.y < 1.f)
+			d.y = scene_tl.y - 1.f;
+		if (scene_tl.x > -1.f)
+			d.x = scene_tl.x + 1.f;
+		else if (scene_br.x < 1.f)
+			d.x = scene_br.x - 1.f;
+		pos -= glm::vec3(glm::inverse(vp) * d);
 		view = glm::translate({}, pos);
 		vp = proj * view;
 	}
@@ -1427,8 +1441,8 @@ struct Renderer {
 	}
 
 	void RenderHUD(const Camera& cam, const AABB& bounds, const ProtoX* player, const std::map<size_t, std::unique_ptr<ProtoX>>& players) {
-		const float score_scale = 2.f, text_y = -assets.text.aabb.t - assets.text.aabb.b / 2.f;
-		const glm::vec3 pos1{ -cam.viewport.w, text_y, 0.f }, pos2 = { cam.viewport.w, text_y, 0.f };
+		const float score_scale = 2.f, border = 8.f, text_y = -assets.text.aabb.t - assets.text.aabb.b, text_width = assets.text.aabb.r - assets.text.aabb.l + border;
+		const glm::vec3 pos1{ -globals.width/2.f + text_width, text_y, 0.f }, pos2 = { globals.width / 2.f + text_width, text_y, 0.f };
 		Draw(cam, vbo[VBO_RADAR], {/*radar pos*/}, assets.radar);
 		std::vector<Text> texts;
 		texts.push_back({pos1, score_scale, Text::Align::Left, std::to_string(player->score) });
@@ -1449,7 +1463,7 @@ struct Renderer {
 		const auto rw = aabb.r - aabb.l, rh = aabb.t - aabb.b, sw = bounds.r - bounds.l, sh = bounds.t - bounds.b,
 			rx = rw / sw, ry = rh / sh;
 
-		const glm::vec3 pos(player->pos.x * rx, player->pos.y * ry, 0.f);
+		const glm::vec3 pos(player->pos.x * rx, (player->pos.y + bounds.b) * ry, 0.f);
 		glVertexAttrib3fv(shader.aVertex, &(pos)[0]);
 		glDrawArrays(GL_TRIANGLES, 0, Particles::vertex_count);
 
@@ -1657,12 +1671,11 @@ public:
 	Object mesh{ { 5.f, 0.f, 0.f } };
 	Camera camera{ (int)globals.width, (int)globals.height }, hud{ (int)globals.width, (int)globals.height };
 	InputHandler inputHandler;
-	GLuint VertexArrayID;
-	GLuint vertexbuffer;
-	GLuint uvbuffer;
-	GLuint texID;
-	GLuint uTexSize;
-	///glm::mat4x4 mvp;
+	//GLuint VertexArrayID;
+	//GLuint vertexbuffer;
+	//GLuint uvbuffer;
+	//GLuint texID;
+	//GLuint uTexSize;
 	std::queue<std::vector<unsigned char>> messages;
 #ifndef __EMSCRIPTEN__
 	void* operator new(size_t i)
@@ -1674,40 +1687,34 @@ public:
 		_mm_free(p);
 	}
 #endif
-	GLuint GenTexture(size_t w, size_t h) {
-		GLuint textureID;
-		glGenTextures(1, &textureID);
-		glBindTexture(GL_TEXTURE_2D, textureID);
-		GLint fmt, internalFmt;
-		fmt = internalFmt = GL_RGB;
-		std::vector<unsigned char> pv(w*h*3);
-		unsigned char r, g, b;
-		r = g = b = 0;
-		std::uniform_int_distribution<uint32_t> dist(0, 255);
-		for (size_t i = 0; i < w*h * 3;i+=3) {
-			pv[i] = dist(mt);
-			pv[i + 1] = dist(mt);
-			pv[i + 2] = dist(mt);
-		}
-		const unsigned char* p = &pv.front();
-		glTexImage2D(GL_TEXTURE_2D, 0, internalFmt, w, h, 0, fmt, GL_UNSIGNED_BYTE, p);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		//glGenerateMipmap(GL_TEXTURE_2D);
-		return textureID;
-	}
+	//GLuint GenTexture(size_t w, size_t h) {
+	//	GLuint textureID;
+	//	glGenTextures(1, &textureID);
+	//	glBindTexture(GL_TEXTURE_2D, textureID);
+	//	GLint fmt, internalFmt;
+	//	fmt = internalFmt = GL_RGB;
+	//	std::vector<unsigned char> pv(w*h*3);
+	//	unsigned char r, g, b;
+	//	r = g = b = 0;
+	//	std::uniform_int_distribution<uint32_t> dist(0, 255);
+	//	for (size_t i = 0; i < w*h * 3;i+=3) {
+	//		pv[i] = dist(mt);
+	//		pv[i + 1] = dist(mt);
+	//		pv[i + 2] = dist(mt);
+	//	}
+	//	const unsigned char* p = &pv.front();
+	//	glTexImage2D(GL_TEXTURE_2D, 0, internalFmt, w, h, 0, fmt, GL_UNSIGNED_BYTE, p);
+	//	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	//	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	//	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	//	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	//	//glGenerateMipmap(GL_TEXTURE_2D);
+	//	return textureID;
+	//}
 public:
 	void SetHudVp(int w, int h) {
-		camera.viewport = { 0, h / 4, w, h * 3 / 4 };
-		//camera.viewport = { 0, 0, w, h};
-		double aspect = (double)camera.viewport.h / camera.viewport.w;
-		camera.SetProj(globals.width, globals.height * aspect);
-		// TODO:: correct aspect ratio
-		hud.viewport = { 0, 0, w, h / 4 };
-		aspect = (double)hud.viewport.h / hud.viewport.w;
-		hud.SetProj(globals.width, globals.height * aspect);
+		camera.SetProj(globals.width, VP_RATIO(globals.height));
+		hud.SetProj(globals.width, HUD_RATIO(globals.height));
 	}
 	Scene() : bounds(assets.land.aabb),
 #ifdef DEBUG_REL
@@ -1726,8 +1733,10 @@ public:
 		p->pos.x = 100.f;
 #endif
 		inputHandler.keyCb = std::bind(&Scene::KeyCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
-		texID = GenTexture(texw, texh);
+
 		mesh.model = glm::translate(mesh.model, mesh.pos);
+
+		/*texID = GenTexture(texw, texh);
 		auto mvp = camera.proj * camera.view * mesh.model;
 
 		glm::vec4 v{ -1.0f, -1.0f, 0.0f, 1.f };
@@ -1747,7 +1756,8 @@ public:
 
 		glGenBuffers(1, &uvbuffer);
 		glBindBuffer(GL_ARRAY_BUFFER, uvbuffer);
-		glBufferData(GL_ARRAY_BUFFER, sizeof(g_uv_buffer_data), g_uv_buffer_data, GL_STATIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(g_uv_buffer_data), g_uv_buffer_data, GL_STATIC_DRAW);*/
+
 		//glBindVertexArray(0);
 
 		//glGenVertexArrays(1, &VertexArrayID);
@@ -1774,7 +1784,8 @@ public:
 	}
 	void Render() {
 		renderer.PreRender();
-		glViewport(camera.viewport.x, camera.viewport.y, camera.viewport.w, camera.viewport.h);
+		auto res = renderer.rt.GetCurrentRes();
+		glViewport(0, HUD_RATIO(res.y), res.x, VP_RATIO(res.y));
 		renderer.DrawBackground(camera);
 		renderer.DrawLandscape(camera);
 		renderer.Draw(camera, missiles);
@@ -1786,7 +1797,7 @@ public:
 			renderer.Draw(camera, *player.get(), true);
 		renderer.Draw(camera, particles);
 		renderer.Draw(camera, texts);
-		glViewport(hud.viewport.x, hud.viewport.y, hud.viewport.w, hud.viewport.h);
+		glViewport(0, 0, res.x, HUD_RATIO(res.y));
 		renderer.RenderHUD(hud, bounds, player.get(), players);
 		renderer.PostRender();
 	}
@@ -1930,10 +1941,10 @@ public:
 #endif
 	}
 	~Scene() {
-		glDeleteBuffers(1, &vertexbuffer);
-		glDeleteBuffers(1, &uvbuffer);
-		glDeleteTextures(1, &texID);
-		//glDeleteVertexArrays(1, &VertexArrayID);
+		//glDeleteBuffers(1, &vertexbuffer);
+		//glDeleteBuffers(1, &uvbuffer);
+		//glDeleteTextures(1, &texID);
+		////glDeleteVertexArrays(1, &VertexArrayID);
 	}
 	void OnError(int code, const char* msg) {
 #ifdef __EMSCRIPTEN__

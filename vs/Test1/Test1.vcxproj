@@ -32,6 +32,7 @@
     <ClCompile Include="..\..\..\MeshLoader\MeshSurface.cpp" />
     <ClCompile Include="..\..\..\MeshLoader\types.cpp" />
     <ClCompile Include="..\..\emc_ogl\RT.cpp" />
+    <ClCompile Include="..\..\emc_ogl\SAT.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\Color.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\ColorPosAttrib.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\Contrast.cpp" />
@@ -55,11 +56,13 @@
     <ClInclude Include="..\..\..\MeshLoader\pch.h" />
     <ClInclude Include="..\..\..\MeshLoader\Tga.h" />
     <ClInclude Include="..\..\..\MeshLoader\types.h" />
+    <ClInclude Include="..\..\emc_ogl\AABB.h" />
     <ClInclude Include="..\..\emc_ogl\Exception.h" />
     <ClInclude Include="..\..\emc_ogl\Globals.h" />
     <ClInclude Include="..\..\emc_ogl\Helpers.h" />
     <ClInclude Include="..\..\emc_ogl\Logging.h" />
     <ClInclude Include="..\..\emc_ogl\RT.h" />
+    <ClInclude Include="..\..\emc_ogl\SAT.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Color.h" />
     <ClInclude Include="..\..\emc_ogl\shader\ColorPosAttrib.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Contrast.h" />

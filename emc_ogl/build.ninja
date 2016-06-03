@@ -28,4 +28,5 @@ build VBlur3x.bc: cpp Shader\VBlur3x.cpp
 build HBlur3x.bc: cpp Shader\HBlur3x.cpp
 build Contrast.bc: cpp Shader\Contrast.cpp
 build RT.bc: cpp RT.cpp
-build main.js: link main.bc MeshLoader.bc types.bc MeshSurface.bc FileReader.bc File.bc Img.bc Tga.bc Log.bc Exception.bc RT.bc Shader.bc Color.bc ColorPosAttrib.bc RTShader.bc Simple.bc Texture.bc VBlur3x.bc HBlur3x.bc Contrast.bc
+build SAR.bc: cpp SAT.cpp
+build main.js: link main.bc MeshLoader.bc types.bc MeshSurface.bc FileReader.bc File.bc Img.bc Tga.bc Log.bc Exception.bc RT.bc Shader.bc Color.bc ColorPosAttrib.bc RTShader.bc Simple.bc Texture.bc VBlur3x.bc HBlur3x.bc Contrast.bc SAT.bc

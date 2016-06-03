@@ -33,6 +33,7 @@
 #include "Shader/ColorPosAttrib.h"
 #include "Shader/Texture.h"
 #include "RT.h"
+#include "SAT.h"
 
 template<typename T>
 constexpr size_t ID5(const T& t, size_t offset) {
@@ -112,19 +113,6 @@ static void ReadMeshFile(const char* fname, MeshLoader::Mesh& mesh) {
 	::fread(&data.front(), 1, (size_t)fpos, f);
 	::fclose(f);
 	LoadMesh(&data.front(), data.size(), mesh);
-}
-struct AABB {
-	float l, t, r, b;
-	//AABB(const AABB&) = default;
-	AABB Translate(const glm::vec3& pos) const {
-		return{ l + pos.x, t + pos.y, r + pos.x, b + pos.y };
-	}
-	AABB Scale(float s) {
-		return{ l * s, t * s, r * s, b * s };
-	}
-};
-AABB Union(const AABB& l, const AABB& r) {
-	return{ std::min(l.l, r.l), std::max(l.t, r.t), std::max(l.r, r.r), std::min(l.b, r.b) };
 }
 
 static AABB CalcAABB(std::vector<glm::vec3> v, GLint first, GLsizei count) {
@@ -362,7 +350,7 @@ namespace Asset {
 		std::vector<Img::ImgData> images;
 		size_t masks_image_index;
 		std::vector<Model*> models;
-		Model probe, propulsion, land, missile, debris, text, debug, radar;
+		Model probe, propulsion, land, missile, debris, text, debug, radar, mouse, wsad;
 		Assets() {
 #ifdef __EMSCRIPTEN__
 #define PATH_PREFIX ""
@@ -456,6 +444,18 @@ namespace Asset {
 				ReadMeshFile(PATH_PREFIX"asset//radar.mesh", mesh);
 				radar = Reconstruct(mesh, globals.scale);
 				models.push_back(&radar);
+			}
+			{
+				MeshLoader::Mesh mesh;
+				ReadMeshFile(PATH_PREFIX"asset//mouse.mesh", mesh);
+				mouse = Reconstruct(mesh, globals.scale);
+				models.push_back(&mouse);
+			}
+			{
+				MeshLoader::Mesh mesh;
+				ReadMeshFile(PATH_PREFIX"asset//wsad.mesh", mesh);
+				wsad = Reconstruct(mesh, globals.scale);
+				models.push_back(&wsad);
 			}
 			{
 				const std::vector<glm::vec3> vertices{ { 0.f, 0.f, 0.f },
@@ -614,7 +614,7 @@ struct Missile {
 		prev = pos;
 		pos += glm::vec3{ std::cos(rot), std::sin(rot), 0.f } * vel * (float)t.frame;
 	}
-	bool HitTest(const AABB& bounds, glm::vec3& end) {
+	bool HitTest(const AABB& bounds, glm::vec3 end) {
 		if (pos == prev) return false;
 		/* AABB intersection
 		const glm::vec3 end = glm::vec3{ std::cos(rot), std::sin(rot), 0.f } * size + pos;
@@ -622,8 +622,19 @@ struct Missile {
 		const AABB aabb_union{ std::min(min.x, bounds.l), std::max(max.y, bounds.t), std::max(max.x, bounds.r), std::min(min.y, bounds.b)};
 		const float xd1 = max.x - min.x, yd1 = max.y - min.y, xd2 = bounds.r - bounds.l, yd2 = bounds.t - bounds.b;
 		return xd1 + xd2 >= aabb_union.r - aabb_union.l && yd1 + yd2 >= aabb_union.t - aabb_union.b;*/
-		end = glm::vec3{ std::cos(rot), std::sin(rot), 0.f } * globals.missile_size + pos;
-		return end.x >= bounds.l && end.x <= bounds.r && end.y >= bounds.b && end.y <= bounds.t;
+		const auto rot_v = glm::vec3{ std::cos(rot), std::sin(rot), 0.f };
+		end = rot_v * globals.missile_size + pos;
+		auto start = prev;
+		// broad phase
+		if (end.x < start.x) std::swap(end, start);
+		bool hit = std::max(end.x, bounds.r) - std::min(start.x, bounds.l) < end.x - start.x + bounds.r - bounds.l;
+		if (!hit) return false;
+		if (end.y < start.y) std::swap(end, start);
+		auto res = std::max(end.y, bounds.t) - std::min(start.y, bounds.b) < end.y - start.y + bounds.t - bounds.b;
+		if (!res) return false;
+		// narrow phase
+		return ::HitTest(bounds, { start, end });
+		//return end.x >= bounds.l && end.x <= bounds.r && end.y >= bounds.b && end.y <= bounds.t;
 	}
 	bool IsOutOfBounds(const AABB& bounds) {
 		return pos.x < bounds.l ||
@@ -903,7 +914,9 @@ struct Renderer {
 		VBO_DEBRIS = 8,
 		VBO_TEXT = 9,
 		VBO_RADAR = 10,
-		VBO_COUNT = 11;
+		VBO_MOUSE = 11,
+		VBO_WSAD = 12,
+		VBO_COUNT = 13;
 	GLuint vbo[VBO_COUNT];
 	std::vector<GLuint> tex;
 #ifdef VAO_SUPPORT
@@ -1190,6 +1203,19 @@ struct Renderer {
 			glBufferData(GL_ARRAY_BUFFER, assets.radar.vertices.size() * sizeof(assets.radar.vertices[0]), &assets.radar.vertices.front(), GL_STATIC_DRAW);
 			glBindBuffer(GL_ARRAY_BUFFER, 0);
 		}
+
+		{
+			// mouse
+			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_MOUSE]);
+			glBufferData(GL_ARRAY_BUFFER, assets.mouse.vertices.size() * sizeof(assets.mouse.vertices[0]), &assets.mouse.vertices.front(), GL_STATIC_DRAW);
+			glBindBuffer(GL_ARRAY_BUFFER, 0);
+		}
+		{
+			// wsad
+			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_WSAD]);
+			glBufferData(GL_ARRAY_BUFFER, assets.wsad.vertices.size() * sizeof(assets.wsad.vertices[0]), &assets.wsad.vertices.front(), GL_STATIC_DRAW);
+			glBindBuffer(GL_ARRAY_BUFFER, 0);
+		}
 	}
 	void PreRender() {
 		rt.Set();
@@ -1231,25 +1257,7 @@ struct Renderer {
 		glDrawArrays(GL_TRIANGLES, 0, starField.count_per_layer);
 		glDisableVertexAttribArray(0);
 	}
-	void Draw(const Camera& cam, const Asset::Model& model, size_t vbo_index) {
-		const auto& shader = colorShader;
-		glUseProgram(shader.id);
-		glEnableVertexAttribArray(0);
-		glBindBuffer(GL_ARRAY_BUFFER, vbo[vbo_index]);
-		glVertexAttribPointer(0,
-			3,
-			GL_FLOAT,
-			GL_FALSE,
-			0,
-			(void*)0);
-		const auto& mvp = cam.vp;
-		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		for (const auto& l : model.layers) {
-			Draw<GL_TRIANGLES>(shader.uCol, l.parts);
-			Draw<GL_LINES>(shader.uCol, l.line_parts);
-		}
-		glDisableVertexAttribArray(0);
-	}
+
 	void Draw(const Camera& cam, const std::list<Particles>& particles) {
 		glEnable(GL_BLEND);
 		glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
@@ -1329,10 +1337,31 @@ struct Renderer {
 			glDrawArrays(mode, p.first, p.count);
 		}
 	}
-	void Draw(const Camera& cam, GLuint vbo, const glm::vec3& pos, const Asset::Model& model) {
+	//void Draw(const Camera& cam, const Asset::Model& model, size_t vbo_index) {
+	//	const auto& shader = colorShader;
+	//	glUseProgram(shader.id);
+	//	glEnableVertexAttribArray(0);
+	//	glBindBuffer(GL_ARRAY_BUFFER, vbo[vbo_index]);
+	//	glVertexAttribPointer(0,
+	//		3,
+	//		GL_FLOAT,
+	//		GL_FALSE,
+	//		0,
+	//		(void*)0);
+	//	const auto& mvp = cam.vp;
+	//	glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+	//	for (const auto& l : model.layers) {
+	//		Draw<GL_TRIANGLES>(shader.uCol, l.parts);
+	//		Draw<GL_LINES>(shader.uCol, l.line_parts);
+	//	}
+	//	glDisableVertexAttribArray(0);
+	//}
+	// TODO:: <==> duplicate???
+	void Draw(const Camera& cam, size_t vbo_index, const glm::vec3& pos, const Asset::Model& model) {
 		auto& shader = colorShader;
 		glUseProgram(shader.id);
-		glBindBuffer(GL_ARRAY_BUFFER, vbo);
+		glEnableVertexAttribArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, vbo[vbo_index]);
 		glVertexAttribPointer(0,
 			3,
 			GL_FLOAT,
@@ -1345,6 +1374,7 @@ struct Renderer {
 			Draw<GL_TRIANGLES>(shader.uCol, l.parts);
 			Draw<GL_LINES>(shader.uCol, l.line_parts);
 		}
+		glDisableVertexAttribArray(0);
 	}
 	void Draw(const Camera& cam, const ProtoX& proto, bool player = false) {
 		if (!proto.visible)
@@ -1443,7 +1473,7 @@ struct Renderer {
 	void RenderHUD(const Camera& cam, const AABB& bounds, const ProtoX* player, const std::map<size_t, std::unique_ptr<ProtoX>>& players) {
 		const float score_scale = 2.f, border = 8.f, text_y = -assets.text.aabb.t - assets.text.aabb.b, text_width = assets.text.aabb.r - assets.text.aabb.l + border;
 		const glm::vec3 pos1{ -globals.width/2.f + text_width, text_y, 0.f }, pos2 = { globals.width / 2.f + text_width, text_y, 0.f };
-		Draw(cam, vbo[VBO_RADAR], {/*radar pos*/}, assets.radar);
+		Draw(cam, VBO_RADAR, {/*radar pos*/}, assets.radar);
 		std::vector<Text> texts;
 		texts.push_back({pos1, score_scale, Text::Align::Left, std::to_string(player->score) });
 		const auto& shader = colorPosAttribShader;
@@ -1482,7 +1512,7 @@ struct Renderer {
 	}
 
 	void DrawLandscape(const Camera& cam) {
-		Draw(cam, assets.land, VBO_LANDSCAPE);
+		Draw(cam, VBO_LANDSCAPE, {}, assets.land );
 	}
 	void Draw(const Camera& cam, const std::vector<::Missile>& missiles) {
 		glEnable(GL_BLEND);
@@ -1669,7 +1699,8 @@ public:
 	std::list<Renderer::Particles> particles;
 	std::vector<Text> texts;
 	Object mesh{ { 5.f, 0.f, 0.f } };
-	Camera camera{ (int)globals.width, (int)globals.height }, hud{ (int)globals.width, (int)globals.height };
+	Camera camera{ (int)globals.width, (int)globals.height }, hud{ (int)globals.width, (int)globals.height },
+		overlay;
 	InputHandler inputHandler;
 	//GLuint VertexArrayID;
 	//GLuint vertexbuffer;
@@ -1716,21 +1747,37 @@ public:
 		camera.SetProj(globals.width, VP_RATIO(globals.height));
 		hud.SetProj(globals.width, HUD_RATIO(globals.height));
 	}
+	void RandomizePos(ProtoX& p) {
+		const AABB aabb{ bounds.l - p.aabb.l, bounds.t - p.aabb.t, bounds.r - p.aabb.r, bounds.b - p.aabb.b };
+		std::uniform_real_distribution<> xdist(aabb.l, aabb.r), ydist(aabb.b, aabb.t);
+		//p.pos.x = xdist(mt); p.pos.y = ydist(mt);
+		p.pos.x = 0; p.pos.y = 0.;
+	}
+	void GenerateNPC() {
+		static size_t i = 0;
+		auto p = std::make_unique<ProtoX>((size_t)0xbeef, assets.probe, assets.debris, assets.propulsion.layers.size());
+		RandomizePos(*p.get());
+		players[++i] = std::move(p);
+	}
+	void GenerateNPCs() {
+		for (size_t i = 0; i<MAX_NPC; ++i) {
+			GenerateNPC();
+		}
+	}
 	Scene() : bounds(assets.land.aabb),
 #ifdef DEBUG_REL
 		player(std::make_unique<ProtoX>(0xdeadbeef, assets.probe, assets.debris, assets.propulsion.layers.size())),
 #endif
-		renderer(assets, bounds) {
+		renderer(assets, bounds),
+		overlay(camera) {
 		const auto size = renderer.rt.GetCurrentRes();
 		SetHudVp(size.x, size.y);
 		texts.push_back(Text{ {}, 1.f, Text::Align::Center, "A !\"'()&%$#0123456789:;<=>?AMKXR" });
 		/*bounds.t = float((height >> 1) + (height >> 2));
 		bounds.b = -float((height >> 1) + (height >> 2));*/
 #ifdef DEBUG_REL
-		players[(size_t)0xbeef] = std::make_unique<ProtoX>( (size_t)0xbeef, assets.probe, assets.debris, assets.propulsion.layers.size() );
-
-		auto& p = players[0xbeef];
-		p->pos.x = 100.f;
+		RandomizePos(*player.get());
+		GenerateNPCs();
 #endif
 		inputHandler.keyCb = std::bind(&Scene::KeyCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
 
@@ -1796,7 +1843,9 @@ public:
 		if (player)
 			renderer.Draw(camera, *player.get(), true);
 		renderer.Draw(camera, particles);
-		renderer.Draw(camera, texts);
+		renderer.Draw(overlay, renderer.VBO_WSAD, {-globals.width / 2.f, -globals.height / 2.f, 0.f}, assets.wsad);
+		renderer.Draw(overlay, renderer.VBO_MOUSE, { globals.width / 2.f, -globals.height / 2.f, 0.f }, assets.mouse);
+		renderer.Draw(overlay, texts);
 		glViewport(0, 0, res.x, HUD_RATIO(res.y));
 		renderer.RenderHUD(hud, bounds, player.get(), players);
 		renderer.PostRender();
@@ -1870,6 +1919,7 @@ public:
 		}
 		if (player->killed) {
 			player = std::make_unique<ProtoX>(player->id, assets.probe, assets.debris, assets.propulsion.layers.size(), globals.ws.get());
+			RandomizePos(*player.get());
 		}
 		for (auto& m : missiles) {
 			m.Update(t);
@@ -1934,9 +1984,12 @@ public:
 		}
 #ifdef DEBUG_REL
 		if (players.empty()) {
-			players[(size_t)0xbeef] = std::make_unique<ProtoX>((size_t)0xbeef, assets.probe, assets.debris, assets.propulsion.layers.size());
-			auto& p = players[0xbeef];
-			p->pos.x = 50.f;
+#ifdef DEBUG_REL
+			GenerateNPC();
+			//players[(size_t)0xbeef] = std::make_unique<ProtoX>((size_t)0xbeef, assets.probe, assets.debris, assets.propulsion.layers.size());
+			//auto& p = players[0xbeef];
+			//p->pos.x = 50.f;
+#endif
 		}
 #endif
 	}
@@ -2120,6 +2173,7 @@ static void init(int width, int height) {
 static Timer timer;
 void main_loop();
 int main(int argc, char** argv) {
+	//TestHitTest();
 	//Renderer::DumpCircle();
 	if (argc > 1)
 		globals.host = (!strcmp(argv[1], "0.0.0.1")) ? "localhost" : argv[1];

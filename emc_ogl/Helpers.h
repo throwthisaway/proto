@@ -8,3 +8,8 @@ inline auto RoundToPowerOf2(unsigned int v) {
 	v |= v >> 16;
 	return ++v;
 }
+
+//template<typename T>
+//void EraseAll(const std::vector<T>& v, ) {
+//	std::remove_if()
+//}

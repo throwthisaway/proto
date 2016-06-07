@@ -42,6 +42,7 @@
     <ClCompile Include="..\..\emc_ogl\shader\Simple.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\Texture.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\VBlur3x.cpp" />
+    <ClCompile Include="..\..\emc_ogl\Timer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\MeshLoader\Deserialize.h" />
@@ -57,6 +58,7 @@
     <ClInclude Include="..\..\..\MeshLoader\Tga.h" />
     <ClInclude Include="..\..\..\MeshLoader\types.h" />
     <ClInclude Include="..\..\emc_ogl\AABB.h" />
+    <ClInclude Include="..\..\emc_ogl\Envelope.h" />
     <ClInclude Include="..\..\emc_ogl\Exception.h" />
     <ClInclude Include="..\..\emc_ogl\Globals.h" />
     <ClInclude Include="..\..\emc_ogl\Helpers.h" />
@@ -72,6 +74,7 @@
     <ClInclude Include="..\..\emc_ogl\shader\Simple.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Texture.h" />
     <ClInclude Include="..\..\emc_ogl\shader\VBlur3x.h" />
+    <ClInclude Include="..\..\emc_ogl\Timer.h" />
     <ClInclude Include="..\..\emc_socket\Socket.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">

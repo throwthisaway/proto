@@ -5,7 +5,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtx/rotate_vector.hpp>
-#include <chrono>
+
 #include <stdio.h>
 #include <vector>
 #include <array>
@@ -34,6 +34,7 @@
 #include "Shader/Texture.h"
 #include "RT.h"
 #include "SAT.h"
+#include "Envelope.h"
 
 template<typename T>
 constexpr size_t ID5(const T& t, size_t offset) {
@@ -79,13 +80,14 @@ struct {
 		text_spacing = 30.f,
 		text_scale = 120.f,
 		missile_size = 120.f,
-		player_blink_rate = 500., // ms
-		player_blink_ratio = .5f,
+		blink_rate = 500., // ms
+		blink_ratio = .5f,
 		tracking_height_ratio = .75f,
-		tracking_width_ratio = .75f;
+		tracking_width_ratio = .75f,
+		blink_duration = 5000.f;
 	const glm::vec4 radar_dot_color{ 1.f, 1.f, 1.f, 1.f };
 	const gsl::span<const glm::vec4, gsl::dynamic_range> palette = gsl::as_span(cpc, sizeof(cpc) / sizeof(cpc[0]));
-
+	Timer timer;
 	std::string host = "localhost";
 	unsigned short port = 8000;
 	int width = 640, height = 480;
@@ -515,27 +517,6 @@ auto linearTween(double t, double b, double c, double d) {
 	return c*t / d + b;
 };
 
-class Timer
-{
-	std::chrono::duration<double> _elapsed;
-	std::chrono::time_point<std::chrono::high_resolution_clock> _current, _prev, _start;
-public:
-	Timer();
-	inline void Tick(void) {
-		_prev = _current;
-		_current = std::chrono::high_resolution_clock::now();
-	}
-	inline int64_t Elapsed(void) { return std::chrono::duration_cast< std::chrono::milliseconds>(_current - _prev).count(); }
-	inline int64_t Total(void) { return std::chrono::duration_cast< std::chrono::milliseconds>(_current - _start).count(); }
-};
-Timer::Timer() :_current(std::chrono::high_resolution_clock::now()),
-_prev(_current),
-_start(_current) {};
-
-struct Time {
-	double total, frame;
-};
-
 struct Object {
 	glm::vec3 pos;
 	glm::mat4 model;
@@ -614,7 +595,7 @@ struct Missile {
 		prev = pos;
 		pos += glm::vec3{ std::cos(rot), std::sin(rot), 0.f } * vel * (float)t.frame;
 	}
-	bool HitTest(const AABB& bounds, glm::vec3 end) {
+	bool HitTest(const AABB& bounds, glm::vec3& hit_pos) {
 		if (pos == prev) return false;
 		/* AABB intersection
 		const glm::vec3 end = glm::vec3{ std::cos(rot), std::sin(rot), 0.f } * size + pos;
@@ -623,7 +604,8 @@ struct Missile {
 		const float xd1 = max.x - min.x, yd1 = max.y - min.y, xd2 = bounds.r - bounds.l, yd2 = bounds.t - bounds.b;
 		return xd1 + xd2 >= aabb_union.r - aabb_union.l && yd1 + yd2 >= aabb_union.t - aabb_union.b;*/
 		const auto rot_v = glm::vec3{ std::cos(rot), std::sin(rot), 0.f };
-		end = rot_v * globals.missile_size + pos;
+		// TODO:: hit pos might be off by one frame
+		auto end = hit_pos = rot_v * globals.missile_size + pos;
 		auto start = prev;
 		// broad phase
 		if (end.x < start.x) std::swap(end, start);
@@ -793,7 +775,7 @@ struct ProtoX {
 		for (auto& sp : debris_speed) sp = dist_sp(mt);
 	}
 	void Update(const Time& t, const AABB& bounds) {
-		blink = std::fmod(t.total, globals.player_blink_rate);
+		blink = std::fmod(t.total, globals.blink_rate);
 		if (invincible > 0.f) {
 			blink_time -= (float)t.frame;
 			if (blink_time < 0.f) {
@@ -876,7 +858,7 @@ struct ProtoX {
 		return 0.f;
 	}
 	float CalcBlinkState() const {
-		return (blink < globals.player_blink_rate / 2.f) ? globals.player_blink_ratio : 1.f;
+		return (blink < globals.blink_rate / 2.f) ? globals.blink_ratio : 1.f;
 	}
 };
 void GenerateSquare(float x, float y, float s, std::vector<glm::vec3>& data) {
@@ -928,6 +910,11 @@ struct Renderer {
 			glDeleteTextures(1, &texID);
 		}
 	}missile;
+	struct {
+		GLuint id;
+		float factor = 1.f;
+		const Asset::Model* model;
+	}wsad_decal, mouse_decal;
 	struct Particles {
 		static GLuint vbo;
 		static GLsizei vertex_count;
@@ -1206,14 +1193,16 @@ struct Renderer {
 
 		{
 			// mouse
-			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_MOUSE]);
-			glBufferData(GL_ARRAY_BUFFER, assets.mouse.vertices.size() * sizeof(assets.mouse.vertices[0]), &assets.mouse.vertices.front(), GL_STATIC_DRAW);
+			glBindBuffer(GL_ARRAY_BUFFER, mouse_decal.id = vbo[VBO_MOUSE]);
+			mouse_decal.model = &assets.mouse;
+			glBufferData(GL_ARRAY_BUFFER, assets.mouse.vertices.size() * sizeof(mouse_decal.model->vertices[0]), &mouse_decal.model->vertices.front(), GL_STATIC_DRAW);
 			glBindBuffer(GL_ARRAY_BUFFER, 0);
 		}
 		{
 			// wsad
-			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_WSAD]);
-			glBufferData(GL_ARRAY_BUFFER, assets.wsad.vertices.size() * sizeof(assets.wsad.vertices[0]), &assets.wsad.vertices.front(), GL_STATIC_DRAW);
+			glBindBuffer(GL_ARRAY_BUFFER, wsad_decal.id = vbo[VBO_WSAD]);
+			wsad_decal.model = &assets.wsad;
+			glBufferData(GL_ARRAY_BUFFER, assets.wsad.vertices.size() * sizeof(wsad_decal.model->vertices[0]), &wsad_decal.model->vertices.front(), GL_STATIC_DRAW);
 			glBindBuffer(GL_ARRAY_BUFFER, 0);
 		}
 	}
@@ -1357,11 +1346,11 @@ struct Renderer {
 	//	glDisableVertexAttribArray(0);
 	//}
 	// TODO:: <==> duplicate???
-	void Draw(const Camera& cam, size_t vbo_index, const glm::vec3& pos, const Asset::Model& model) {
+	void Draw(const Camera& cam, GLuint vbo, const glm::vec3& pos, const Asset::Model& model, float brightness = 1.f) {
 		auto& shader = colorShader;
 		glUseProgram(shader.id);
 		glEnableVertexAttribArray(0);
-		glBindBuffer(GL_ARRAY_BUFFER, vbo[vbo_index]);
+		glBindBuffer(GL_ARRAY_BUFFER, vbo);
 		glVertexAttribPointer(0,
 			3,
 			GL_FLOAT,
@@ -1371,8 +1360,8 @@ struct Renderer {
 		const glm::mat4 mvp = glm::translate(cam.vp, pos);
 		glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 		for (const auto& l : model.layers) {
-			Draw<GL_TRIANGLES>(shader.uCol, l.parts);
-			Draw<GL_LINES>(shader.uCol, l.line_parts);
+			Draw<GL_TRIANGLES>(shader.uCol, l.parts, brightness);
+			Draw<GL_LINES>(shader.uCol, l.line_parts, brightness);
 		}
 		glDisableVertexAttribArray(0);
 	}
@@ -1473,7 +1462,7 @@ struct Renderer {
 	void RenderHUD(const Camera& cam, const AABB& bounds, const ProtoX* player, const std::map<size_t, std::unique_ptr<ProtoX>>& players) {
 		const float score_scale = 2.f, border = 8.f, text_y = -assets.text.aabb.t - assets.text.aabb.b, text_width = assets.text.aabb.r - assets.text.aabb.l + border;
 		const glm::vec3 pos1{ -globals.width/2.f + text_width, text_y, 0.f }, pos2 = { globals.width / 2.f + text_width, text_y, 0.f };
-		Draw(cam, VBO_RADAR, {/*radar pos*/}, assets.radar);
+		Draw(cam, vbo[VBO_RADAR], {/*radar pos*/}, assets.radar);
 		std::vector<Text> texts;
 		texts.push_back({pos1, score_scale, Text::Align::Left, std::to_string(player->score) });
 		const auto& shader = colorPosAttribShader;
@@ -1512,7 +1501,7 @@ struct Renderer {
 	}
 
 	void DrawLandscape(const Camera& cam) {
-		Draw(cam, VBO_LANDSCAPE, {}, assets.land );
+		Draw(cam, vbo[VBO_LANDSCAPE], {}, assets.land );
 	}
 	void Draw(const Camera& cam, const std::vector<::Missile>& missiles) {
 		glEnable(GL_BLEND);
@@ -1708,6 +1697,7 @@ public:
 	//GLuint texID;
 	//GLuint uTexSize;
 	std::queue<std::vector<unsigned char>> messages;
+	std::vector<std::unique_ptr<Envelope>> envelopes;
 #ifndef __EMSCRIPTEN__
 	void* operator new(size_t i)
 	{
@@ -1750,8 +1740,8 @@ public:
 	void RandomizePos(ProtoX& p) {
 		const AABB aabb{ bounds.l - p.aabb.l, bounds.t - p.aabb.t, bounds.r - p.aabb.r, bounds.b - p.aabb.b };
 		std::uniform_real_distribution<> xdist(aabb.l, aabb.r), ydist(aabb.b, aabb.t);
-		//p.pos.x = xdist(mt); p.pos.y = ydist(mt);
-		p.pos.x = 0; p.pos.y = 0.;
+		p.pos.x = xdist(mt); p.pos.y = ydist(mt);
+		//p.pos.x = 0; p.pos.y = 0.;
 	}
 	void GenerateNPC() {
 		static size_t i = 0;
@@ -1763,6 +1753,14 @@ public:
 		for (size_t i = 0; i<MAX_NPC; ++i) {
 			GenerateNPC();
 		}
+	}
+	void SetCtrl(ProtoX::Ctrl ctrl) {
+		if (!player) return;
+		player->ctrl = ctrl;
+		if (ctrl == ProtoX::Ctrl::Full || ctrl == ProtoX::Ctrl::Prop)
+			envelopes.push_back(std::unique_ptr<Envelope>(new Blink(renderer.wsad_decal.factor, globals.blink_duration, (double)globals.timer.Elapsed(), globals.blink_rate, globals.blink_ratio)));
+		if (ctrl == ProtoX::Ctrl::Full || ctrl == ProtoX::Ctrl::Turret)
+			envelopes.push_back(std::unique_ptr<Envelope>(new Blink(renderer.mouse_decal.factor, globals.blink_duration, (double)globals.timer.Elapsed(), globals.blink_rate, globals.blink_ratio)));
 	}
 	Scene() : bounds(assets.land.aabb),
 #ifdef DEBUG_REL
@@ -1776,6 +1774,7 @@ public:
 		/*bounds.t = float((height >> 1) + (height >> 2));
 		bounds.b = -float((height >> 1) + (height >> 2));*/
 #ifdef DEBUG_REL
+		SetCtrl(ProtoX::Ctrl::Full);
 		RandomizePos(*player.get());
 		GenerateNPCs();
 #endif
@@ -1843,8 +1842,13 @@ public:
 		if (player)
 			renderer.Draw(camera, *player.get(), true);
 		renderer.Draw(camera, particles);
-		renderer.Draw(overlay, renderer.VBO_WSAD, {-globals.width / 2.f, -globals.height / 2.f, 0.f}, assets.wsad);
-		renderer.Draw(overlay, renderer.VBO_MOUSE, { globals.width / 2.f, -globals.height / 2.f, 0.f }, assets.mouse);
+
+		if (player) {
+			if (player->ctrl == ProtoX::Ctrl::Full || player->ctrl == ProtoX::Ctrl::Prop)
+				renderer.Draw(overlay, renderer.wsad_decal.id, { -globals.width / 2.f, -globals.height / 2.f, 0.f }, *renderer.wsad_decal.model, renderer.wsad_decal.factor);
+			if (player->ctrl == ProtoX::Ctrl::Full || player->ctrl == ProtoX::Ctrl::Turret)
+				renderer.Draw(overlay, renderer.mouse_decal.id, { globals.width / 2.f, -globals.height / 2.f, 0.f }, *renderer.mouse_decal.model, renderer.mouse_decal.factor);
+		}
 		renderer.Draw(overlay, texts);
 		glViewport(0, 0, res.x, HUD_RATIO(res.y));
 		renderer.RenderHUD(hud, bounds, player.get(), players);
@@ -1919,11 +1923,17 @@ public:
 		}
 		if (player->killed) {
 			player = std::make_unique<ProtoX>(player->id, assets.probe, assets.debris, assets.propulsion.layers.size(), globals.ws.get());
+			SetCtrl(player->ctrl);
 			RandomizePos(*player.get());
 		}
 		for (auto& m : missiles) {
 			m.Update(t);
 		}
+		for (const auto& e : envelopes) {
+			e->Update(t);
+		}
+		envelopes.erase(std::remove_if(std::begin(envelopes), std::end(envelopes), [](const auto& e) { return e->Finished(); }), envelopes.end());
+
 		if (player) {
 			auto d = camera.pos.x + player->pos.x;
 			auto res = player->WrapAround(assets.land.layers[0].aabb.l, assets.land.layers[0].aabb.r);
@@ -2095,7 +2105,7 @@ public:
 	}
 	void OnCtrl(const std::vector<unsigned char>& msg) {
 		const Ctrl* ctrl = reinterpret_cast<const Ctrl*>(&msg.front());
-		player->ctrl = static_cast<ProtoX::Ctrl>(ctrl->ctrl - 48/*TODO:: eliminate conversion*/);
+		SetCtrl(static_cast<ProtoX::Ctrl>(ctrl->ctrl - 48/*TODO:: eliminate conversion*/));
 #ifdef __EMSCRIPTEN__
 		emscripten_log(EM_LOG_CONSOLE, "ctrl %x ", player->ctrl);
 #endif
@@ -2170,7 +2180,6 @@ static void init(int width, int height) {
 	REPORT_RESULT();
 #endif
 }
-static Timer timer;
 void main_loop();
 int main(int argc, char** argv) {
 	//TestHitTest();
@@ -2203,7 +2212,7 @@ int main(int argc, char** argv) {
 #endif
 		throw;
 	}
-	timer.Tick();
+	globals.timer.Tick();
 #ifdef __EMSCRIPTEN__
 	Session session = { std::bind(&Scene::OnOpen, globals.scene.get()),
 		std::bind(&Scene::OnClose, globals.scene.get()),
@@ -2227,9 +2236,9 @@ int main(int argc, char** argv) {
 
 void main_loop() {
 //	try {
-		timer.Tick();
-		globals.scene->ProcessMessages({ (double)timer.Total(), (double)timer.Elapsed() });
-		globals.scene->Update({ (double)timer.Total(), (double)timer.Elapsed() });
+		globals.timer.Tick();
+		globals.scene->ProcessMessages({ (double)globals.timer.Total(), (double)globals.timer.Elapsed() });
+		globals.scene->Update({ (double)globals.timer.Total(), (double)globals.timer.Elapsed() });
 		globals.scene->Render();
 		InputHandler::Reset();
 //	}

@@ -71,7 +71,7 @@ speccy[] = {/* { 0.f/255.f,0.f/255.f,0.f/255.f, 1.f},*/{ 0.f / 255.f, 0.f / 255.
 class Scene;
 struct {
 #ifdef DEBUG_REL
-	const float invincibility = 0.f;;
+	const float invincibility = 5000.f;
 #else
 	const float invincibility = 5000.f;
 #endif
@@ -588,6 +588,7 @@ struct Missile {
 	float vel;
 	ProtoX* owner;
 	size_t id;
+	// TODO:: life
 	Missile& operator=(const Missile&) = default;
 	Missile(const glm::vec3 pos, float rot, float vel, ProtoX* owner, size_t id) : pos(pos), prev(pos),
 		rot(rot), vel(vel), owner(owner), id(id) {}
@@ -1932,6 +1933,7 @@ public:
 		for (const auto& e : envelopes) {
 			e->Update(t);
 		}
+		// TODO:: is resize more efficient
 		envelopes.erase(std::remove_if(std::begin(envelopes), std::end(envelopes), [](const auto& e) { return e->Finished(); }), envelopes.end());
 
 		if (player) {
@@ -1995,6 +1997,7 @@ public:
 #ifdef DEBUG_REL
 		if (players.empty()) {
 #ifdef DEBUG_REL
+			// TODO:: add new when killed
 			GenerateNPC();
 			//players[(size_t)0xbeef] = std::make_unique<ProtoX>((size_t)0xbeef, assets.probe, assets.debris, assets.propulsion.layers.size());
 			//auto& p = players[0xbeef];

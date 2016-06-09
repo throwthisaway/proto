@@ -2,9 +2,9 @@
 #pragma once
 #include <GL/glew.h>
 namespace Shader {
-	struct Contrast {
-		GLuint id, aPos, aUV, uSmp, uContrast, uBrightness;
-		Contrast();
+	struct Spherical {
+		GLuint id, aPos, aUV, uSmp, uAspect, uR;
+		Spherical();
 		void Reload();
 	};
 }

@@ -93,8 +93,10 @@ void RT::Render() {
 	BlurStage(vBlur3x, prev);
 	prev = Set(1);
 	BlurStage(hBlur3x, prev);
-	prev = Reset();
+	prev = Set(2);
 	ContrastStage(prev);
+	prev = Reset();
+	SphericalStage(prev);
 	glActiveTexture(GL_TEXTURE0);
 #ifndef VAO_SUPPORT
 	glDisableVertexAttribArray(0);
@@ -209,11 +211,39 @@ void RT::ContrastStage(size_t index) {
 		(void*)0);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, rt[index].txt);
+	glUniform1i(shader.uSmp, 0);
 	glUniform1f(shader.uContrast, contrast);
 	glUniform1f(shader.uBrightness, brightness);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
+void RT::SphericalStage(size_t index) {
+	auto& shader = sphericalShader;
+	glUseProgram(shader.id);
+	glEnableVertexAttribArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo1);
+	glVertexAttribPointer(shader.aPos,
+		3,
+		GL_FLOAT,
+		GL_FALSE,
+		0,
+		(void*)0);
+	// render target uv
+	glEnableVertexAttribArray(1);
+	glBindBuffer(GL_ARRAY_BUFFER, rt[index].uv);
+	glVertexAttribPointer(shader.aUV,
+		2,
+		GL_FLOAT,
+		GL_FALSE,
+		0,
+		(void*)0);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, rt[index].txt);
+	glUniform1i(shader.uSmp, 0);
+	glUniform1f(shader.uAspect, (float)rt[index].w / rt[index].h);
+	glUniform1f(shader.uR, 5.f);
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
 RT::Target RT::GenTarget(int width, int height, size_t index) {
 	const GLsizei w = (GLsizei)RoundToPowerOf2(width), h = (GLsizei)RoundToPowerOf2(height);
 	const GLfloat u = (GLfloat)width / w, v = (GLfloat)height / h;

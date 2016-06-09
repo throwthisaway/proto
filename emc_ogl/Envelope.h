@@ -20,7 +20,7 @@ public:
 	void Update(const Time& t) override {
 		if (finished) return;
 		double d = t.total - start;
-		if (d > duration) {
+		if (duration > 0. && d > duration) {
 			finished = true;
 			val = orig;
 			return;

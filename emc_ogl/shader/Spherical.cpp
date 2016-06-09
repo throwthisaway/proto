@@ -1,4 +1,4 @@
-#include "Contrast.h"
+#include "Spherical.h"
 #include "Shader.h"
 
 namespace {
@@ -22,25 +22,29 @@ void main() {
 R"(
 precision highp float;
 varying vec2 vUV;
-uniform float uBrightness, uContrast;
 uniform sampler2D uSmp;
+uniform float uR, uAspect;
 void main()
 {
-	vec4 s = texture2D( uSmp, vUV);
-	gl_FragColor = (s - 0.5) * uContrast + 0.5 + uBrightness;
+	//vec2 ab = vUV - vec2(.25 * uAspect, .5);
+	//ab.x *= uAspect;
+	vec2 ab = vUV - vec2(.5*uAspect, .5);
+	float dz = uR - sqrt(uR * uR - ab.x * ab.x - ab.y * ab.y);
+	gl_FragColor = texture2D( uSmp, vUV + vec2(dz, dz));
+	//gl_FragColor = vec4(vec2(dz, dz), 0.f, 1.f);
 }
 )";
 	Shader::Program program{ vs, fs, 0 };
 }
 namespace Shader {
-	Contrast::Contrast() { Reload(); }
-	void Contrast::Reload() {
+	Spherical::Spherical() { Reload(); }
+	void Spherical::Reload() {
 		id = program.Load();
 		if (!id) return;
 		aPos = glGetAttribLocation(id, "aPos");
 		aUV = glGetAttribLocation(id, "aUV");
 		uSmp = glGetUniformLocation(id, "uSmp");
-		uBrightness = glGetUniformLocation(id, "uBrightness");
-		uContrast = glGetUniformLocation(id, "uContrast");
+		uAspect = glGetUniformLocation(id, "uAspect");
+		uR = glGetUniformLocation(id, "uR");
 	}
 }

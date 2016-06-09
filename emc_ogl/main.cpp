@@ -69,6 +69,7 @@ speccy[] = {/* { 0.f/255.f,0.f/255.f,0.f/255.f, 1.f},*/{ 0.f / 255.f, 0.f / 255.
 //{ 0.5f,0.5f,1.0f , 1.f },{ 0.75f,0.5f,1.0f , 1.f },{ 1.0f,0.5f,1.0f , 1.f },{ 1.0f,0.5f,0.75f , 1.f } };
 
 class Scene;
+class Envelope;
 struct {
 #ifdef DEBUG_REL
 	const float invincibility = 5000.f;
@@ -84,7 +85,8 @@ struct {
 		blink_ratio = .5f,
 		tracking_height_ratio = .75f,
 		tracking_width_ratio = .75f,
-		blink_duration = 5000.f;
+		blink_duration = 5000.f,
+		invincibility_blink_rate = 100.f; // ms
 	const glm::vec4 radar_dot_color{ 1.f, 1.f, 1.f, 1.f };
 	const gsl::span<const glm::vec4, gsl::dynamic_range> palette = gsl::as_span(cpc, sizeof(cpc) / sizeof(cpc[0]));
 	Timer timer;
@@ -94,6 +96,7 @@ struct {
 	std::string sessionID;
 	std::unique_ptr<Scene> scene;
 	std::unique_ptr<Client> ws;
+	std::vector<std::unique_ptr<Envelope>> envelopes;
 }globals;
 
 static void ReadMeshFile(const char* fname, MeshLoader::Mesh& mesh) {
@@ -606,9 +609,14 @@ struct Missile {
 		return xd1 + xd2 >= aabb_union.r - aabb_union.l && yd1 + yd2 >= aabb_union.t - aabb_union.b;*/
 		const auto rot_v = glm::vec3{ std::cos(rot), std::sin(rot), 0.f };
 		// TODO:: hit pos might be off by one frame
-		auto end = hit_pos = rot_v * globals.missile_size + pos;
+		auto end = rot_v * globals.missile_size + pos;
 		auto start = prev;
+		
+		// approximate hit position
+		auto c = Center(bounds);
+		hit_pos = (glm::distance(c, start) < glm::distance(c, end)) ? start : end;
 		// broad phase
+
 		if (end.x < start.x) std::swap(end, start);
 		bool hit = std::max(end.x, bounds.r) - std::min(start.x, bounds.l) < end.x - start.x + bounds.r - bounds.l;
 		if (!hit) return false;
@@ -668,16 +676,14 @@ struct ProtoX {
 		slowdown =.0003f,
 		g = -.1f, /* m/ms2 */
 		ground_level = 20.f,
-		blink_rate = 50.f, // ms
-		blink_duration = globals.invincibility,  // ms
 		fade_out_time = 1500.f, // ms
 		max_debris_speed =.3f, //px/ ms
 		min_debris_speed = .05f, //px/ ms
 		debris_max_centrifugal_speed =.02f; // rad/ms
 	// state...
-	float invincible, blink_time, fade_out, blink;
+	float invincible, fade_out, visible = 1.f, blink = 1.f;
 	double hit_time;
-	bool visible, hit, killed;
+	bool hit, killed;
 	glm::vec3 pos, vel, f, hit_pos;
 	const glm::vec3 missile_start_offset;
 	const Asset::Layer& layer;
@@ -761,8 +767,12 @@ struct ProtoX {
 		f.y = (bt) ? force : g;
 	}
 	void Init() {
-		invincible = blink_duration; blink_time = blink_rate; fade_out = fade_out_time;
-		visible = true; hit = killed = false;
+		invincible = globals.invincibility; fade_out = fade_out_time;
+		globals.envelopes.push_back(std::unique_ptr<Envelope>(
+			new Blink(visible, invincible, (double)globals.timer.Elapsed(), globals.invincibility_blink_rate, 0.f))); 
+		globals.envelopes.push_back(std::unique_ptr<Envelope>(
+			new Blink(blink, 0., (double)globals.timer.Elapsed(), globals.blink_rate, globals.blink_ratio)));
+		hit = killed = false;
 	}
 	void Kill(const glm::vec3& hit_pos, double hit_time) {
 		if (invincible > 0.f || hit || killed) return;
@@ -776,18 +786,10 @@ struct ProtoX {
 		for (auto& sp : debris_speed) sp = dist_sp(mt);
 	}
 	void Update(const Time& t, const AABB& bounds) {
-		blink = std::fmod(t.total, globals.blink_rate);
 		if (invincible > 0.f) {
-			blink_time -= (float)t.frame;
-			if (blink_time < 0.f) {
-				visible = !visible;
-				blink_time += blink_rate;
-			}
 			invincible -= (float)t.frame;
 			if (invincible <= 0.f) {
-				blink_time = blink_rate;
 				invincible = 0.f;
-				visible = true;
 			}
 		}
 		else if (hit) {
@@ -857,9 +859,6 @@ struct ProtoX {
 			return dif;
 		}
 		return 0.f;
-	}
-	float CalcBlinkState() const {
-		return (blink < globals.blink_rate / 2.f) ? globals.blink_ratio : 1.f;
 	}
 };
 void GenerateSquare(float x, float y, float s, std::vector<glm::vec3>& data) {
@@ -1412,9 +1411,9 @@ struct Renderer {
 		float prop_blink = 1.f, turret_blink = 1.f;
 		if (player) {
 			if (proto.ctrl == ProtoX::Ctrl::Full || proto.ctrl == ProtoX::Ctrl::Prop)
-				prop_blink = proto.CalcBlinkState();
+				prop_blink = proto.blink;
 			if (proto.ctrl == ProtoX::Ctrl::Full || proto.ctrl == ProtoX::Ctrl::Turret)
-				turret_blink = proto.CalcBlinkState();
+				turret_blink = proto.blink;
 		}
 		Draw<GL_TRIANGLES>(shader.uCol, proto.layer.parts, prop_blink);
 		Draw<GL_LINES>(shader.uCol, proto.layer.line_parts, prop_blink);
@@ -1477,7 +1476,7 @@ struct Renderer {
 			0,
 			(void*)0);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &cam.vp[0][0]);
-		const auto col = globals.radar_dot_color * player->CalcBlinkState();
+		const auto col = globals.radar_dot_color * player->blink;
 		glUniform4f(shader.uCol, col.r, col.g, col.b, col.a);
 		const AABB& aabb = assets.radar.aabb;
 		const auto rw = aabb.r - aabb.l, rh = aabb.t - aabb.b, sw = bounds.r - bounds.l, sh = bounds.t - bounds.b,
@@ -1491,8 +1490,8 @@ struct Renderer {
 		size_t max = 0;
 		for (const auto& p : players) {
 			max = std::max(max, p.second->score);
-			const glm::vec3 pos(p.second->pos.x * rx, p.second->pos.y * ry, 0.f);
-			const auto col = globals.radar_dot_color * player->CalcBlinkState();
+			const glm::vec3 pos(p.second->pos.x * rx, (p.second->pos.y + bounds.b)* ry, 0.f);
+			const auto col = globals.radar_dot_color * player->blink;
 			glVertexAttrib3fv(shader.aVertex, &(pos)[0]);
 			glDrawArrays(GL_TRIANGLES, 0, Particles::vertex_count);
 		}
@@ -1698,7 +1697,6 @@ public:
 	//GLuint texID;
 	//GLuint uTexSize;
 	std::queue<std::vector<unsigned char>> messages;
-	std::vector<std::unique_ptr<Envelope>> envelopes;
 #ifndef __EMSCRIPTEN__
 	void* operator new(size_t i)
 	{
@@ -1759,9 +1757,9 @@ public:
 		if (!player) return;
 		player->ctrl = ctrl;
 		if (ctrl == ProtoX::Ctrl::Full || ctrl == ProtoX::Ctrl::Prop)
-			envelopes.push_back(std::unique_ptr<Envelope>(new Blink(renderer.wsad_decal.factor, globals.blink_duration, (double)globals.timer.Elapsed(), globals.blink_rate, globals.blink_ratio)));
+			globals.envelopes.push_back(std::unique_ptr<Envelope>(new Blink(renderer.wsad_decal.factor, globals.blink_duration, (double)globals.timer.Elapsed(), globals.blink_rate, globals.blink_ratio)));
 		if (ctrl == ProtoX::Ctrl::Full || ctrl == ProtoX::Ctrl::Turret)
-			envelopes.push_back(std::unique_ptr<Envelope>(new Blink(renderer.mouse_decal.factor, globals.blink_duration, (double)globals.timer.Elapsed(), globals.blink_rate, globals.blink_ratio)));
+			globals.envelopes.push_back(std::unique_ptr<Envelope>(new Blink(renderer.mouse_decal.factor, globals.blink_duration, (double)globals.timer.Elapsed(), globals.blink_rate, globals.blink_ratio)));
 	}
 	Scene() : bounds(assets.land.aabb),
 #ifdef DEBUG_REL
@@ -1930,11 +1928,12 @@ public:
 		for (auto& m : missiles) {
 			m.Update(t);
 		}
-		for (const auto& e : envelopes) {
+		for (const auto& e : globals.envelopes) {
 			e->Update(t);
 		}
 		// TODO:: is resize more efficient
-		envelopes.erase(std::remove_if(std::begin(envelopes), std::end(envelopes), [](const auto& e) { return e->Finished(); }), envelopes.end());
+		globals.envelopes.erase(std::remove_if(
+			std::begin(globals.envelopes), std::end(globals.envelopes), [](const auto& e) { return e->Finished(); }), globals.envelopes.end());
 
 		if (player) {
 			auto d = camera.pos.x + player->pos.x;
@@ -1995,14 +1994,12 @@ public:
 			else ++it;
 		}
 #ifdef DEBUG_REL
-		if (players.empty()) {
-#ifdef DEBUG_REL
+		if (players.size()<MAX_NPC) {
 			// TODO:: add new when killed
 			GenerateNPC();
 			//players[(size_t)0xbeef] = std::make_unique<ProtoX>((size_t)0xbeef, assets.probe, assets.debris, assets.propulsion.layers.size());
 			//auto& p = players[0xbeef];
 			//p->pos.x = 50.f;
-#endif
 		}
 #endif
 	}

@@ -769,9 +769,9 @@ struct ProtoX {
 	void Init() {
 		invincible = globals.invincibility; fade_out = fade_out_time;
 		globals.envelopes.push_back(std::unique_ptr<Envelope>(
-			new Blink(visible, invincible, (double)globals.timer.Elapsed(), globals.invincibility_blink_rate, 0.f))); 
+			new Blink(visible, invincible, globals.timer.TotalMs(), globals.invincibility_blink_rate, 0.f))); 
 		globals.envelopes.push_back(std::unique_ptr<Envelope>(
-			new Blink(blink, 0., (double)globals.timer.Elapsed(), globals.blink_rate, globals.blink_ratio)));
+			new Blink(blink, 0., globals.timer.TotalMs(), globals.blink_rate, globals.blink_ratio)));
 		hit = killed = false;
 	}
 	void Kill(const glm::vec3& hit_pos, double hit_time) {
@@ -1740,7 +1740,7 @@ public:
 		const AABB aabb{ bounds.l - p.aabb.l, bounds.t - p.aabb.t, bounds.r - p.aabb.r, bounds.b - p.aabb.b };
 		std::uniform_real_distribution<> xdist(aabb.l, aabb.r), ydist(aabb.b, aabb.t);
 		p.pos.x = xdist(mt); p.pos.y = ydist(mt);
-		//p.pos.x = 0; p.pos.y = 0.;
+		p.pos.x = 0; p.pos.y = 0.;
 	}
 	void GenerateNPC() {
 		static size_t i = 0;
@@ -1757,9 +1757,9 @@ public:
 		if (!player) return;
 		player->ctrl = ctrl;
 		if (ctrl == ProtoX::Ctrl::Full || ctrl == ProtoX::Ctrl::Prop)
-			globals.envelopes.push_back(std::unique_ptr<Envelope>(new Blink(renderer.wsad_decal.factor, globals.blink_duration, (double)globals.timer.Elapsed(), globals.blink_rate, globals.blink_ratio)));
+			globals.envelopes.push_back(std::unique_ptr<Envelope>(new Blink(renderer.wsad_decal.factor, globals.blink_duration, globals.timer.ElapsedMs(), globals.blink_rate, globals.blink_ratio)));
 		if (ctrl == ProtoX::Ctrl::Full || ctrl == ProtoX::Ctrl::Turret)
-			globals.envelopes.push_back(std::unique_ptr<Envelope>(new Blink(renderer.mouse_decal.factor, globals.blink_duration, (double)globals.timer.Elapsed(), globals.blink_rate, globals.blink_ratio)));
+			globals.envelopes.push_back(std::unique_ptr<Envelope>(new Blink(renderer.mouse_decal.factor, globals.blink_duration, globals.timer.ElapsedMs(), globals.blink_rate, globals.blink_ratio)));
 	}
 	Scene() : bounds(assets.land.aabb),
 #ifdef DEBUG_REL
@@ -2202,6 +2202,7 @@ int main(int argc, char** argv) {
 	init(globals.width, globals.height);
 
 	try {
+		globals.timer.Tick();
 		globals.scene = std::make_unique<Scene>();
 	}
 	catch (const custom_exception& ex) {
@@ -2212,7 +2213,6 @@ int main(int argc, char** argv) {
 #endif
 		throw;
 	}
-	globals.timer.Tick();
 #ifdef __EMSCRIPTEN__
 	Session session = { std::bind(&Scene::OnOpen, globals.scene.get()),
 		std::bind(&Scene::OnClose, globals.scene.get()),
@@ -2237,8 +2237,8 @@ int main(int argc, char** argv) {
 void main_loop() {
 //	try {
 		globals.timer.Tick();
-		globals.scene->ProcessMessages({ (double)globals.timer.Total(), (double)globals.timer.Elapsed() });
-		globals.scene->Update({ (double)globals.timer.Total(), (double)globals.timer.Elapsed() });
+		globals.scene->ProcessMessages({ globals.timer.TotalMs(), globals.timer.ElapsedMs() });
+		globals.scene->Update({ globals.timer.TotalMs(), globals.timer.ElapsedMs() });
 		globals.scene->Render();
 		InputHandler::Reset();
 //	}

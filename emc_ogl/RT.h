@@ -15,10 +15,9 @@ class RT {
 	Shader::HBlur3x hBlur3x;
 	Shader::Contrast contrastShader;
 	Shader::Spherical sphericalShader;
-	GLuint /*vao,*/ vbo1, uv[COUNT], txt[COUNT], rbo, fbo[COUNT], mask_uv;
+	GLuint /*vao,*/ vbo1, uv, txt[COUNT], rbo, fbo[COUNT], mask_uv;
 	struct Target{
-		GLuint  fbo, txt, uv;
-		GLfloat uw, vh; // pixel ratio
+		GLuint  fbo, txt;
 		GLsizei w, h; // vp size
 	}rt[COUNT];
 	void ShadowMaskStage(size_t index);
@@ -31,7 +30,7 @@ class RT {
 public:
 	GLuint mask = 0;
 	float contrast = 2.14999890f, brightness = 0.550000072f;
-	float maskOpacity = 1.f, maskRepeat = .75f;
+	float maskOpacity = 1.f, maskRepeat = .75f, crtRadius = 5.f;
 	RT(int width, int height);
 	void GenMaskUVBufferData(float sw, float sh, float iw, float ih);
 	void Render();

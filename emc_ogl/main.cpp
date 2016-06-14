@@ -1215,7 +1215,7 @@ struct Renderer {
 
 	void PostRender() {
 		glViewport(0, 0, globals.width, globals.height);
-		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+		//glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 		rt.Render();
 	}
 	void DrawBackground(const Camera& cam) {

@@ -93,10 +93,11 @@ void RT::Render() {
 	BlurStage(vBlur3x, prev);
 	prev = Set(1);
 	BlurStage(hBlur3x, prev);
-	prev = Set(2);
-	ContrastStage(prev);
+	//prev = Set(2);
 	prev = Reset();
-	SphericalStage(prev);
+	ContrastStage(prev);
+	//prev = Reset();
+	//SphericalStage(prev);
 	glActiveTexture(GL_TEXTURE0);
 #ifndef VAO_SUPPORT
 	glDisableVertexAttribArray(0);
@@ -245,8 +246,10 @@ void RT::SphericalStage(size_t index) {
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 RT::Target RT::GenTarget(int width, int height, size_t index) {
-	const GLsizei w = (GLsizei)RoundToPowerOf2(width), h = (GLsizei)RoundToPowerOf2(height);
-	const GLfloat u = (GLfloat)width / w, v = (GLfloat)height / h;
+	//const GLsizei w = (GLsizei)RoundToPowerOf2(width), h = (GLsizei)RoundToPowerOf2(height);
+	//const GLfloat u = (GLfloat)width / w, v = (GLfloat)height / h;
+	const GLsizei w = width, h = height;
+	const GLfloat u = 1.f, v = 1.f;
 	 Target res{ fbo[index], txt[index], uv[index], u/w, v/h, width, height};
 	 const GLfloat data[] = { 0.f, 0.f,
 		u, .0f,
@@ -258,8 +261,8 @@ RT::Target RT::GenTarget(int width, int height, size_t index) {
 	glBindTexture(GL_TEXTURE_2D, txt[index]);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	//glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_FALSE);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0,
 		GL_RGBA, GL_UNSIGNED_BYTE, 0);

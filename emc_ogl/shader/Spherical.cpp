@@ -26,12 +26,11 @@ uniform sampler2D uSmp;
 uniform float uR, uAspect;
 void main()
 {
-	//vec2 ab = vUV - vec2(.25 * uAspect, .5);
-	//ab.x *= uAspect;
-	vec2 ab = vUV - vec2(.5*uAspect, .5);
-	float dz = uR - sqrt(uR * uR - ab.x * ab.x - ab.y * ab.y);
-	gl_FragColor = texture2D( uSmp, vUV + vec2(dz, dz));
-	//gl_FragColor = vec4(vec2(dz, dz), 0.f, 1.f);
+	vec2 ab = (vUV - .5) * 2.;
+	ab = ab*uR/ sqrt(uR * uR - dot(ab, ab));
+	ab = ab / 2. + .5;
+	gl_FragColor = texture2D( uSmp, ab);
+	//gl_FragColor = vec4(ab , 0.f, 1.f);
 }
 )";
 	Shader::Program program{ vs, fs, 0 };

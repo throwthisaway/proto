@@ -84,8 +84,8 @@ size_t RT::Reset() {
 
 void RT::GenRenderTargets(GLuint mask, int maskW, int maskH) {
 	size_t index = 0;
-	rt[index] = GenTarget(width / (maskW * maskRepeat), width / maskH, index);
-	//rt[index] = GenTarget(width, height, index);
+//	rt[index] = GenTarget(width / (maskW * maskRepeat), width / maskH, index);
+	rt[index] = GenTarget(width, height, index);
 	index++;
 	rt[index] = GenTarget(width, height, index);
 	index++;
@@ -97,16 +97,16 @@ void RT::GenRenderTargets(GLuint mask, int maskW, int maskH) {
 
 void RT::Render() {
 	auto prev = Set(1);
-	ShadowMaskStage(prev);
-	prev = Set(2);
+	SphericalStage(prev);
+	/*prev = Set(2);
 	BlurStage(vBlur3x, prev);
 	prev = Set(1);
 	BlurStage(hBlur3x, prev);
 	prev = Set(2);
 	//prev = Reset();
-	ContrastStage(prev);
+	ContrastStage(prev);*/
 	prev = Reset();
-	SphericalStage(prev);
+	ShadowMaskStage(prev);
 	glActiveTexture(GL_TEXTURE0);
 #ifndef VAO_SUPPORT
 	glDisableVertexAttribArray(0);
@@ -143,7 +143,7 @@ void RT::ShadowMaskStage(size_t index) {
 	// render target uv
 	glEnableVertexAttribArray(1);
 	glBindBuffer(GL_ARRAY_BUFFER, uv);
-	glVertexAttribPointer(shader.aRT,
+	glVertexAttribPointer(shader.aUV,
 		2,
 		GL_FLOAT,
 		GL_FALSE,
@@ -161,6 +161,11 @@ void RT::ShadowMaskStage(size_t index) {
 #endif
 	glUniform1f(shader.uMaskOpacity, maskOpacity);
 	glUniform1f(shader.uMaskVRepeat, maskRepeat);
+	glUniform2f(shader.uScreenSize, width, height);
+	const float ratio = 6.f, resX = width / ratio, resY = height / ratio;
+	//glUniform2f(shader.uTexelSize, float(1./width), float(1./height));
+	glUniform2f(shader.uTexelSize, 1.f / resX, 1.f / resY);
+	glUniform2f(shader.uRes, resX, resY);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, rt[index].txt);
 	glUniform1i(shader.uSmpRT, 0);
@@ -258,8 +263,8 @@ RT::Target RT::GenTarget(int width, int height, size_t index) {
 	 Target res{ fbo[index], txt[index], width, height};
 
 	glBindTexture(GL_TEXTURE_2D, txt[index]);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	//glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_FALSE);

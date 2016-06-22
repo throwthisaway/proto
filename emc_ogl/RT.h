@@ -10,7 +10,6 @@ class RT {
 	static const size_t	COUNT = 3;
 	const int width, height;
 	size_t current;
-	Shader::RTShader shadowMask;
 	Shader::VBlur3x vBlur3x;
 	Shader::HBlur3x hBlur3x;
 	Shader::Contrast contrastShader;
@@ -28,9 +27,10 @@ class RT {
 	Target GenTarget(int width, int height, size_t index);
 	size_t Reset();
 public:
+	Shader::RTShader shadowMask;
 	GLuint mask = 0;
 	float contrast = 2.14999890f, brightness = 0.550000072f;
-	float maskOpacity = 1.f, maskRepeat = .75f, crtRadius = 5.f;
+	float maskOpacity = 1.f, maskRepeat = .75f, crtRadius = 3.f;
 	RT(int width, int height);
 	void GenMaskUVBufferData(float sw, float sh, float iw, float ih);
 	void Render();

@@ -1,5 +1,6 @@
 #include "Spherical.h"
 #include "Shader.h"
+#include "../Logging.h"
 
 namespace {
 	const char * vs =
@@ -24,13 +25,18 @@ precision highp float;
 varying vec2 vUV;
 uniform sampler2D uSmp;
 uniform float uR, uAspect;
+const float squircle_r = 1.;
 void main()
 {
-	vec2 ab = (vUV - .5) * 2.;
-	ab = ab*uR/ sqrt(uR * uR - dot(ab, ab));
+	vec2 ab = vUV;
+	ab = (ab - .5) * 2.;
+	ab = ab*uR/sqrt(uR * uR - dot(ab, ab))/*/6.28 stretch uv to the sphere diameter*/;
+	vec2 squircle = ab;
 	ab = ab / 2. + .5;
-	gl_FragColor = texture2D( uSmp, ab);
-	//gl_FragColor = vec4(ab , 0.f, 1.f);
+	if (pow(squircle.x, 5.) + pow(squircle.y, 5.) < pow(squircle_r, 5.))
+		gl_FragColor = texture2D( uSmp, ab);
+	else
+		discard;
 }
 )";
 	Shader::Program program{ vs, fs, 0 };
@@ -38,6 +44,9 @@ void main()
 namespace Shader {
 	Spherical::Spherical() { Reload(); }
 	void Spherical::Reload() {
+		#ifdef __EMSCRIPTEN__
+			emscripten_log(EM_LOG_CONSOLE, ">>>Compile spherical shader");
+		#endif
 		id = program.Load();
 		if (!id) return;
 		aPos = glGetAttribLocation(id, "aPos");

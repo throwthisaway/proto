@@ -243,7 +243,7 @@ namespace Asset {
 		vertices.push_back(v1 * scale + n12);
 	}
 
-	Model Reconstruct(MeshLoader::Mesh& mesh, float scale, float lineWidth = 3.f) {
+	Model Reconstruct(MeshLoader::Mesh& mesh, float scale, float lineWidth = LINE_WIDTH) {
 		std::vector<glm::vec3> vertices;
 		std::vector<Layer> layers;
 		layers.reserve(mesh.layers.size());
@@ -614,7 +614,7 @@ struct Missile {
 		
 		// approximate hit position
 		auto c = Center(bounds);
-		hit_pos = (glm::distance(c, start) < glm::distance(c, end)) ? start : end;
+		hit_pos = end;// (glm::distance(c, start) < glm::distance(c, end)) ? start : end;
 		// broad phase
 
 		if (end.x < start.x) std::swap(end, start);
@@ -1659,7 +1659,7 @@ struct InputHandler {
 	}
 	InputHandler() {
 		glfwSetKeyCallback(window, key_callback);
-		glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+		//glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 		glfwSetCursorPosCallback(window, cursor_pos_callback);
 		glfwSetMouseButtonCallback(window, mouse_button_callback);
 		glfwSetCursorEnterCallback(window, cursor_enter_callback);
@@ -1740,7 +1740,7 @@ public:
 		const AABB aabb{ bounds.l - p.aabb.l, bounds.t - p.aabb.t, bounds.r - p.aabb.r, bounds.b - p.aabb.b };
 		std::uniform_real_distribution<> xdist(aabb.l, aabb.r), ydist(aabb.b, aabb.t);
 		p.pos.x = xdist(mt); p.pos.y = ydist(mt);
-		p.pos.x = 0; p.pos.y = 0.;
+		//p.pos.x = 0; p.pos.y = 0.;
 	}
 	void GenerateNPC() {
 		static size_t i = 0;
@@ -1883,19 +1883,23 @@ public:
 		} else if (key == GLFW_KEY_PERIOD && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
 			renderer.rt.brightness += .05f;
 		}
+		else if (key == GLFW_KEY_F9 && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+			renderer.rt.shadowMask.Reload();
+		}
+
 	}
 	void Update(const Time& t) {
-		const double scroll_speed =.5, // px/s
-			rot_ratio =.002;
+		const double scroll_speed = .5; // px/s
 		if (inputHandler.keys[(size_t)InputHandler::Keys::Left])
 			camera.Translate(float(scroll_speed * t.frame), 0.f, 0.f);
 		if (inputHandler.keys[(size_t)InputHandler::Keys::Right])
 			camera.Translate(float(scroll_speed * t.frame), 0.f, 0.f);
 		if (player) {
-			if (inputHandler.update)
-				player->turret.SetRot(float((globals.width>>1) - inputHandler.x) * rot_ratio);
+			if (inputHandler.update) {
+				const double rot_ratio = (player->turret.max_rot - player->turret.min_rot) / globals.width;
+				player->turret.SetRot(float((globals.width >> 1) - inputHandler.x) * rot_ratio);
 				//player->turret.rot += float((inputHandler.px - inputHandler.x) * rot_ratio);
-
+			}
 			player->Move(t, inputHandler.keys[(size_t)InputHandler::Keys::A],
 				inputHandler.keys[(size_t)InputHandler::Keys::D],
 				inputHandler.keys[(size_t)InputHandler::Keys::W]);

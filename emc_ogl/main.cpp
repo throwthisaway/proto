@@ -381,12 +381,13 @@ namespace Asset {
 //				}
 //				masks_end = images.size();
 				images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x4.tga"));
-				masks_image_index = images.size() - 1;
 				images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_staggered_6x8.tga"));
 				images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x3_scanline.tga"));
 				images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x4_scanline.tga"));
 				images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x4_scanline2.tga"));
-				
+				images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x4_scanline_bright.tga"));
+				masks_image_index = images.size() - 1;
+
 #ifdef __EMSCRIPTEN__
 				emscripten_log(EM_LOG_CONSOLE, "image count %d\n", images.size());
 #endif
@@ -763,7 +764,9 @@ struct ProtoX {
 		left.Set(lt);
 		right.Set(rt);
 		bottom.Set(bt);
-		f.x = (lt) ? -force : (rt) ? force : 0.f;
+		f.x = 0;
+		if (lt) f.x -= force;
+		if (rt) f.x += force;
 		f.y = (bt) ? force : g;
 	}
 	void Init() {

@@ -1,5 +1,8 @@
 #pragma once
 
+#define STRINGIFY(x) #x
+#define TOSTRING(x) STRINGIFY(x)
+
 //#define VAO_SUPPORT
 #define DEBUG_REL
 #define MAX_NPC 20
@@ -8,3 +11,4 @@
 #define LINE_WIDTH 3.f
 #define VP_RATIO(h) h * 3 / 4
 #define HUD_RATIO(h) h / 4
+

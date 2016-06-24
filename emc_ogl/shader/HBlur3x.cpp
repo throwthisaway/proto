@@ -1,35 +1,53 @@
 #include "HBlur3x.h"
 #include "Shader.h"
+#include "../Globals.h"
 
 namespace {
 	const char * vs =
 #ifndef __EMSCRIPTEN__
 		"#version 130\n"
 #endif
+		"#line " TOSTRING(__LINE__)
 		R"(
 precision highp float;
 attribute vec3 aPos;
 attribute vec2 aUV;
-varying vec2 vUV;
+uniform vec2 uOffset;
+varying vec2 vUV, vOffsetUVs[6];
 void main() {
 	gl_Position = vec4(aPos, 1.0);
 	vUV = aUV;
+	vOffsetUVs[0] = vUV + vec2(-uOffset.x, 0.); 
+	vOffsetUVs[1] = vUV + vec2(-uOffset.x * 2., 0.);
+	vOffsetUVs[2] = vUV + vec2(-uOffset.x * 3., 0.);
+	vOffsetUVs[3] = vUV + vec2(uOffset.x, 0.); 
+	vOffsetUVs[4] = vUV + vec2(uOffset.x * 2., 0.);
+	vOffsetUVs[5] = vUV + vec2(uOffset.x * 3., 0.); 
 }
 )", *fs =
 #ifndef __EMSCRIPTEN__
 "#version 130\n"
 #endif
+"#line " TOSTRING(__LINE__)
 R"(
 precision highp float;
-uniform vec2 uOffset;
-varying vec2 vUV;
+
+varying vec2 vUV, vOffsetUVs[6];
 uniform sampler2D uSmp;
+// 5-tap normalized weights
+//const float w0 = 70./238., w1 = 56./238., w2 = 28./238.;
+// 7-tap normalized weights
+const float w0 = 252./1022., w1 = 210./1022., w2 = 120./1022., w3 = 45./1022.;
 void main()
 {
-	vec4 s0 = texture2D( uSmp, vUV),
-		s1 = texture2D( uSmp, vUV + vec2(0., -uOffset.y)),
-		s2 = texture2D( uSmp, vUV + vec2(0., uOffset.y));
-	gl_FragColor = (s0 + s1 * .5 + s2 * .5) / 3.;
+	vec4 frag = texture2D( uSmp, vUV) * w0 +
+		texture2D( uSmp, vOffsetUVs[0]) * w1 +
+		texture2D( uSmp, vOffsetUVs[1]) * w2 +
+		texture2D( uSmp, vOffsetUVs[2]) * w3 +
+		texture2D( uSmp, vOffsetUVs[3]) * w1 +
+		texture2D( uSmp, vOffsetUVs[4]) * w2 +
+		texture2D( uSmp, vOffsetUVs[5]) * w3;
+	gl_FragColor = frag;
 }
 )";
 	Shader::Program program{ vs, fs, 0 };

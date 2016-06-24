@@ -5,7 +5,7 @@ namespace Shader {
 		RTShader();
 		GLuint id, aPos, aUV, aMask,
 			uSmpRT, uSmpMask,
-			uScreenSize, uTexelSize, uRes,
+			uScreenSize, uTexelSize,
 			uMaskOpacity, uMaskVRepeat;
 		void Reload();
 	};

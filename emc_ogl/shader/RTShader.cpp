@@ -1,8 +1,7 @@
 #include "RTShader.h"
 #include "Shader.h"
 #include "../Exception.h"
-#define STRINGIFY(x) #x
-#define TOSTRING(x) STRINGIFY(x)
+#include "../Globals.h"
 // https://www.shadertoy.com/view/ls2SRD
 // https://software.intel.com/en-us/blogs/2014/07/15/an-investigation-of-fast-real-time-gpu-based-image-blur-algorithms
 // http://rastergrid.com/blog/2010/09/efficient-gaussian-blur-with-linear-sampling/
@@ -33,14 +32,13 @@ R"(
 precision highp float;
 varying vec2 vUV, vMask;
 uniform sampler2D uSmpRT, uSmpMask;
-uniform vec2 uScreenSize, uTexelSize, uRes;
+uniform vec2 uScreenSize, uTexelSize;
 uniform float uMaskOpacity, uMaskVRepeat;
 
 // 9-tap normalized weights
 //uniform float w[] = float[]( .2270270270, .1945945946, .1216216216, .0540540541, .0162162162 );
 // 5-tap normalized weights
 const float w2 = 28./238., w1 = 56./238., w0 = 70./238.;
-const float steps = 5.;
 
 vec4 Blur5x(vec2 pos, vec2 d) {
 	return texture2D(uSmpRT, pos)*w0
@@ -51,20 +49,22 @@ vec4 Blur5x(vec2 pos, vec2 d) {
 }
 
 void main() {
-	//vec2 pix = vUV * uRes;
-	//vec2 pos = (floor(pix) + .5) / uRes;
-	//float d = length(fract(pix)-.5);
-	//vec2 vd = (vUV - pos);
-	vec2 vd = uTexelSize / steps;
+	////vec2 pix = vUV * uRes;
+	////vec2 pos = (floor(pix) + .5) / uRes;
+	////float d = length(fract(pix)-.5);
+	////vec2 vd = (vUV - pos);
+	//vec2 vd = uTexelSize;
 
-	vec4 frag = Blur5x(vUV, vec2(vd.x, 0.)) *w0
-		+ Blur5x(vUV, vec2(vd.x, vd.y * 2.)) *w2
-		+ Blur5x(vUV, vec2(vd.x, vd.y)) *w1
-		+ Blur5x(vUV, vec2(vd.x, -vd.y * 2.)) *w2
-		+ Blur5x(vUV, vec2(vd.x, -vd.y)) *w1;
-	gl_FragColor = frag;
-	//vec4 mask = texture2D(uSmpMask, vec2(mod(vMask.x, uMaskVRepeat), vMask.y));
-	//gl_FragColor = mix(frag, frag * mask, uMaskOpacity);
+	//vec4 frag = Blur5x(vUV, vec2(vd.x, 0.)) *w0
+	//	+ Blur5x(vUV, vec2(vd.x, vd.y * 2.)) *w2
+	//	+ Blur5x(vUV, vec2(vd.x, vd.y)) *w1
+	//	+ Blur5x(vUV, vec2(vd.x, -vd.y * 2.)) *w2
+	//	+ Blur5x(vUV, vec2(vd.x, -vd.y)) *w1;
+	//gl_FragColor = frag;
+
+	vec4 frag =  texture2D(uSmpRT, vUV),
+		mask = texture2D(uSmpMask, vec2(mod(vMask.x, uMaskVRepeat), vMask.y));
+	gl_FragColor = mix(frag, frag * mask, uMaskOpacity);
 }
 
 )";
@@ -82,7 +82,6 @@ namespace Shader {
 		uSmpMask = glGetUniformLocation(id, "uSmpMask");
 		uScreenSize = glGetUniformLocation(id, "uScreenSize");
 		uTexelSize = glGetUniformLocation(id, "uTexelSize");
-		uRes = glGetUniformLocation(id, "uRes");
 		uMaskOpacity = glGetUniformLocation(id, "uMaskOpacity");
 		uMaskVRepeat = glGetUniformLocation(id, "uMaskVRepeat");
 		aPos = glGetAttribLocation(id, "aPos");

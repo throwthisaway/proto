@@ -84,7 +84,7 @@ size_t RT::Reset() {
 
 void RT::GenRenderTargets(GLuint mask, int maskW, int maskH) {
 	size_t index = 0;
-//	rt[index] = GenTarget(width / (maskW * maskRepeat), width / maskH, index);
+	//rt[index] = GenTarget(width / (maskW * maskRepeat), width / maskH, index);
 	rt[index] = GenTarget(width, height, index);
 	index++;
 	rt[index] = GenTarget(width, height, index);
@@ -96,17 +96,27 @@ void RT::GenRenderTargets(GLuint mask, int maskW, int maskH) {
 }
 
 void RT::Render() {
-	auto prev = Set(1);
-	SphericalStage(prev);
-	/*prev = Set(2);
-	BlurStage(vBlur3x, prev);
-	prev = Set(1);
-	BlurStage(hBlur3x, prev);
-	prev = Set(2);
-	//prev = Reset();
-	ContrastStage(prev);*/
-	prev = Reset();
-	ShadowMaskStage(prev);
+	auto back = Set(1);
+	BlurStage(hBlur3x, back);
+	back = Set(2);
+	BlurStage(vBlur3x, back);
+
+	//back = Set(1);
+	//BlurStage(hBlur3x, back);
+	//back = Set(2);
+	//BlurStage(vBlur3x, back);
+	//back = Set(1);
+	//BlurStage(hBlur3x, back);
+	//back = Set(2);
+	//BlurStage(vBlur3x, back);
+
+	back = Set(1);
+	SphericalStage(back);
+	/*back = Set(2);
+	//back = Reset();
+	ContrastStage(back);*/
+	back = Reset();
+	ShadowMaskStage(back);
 	glActiveTexture(GL_TEXTURE0);
 #ifndef VAO_SUPPORT
 	glDisableVertexAttribArray(0);
@@ -162,10 +172,7 @@ void RT::ShadowMaskStage(size_t index) {
 	glUniform1f(shader.uMaskOpacity, maskOpacity);
 	glUniform1f(shader.uMaskVRepeat, maskRepeat);
 	glUniform2f(shader.uScreenSize, width, height);
-	const float ratio = 6.f, resX = width / ratio, resY = height / ratio;
-	//glUniform2f(shader.uTexelSize, float(1./width), float(1./height));
-	glUniform2f(shader.uTexelSize, 1.f / resX, 1.f / resY);
-	glUniform2f(shader.uRes, resX, resY);
+	glUniform2f(shader.uTexelSize, float(1./width), float(1./height));
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, rt[index].txt);
 	glUniform1i(shader.uSmpRT, 0);

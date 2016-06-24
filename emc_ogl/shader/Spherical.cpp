@@ -36,7 +36,7 @@ void main()
 	if (pow(squircle.x, 5.) + pow(squircle.y, 5.) < pow(squircle_r, 5.))
 		gl_FragColor = texture2D( uSmp, ab);
 	else
-		discard;
+		gl_FragColor = vec4(0., 0., 0., 1.f);	//discard;
 }
 )";
 	Shader::Program program{ vs, fs, 0 };

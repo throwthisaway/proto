@@ -22,7 +22,7 @@ RT::RT(int width, int height)  : width(width), height(height), current(0) {
 		const GLfloat u = 1.f, v = 1.f;
 		const GLfloat data[] = { 0.f, 0.f,
 			u, .0f,
-			0.f, v,
+			0.f, v-.0001f/*TODO:: aperture grill distortion fix*/,
 			u, v };
 		glBindBuffer(GL_ARRAY_BUFFER, uv);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);

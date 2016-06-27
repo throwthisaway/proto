@@ -39,6 +39,17 @@ uniform float uMaskOpacity, uMaskVRepeat;
 //uniform float w[] = float[]( .2270270270, .1945945946, .1216216216, .0540540541, .0162162162 );
 // 5-tap normalized weights
 const float w2 = 28./238., w1 = 56./238., w0 = 70./238.;
+const float scanLineHeight = 4.f, scanLineBrightness = 1./scanLineHeight;
+
+vec4 Scan(vec2 pos){
+	float d = pos.y * uScreenSize.y / scanLineHeight;
+	////float tx = (floor(d) + .5) / (uScreenSize.y / scanLineHeight);
+	//d = abs(fract(d) - .5) * 2. + scanLineBrightness;
+	//d = 1. - pow(d, 2.);
+	d = abs(fract(d) - .5 + scanLineBrightness / 2.) * 2;
+	d = 1. - pow(d, 4.);
+	return vec4(d, d, d, 1.);
+}
 
 vec4 Blur5x(vec2 pos, vec2 d) {
 	return texture2D(uSmpRT, pos)*w0
@@ -47,6 +58,28 @@ vec4 Blur5x(vec2 pos, vec2 d) {
 		+ texture2D(uSmpRT, pos + vec2(d.x * 2., d.y))*w2
 		+ texture2D(uSmpRT, pos + vec2(d.x, d.y))*w1;
 }
+
+const float maskDark=0.5;
+const float maskLight=1.5;
+
+// Aperture-grille.
+vec3 Mask2(vec2 pos){
+  pos.x=fract(pos.x/3.0);
+  vec3 mask=vec3(maskDark,maskDark,maskDark);
+  if(pos.x<0.333)mask.r=maskLight;
+  else if(pos.x<0.666)mask.g=maskLight;
+  else mask.b=maskLight;
+  return mask;}        
+
+// Stretched VGA style shadow mask (same as prior shaders).
+vec3 Mask3(vec2 pos){
+  pos.x+=pos.y*3.0;
+  vec3 mask=vec3(maskDark,maskDark,maskDark);
+  pos.x=fract(pos.x/6.0);
+  if(pos.x<1./3.)mask.r=maskLight;
+  else if(pos.x<2./3.)mask.g=maskLight;
+  else mask.b=maskLight;
+  return mask;}
 
 void main() {
 	////vec2 pix = vUV * uRes;
@@ -62,9 +95,11 @@ void main() {
 	//	+ Blur5x(vUV, vec2(vd.x, -vd.y)) *w1;
 	//gl_FragColor = frag;
 
-	vec4 frag =  texture2D(uSmpRT, vUV),
-		mask = texture2D(uSmpMask, vec2(mod(vMask.x, uMaskVRepeat), vMask.y));
-	gl_FragColor = mix(frag, frag * mask, uMaskOpacity);
+	vec4 frag =  texture2D(uSmpRT, vUV);
+	// vec4 mask = texture2D(uSmpMask, vec2(mod(vMask.x, uMaskVRepeat), vMask.y));
+	//gl_FragColor = mix(frag, frag * mask, uMaskOpacity);
+	gl_FragColor = mix(frag, Scan(vUV) * frag, uMaskOpacity) * vec4(Mask3(vUV * uScreenSize), 1.);
+	//gl_FragColor = vec4(Mask2(vUV * uScreenSize), 1.);
 }
 
 )";

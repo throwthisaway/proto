@@ -3,10 +3,9 @@
 namespace Shader {
 	struct CRTShader {
 		CRTShader();
-		GLuint id, aPos, aUV, aMask,
-			uSmpRT, uSmpMask,
-			uScreenSize, uTexelSize,
-			uMaskOpacity, uMaskVRepeat;
+		GLuint id, aPos, aUV,
+			uSmpRT,
+			uScreenSize, uTexelSize;
 		void Reload();
 	};
 }

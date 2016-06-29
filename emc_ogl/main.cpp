@@ -1873,10 +1873,10 @@ public:
 			renderer.rt.GenMaskUVBufferData( (float)globals.width, (float)globals.height, w+=.1f, h+=.1f);
 		} else if (key == GLFW_KEY_PAGE_DOWN && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
 			renderer.rt.GenMaskUVBufferData((float)globals.width, (float)globals.height, w-=.1f, h-=.1f);
-		}else if (key == GLFW_KEY_HOME && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-			renderer.rt.maskOpacity+=.05f;
-		}else if (key == GLFW_KEY_END && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-			renderer.rt.maskOpacity-=.05f;
+		//}else if (key == GLFW_KEY_HOME && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+		//	renderer.rt.maskOpacity+=.05f;
+		//}else if (key == GLFW_KEY_END && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+		//	renderer.rt.maskOpacity-=.05f;
 		} else if (key == GLFW_KEY_LEFT_BRACKET && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
 			renderer.rt.contrast -= .05f;
 		} else if (key == GLFW_KEY_RIGHT_BRACKET && (action == GLFW_PRESS || action == GLFW_REPEAT)) {

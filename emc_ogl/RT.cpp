@@ -159,28 +159,12 @@ void RT::ShadowMaskStage(size_t index) {
 		GL_FALSE,
 		0,
 		(void*)0);
-	// mask uv
-	glEnableVertexAttribArray(2);
-	glBindBuffer(GL_ARRAY_BUFFER, mask_uv);
-	glVertexAttribPointer(shader.aMask,
-		2,
-		GL_FLOAT,
-		GL_FALSE,
-		0,
-		(void*)0);
 #endif
-	glUniform1f(shader.uMaskOpacity, maskOpacity);
-	glUniform1f(shader.uMaskVRepeat, maskRepeat);
 	glUniform2f(shader.uScreenSize, width, height);
 	glUniform2f(shader.uTexelSize, float(1./width), float(1./height));
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, rt[index].txt);
 	glUniform1i(shader.uSmpRT, 0);
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, mask);
-	glUniform1i(shader.uSmpMask, 1);
-	//glUniform2f(shader.uScreenSize, (GLfloat)sw, (GLfloat)hw);
-
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 template<typename T>

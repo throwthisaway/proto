@@ -34,7 +34,7 @@ public:
 	Shader::CRTShader shadowMask;
 	GLuint mask = 0;
 	float contrast = 2.14999890f, brightness = 0.550000072f;
-	float maskOpacity = 0.149999812f, maskRepeat = .75f, crtRadius = 3.f;
+	float /*maskOpacity = 0.149999812f, maskRepeat = .75f,*/ crtRadius = 3.f;
 	RT(int width, int height);
 	void GenMaskUVBufferData(float sw, float sh, float iw, float ih);
 	void Render();

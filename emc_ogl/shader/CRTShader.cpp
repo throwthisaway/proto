@@ -1,4 +1,4 @@
-#include "RTShader.h"
+#include "CRTShader.h"
 #include "Shader.h"
 #include "../Exception.h"
 #include "../Globals.h"
@@ -39,15 +39,13 @@ uniform float uMaskOpacity, uMaskVRepeat;
 //uniform float w[] = float[]( .2270270270, .1945945946, .1216216216, .0540540541, .0162162162 );
 // 5-tap normalized weights
 const float w2 = 28./238., w1 = 56./238., w0 = 70./238.;
-const float scanLineHeight = 4.f, scanLineBrightness = 1./scanLineHeight;
+const float scanLineHeight = 4.f, scanLineStep = 1./scanLineHeight,
+	scanLineBrightness = .7;
 
 vec4 Scan(vec2 pos){
 	float d = pos.y * uScreenSize.y / scanLineHeight;
-	////float tx = (floor(d) + .5) / (uScreenSize.y / scanLineHeight);
-	//d = abs(fract(d) - .5) * 2. + scanLineBrightness;
-	//d = 1. - pow(d, 2.);
-	d = abs(fract(d) - .5 + scanLineBrightness / 2.) * 2;
-	d = 1. - pow(d, 4.);
+	d = abs(fract(d) - .5 + scanLineStep / 2.) * 2;
+	d = 1. - pow(d * scanLineBrightness, 4.);
 	return vec4(d, d, d, 1.);
 }
 
@@ -98,7 +96,7 @@ void main() {
 	vec4 frag =  texture2D(uSmpRT, vUV);
 	// vec4 mask = texture2D(uSmpMask, vec2(mod(vMask.x, uMaskVRepeat), vMask.y));
 	//gl_FragColor = mix(frag, frag * mask, uMaskOpacity);
-	gl_FragColor = mix(frag, Scan(vUV) * frag, uMaskOpacity) * vec4(Mask3(vUV * uScreenSize), 1.);
+	gl_FragColor = Scan(vUV) * frag* vec4(Mask2(vUV * uScreenSize), 1.);
 	//gl_FragColor = vec4(Mask2(vUV * uScreenSize), 1.);
 }
 
@@ -106,10 +104,10 @@ void main() {
 	Shader::Program program{ vs, fs, 0 };
 }
 namespace Shader {
-	RTShader::RTShader() : id(0) {
+	CRTShader::CRTShader() : id(0) {
 		Reload();
 	}
-	void RTShader::Reload() {
+	void CRTShader::Reload() {
 		if (id) glDeleteProgram(id);
 		id = program.Load();
 		if (!id) return;

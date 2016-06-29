@@ -1,8 +1,8 @@
 #pragma once
 #include <GL/glew.h>
 namespace Shader {
-	struct RTShader {
-		RTShader();
+	struct CRTShader {
+		CRTShader();
 		GLuint id, aPos, aUV, aMask,
 			uSmpRT, uSmpMask,
 			uScreenSize, uTexelSize,

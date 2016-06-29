@@ -54,9 +54,6 @@
     <ClCompile Include="..\..\emc_ogl\shader\Simple.cpp">
       <Filter>Source Files\shader</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\emc_ogl\shader\RTShader.cpp">
-      <Filter>Source Files\shader</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\emc_ogl\shader\Color.cpp">
       <Filter>Source Files\shader</Filter>
     </ClCompile>
@@ -75,12 +72,6 @@
     <ClCompile Include="..\..\emc_ogl\Helpers.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\emc_ogl\shader\VBlur3x.cpp">
-      <Filter>Source Files\shader</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\emc_ogl\shader\HBlur3x.cpp">
-      <Filter>Source Files\shader</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\emc_ogl\shader\Contrast.cpp">
       <Filter>Source Files\shader</Filter>
     </ClCompile>
@@ -94,6 +85,21 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\..\emc_ogl\shader\Spherical.cpp">
+      <Filter>Source Files\shader</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\emc_ogl\shader\VBlur9x.cpp">
+      <Filter>Source Files\shader</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\emc_ogl\shader\HBlur9x.cpp">
+      <Filter>Source Files\shader</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\emc_ogl\shader\VBlur7x.cpp">
+      <Filter>Source Files\shader</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\emc_ogl\shader\HBlur7x.cpp">
+      <Filter>Source Files\shader</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\emc_ogl\shader\CRTShader.cpp">
       <Filter>Source Files\shader</Filter>
     </ClCompile>
   </ItemGroup>
@@ -146,9 +152,6 @@
     <ClInclude Include="..\..\emc_ogl\Exception.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\emc_ogl\shader\RTShader.h">
-      <Filter>Header Files\shader</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\emc_ogl\shader\Color.h">
       <Filter>Header Files\shader</Filter>
     </ClInclude>
@@ -163,12 +166,6 @@
     </ClInclude>
     <ClInclude Include="..\..\emc_ogl\Helpers.h">
       <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\emc_ogl\shader\VBlur3x.h">
-      <Filter>Header Files\shader</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\emc_ogl\shader\HBlur3x.h">
-      <Filter>Header Files\shader</Filter>
     </ClInclude>
     <ClInclude Include="..\..\emc_ogl\shader\Contrast.h">
       <Filter>Header Files\shader</Filter>
@@ -192,6 +189,21 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\emc_ogl\shader\Spherical.h">
+      <Filter>Header Files\shader</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\emc_ogl\shader\HBlur9x.h">
+      <Filter>Header Files\shader</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\emc_ogl\shader\VBlur9x.h">
+      <Filter>Header Files\shader</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\emc_ogl\shader\VBlur7x.h">
+      <Filter>Header Files\shader</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\emc_ogl\shader\HBlur7x.h">
+      <Filter>Header Files\shader</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\emc_ogl\shader\CRTShader.h">
       <Filter>Header Files\shader</Filter>
     </ClInclude>
   </ItemGroup>

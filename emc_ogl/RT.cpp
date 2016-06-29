@@ -97,24 +97,24 @@ void RT::GenRenderTargets(GLuint mask, int maskW, int maskH) {
 
 void RT::Render() {
 	auto back = Set(1);
-	BlurStage(hBlur3x, back);
+	BlurStage(hBlur7x, back);
 	back = Set(2);
-	BlurStage(vBlur3x, back);
+	BlurStage(vBlur7x, back);
 
-	//back = Set(1);
-	//BlurStage(hBlur3x, back);
-	//back = Set(2);
-	//BlurStage(vBlur3x, back);
-	//back = Set(1);
-	//BlurStage(hBlur3x, back);
-	//back = Set(2);
-	//BlurStage(vBlur3x, back);
+	////back = Set(1);
+	////BlurStage(hBlur7x, back);
+	////back = Set(2);
+	////BlurStage(vBlur7x, back);
+	////back = Set(1);
+	////BlurStage(hBlur7x, back);
+	////back = Set(2);
+	////BlurStage(vBlur7x, back);
 
 	back = Set(1);
 	SphericalStage(back);
-	/*back = Set(2);
-	//back = Reset();
-	ContrastStage(back);*/
+	///*back = Set(2);
+	////back = Reset();
+	//ContrastStage(back);*/
 	back = Reset();
 	ShadowMaskStage(back);
 	glActiveTexture(GL_TEXTURE0);

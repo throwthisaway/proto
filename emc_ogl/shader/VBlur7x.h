@@ -2,9 +2,9 @@
 #pragma once
 #include <GL/glew.h>
 namespace Shader {
-	struct VBlur3x {
+	struct VBlur7x {
 		GLuint id, aPos, aUV, uSmp, uOffset;
-		VBlur3x();
+		VBlur7x();
 		void Reload();
 	};
 }

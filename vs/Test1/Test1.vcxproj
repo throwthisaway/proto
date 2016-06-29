@@ -36,13 +36,15 @@
     <ClCompile Include="..\..\emc_ogl\shader\Color.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\ColorPosAttrib.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\Contrast.cpp" />
-    <ClCompile Include="..\..\emc_ogl\shader\HBlur3x.cpp" />
-    <ClCompile Include="..\..\emc_ogl\shader\RTShader.cpp" />
+    <ClCompile Include="..\..\emc_ogl\shader\CRTShader.cpp" />
+    <ClCompile Include="..\..\emc_ogl\shader\HBlur7x.cpp" />
+    <ClCompile Include="..\..\emc_ogl\shader\HBlur9x.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\Shader.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\Simple.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\Spherical.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\Texture.cpp" />
-    <ClCompile Include="..\..\emc_ogl\shader\VBlur3x.cpp" />
+    <ClCompile Include="..\..\emc_ogl\shader\VBlur7x.cpp" />
+    <ClCompile Include="..\..\emc_ogl\shader\VBlur9x.cpp" />
     <ClCompile Include="..\..\emc_ogl\Timer.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -69,13 +71,15 @@
     <ClInclude Include="..\..\emc_ogl\shader\Color.h" />
     <ClInclude Include="..\..\emc_ogl\shader\ColorPosAttrib.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Contrast.h" />
-    <ClInclude Include="..\..\emc_ogl\shader\HBlur3x.h" />
-    <ClInclude Include="..\..\emc_ogl\shader\RTShader.h" />
+    <ClInclude Include="..\..\emc_ogl\shader\CRTShader.h" />
+    <ClInclude Include="..\..\emc_ogl\shader\HBlur7x.h" />
+    <ClInclude Include="..\..\emc_ogl\shader\HBlur9x.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Shader.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Simple.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Spherical.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Texture.h" />
-    <ClInclude Include="..\..\emc_ogl\shader\VBlur3x.h" />
+    <ClInclude Include="..\..\emc_ogl\shader\VBlur7x.h" />
+    <ClInclude Include="..\..\emc_ogl\shader\VBlur9x.h" />
     <ClInclude Include="..\..\emc_ogl\Timer.h" />
     <ClInclude Include="..\..\emc_socket\Socket.h" />
   </ItemGroup>

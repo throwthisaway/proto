@@ -33,6 +33,8 @@
     <ClCompile Include="..\..\..\MeshLoader\types.cpp" />
     <ClCompile Include="..\..\emc_ogl\RT.cpp" />
     <ClCompile Include="..\..\emc_ogl\SAT.cpp" />
+    <ClCompile Include="..\..\emc_ogl\shader\BloomPass1.cpp" />
+    <ClCompile Include="..\..\emc_ogl\shader\BloomPass2.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\Color.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\ColorPosAttrib.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\Contrast.cpp" />
@@ -68,6 +70,8 @@
     <ClInclude Include="..\..\emc_ogl\Logging.h" />
     <ClInclude Include="..\..\emc_ogl\RT.h" />
     <ClInclude Include="..\..\emc_ogl\SAT.h" />
+    <ClInclude Include="..\..\emc_ogl\shader\BloomPass1.h" />
+    <ClInclude Include="..\..\emc_ogl\shader\BloomPass2.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Color.h" />
     <ClInclude Include="..\..\emc_ogl\shader\ColorPosAttrib.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Contrast.h" />

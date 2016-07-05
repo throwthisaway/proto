@@ -41,6 +41,8 @@
     <ClCompile Include="..\..\emc_ogl\shader\CRTShader.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\HBlur7x.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\HBlur9x.cpp" />
+    <ClCompile Include="..\..\emc_ogl\shader\Highlight.cpp" />
+    <ClCompile Include="..\..\emc_ogl\shader\CombineMAdd.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\Shader.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\Simple.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\Spherical.cpp" />
@@ -78,6 +80,8 @@
     <ClInclude Include="..\..\emc_ogl\shader\CRTShader.h" />
     <ClInclude Include="..\..\emc_ogl\shader\HBlur7x.h" />
     <ClInclude Include="..\..\emc_ogl\shader\HBlur9x.h" />
+    <ClInclude Include="..\..\emc_ogl\shader\Highlight.h" />
+    <ClInclude Include="..\..\emc_ogl\shader\CombineMAdd.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Shader.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Simple.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Spherical.h" />

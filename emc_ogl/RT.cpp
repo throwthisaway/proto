@@ -100,30 +100,31 @@ void RT::Render() {
 	BlurStage(hBlur7x, back);
 	back = Set(0);
 	BlurStage(vBlur7x, back);
-	// TODO:: bloomstage
-
-	////back = Set(1);
-	////BlurStage(hBlur7x, back);
-	////back = Set(0);
-	////BlurStage(vBlur7x, back);
-	////back = Set(1);
-	////BlurStage(hBlur7x, back);
-	////back = Set(0);
-	////BlurStage(vBlur7x, back);
-
 	back = Set(1);
 	SphericalStage(back);
-	///*back = Set(0);
-	////back = Reset();
-	//ContrastStage(back);*/
-	//back = Reset();
-	auto final = 0;
-	back = Set(final);
+	back = Set(0);
 	ShadowMaskStage(back);
-	auto bloom = Set(2);
-	BloomPass1Stage(back);
+	/*back = Set(1);
+	ContrastStage(back);*/
+	size_t src = back, bloom = 2,
+		original = Set(bloom);
+	back = original;
+	Highlight(back);
+	back = Set(src);
+	BlurStage(hBlur9x, back);
+	back = Set(bloom);
+	BlurStage(vBlur9x, back);
+	back = Set(src);
+	BlurStage(hBlur9x, back, 2.f);
+	back = Set(bloom);
+	BlurStage(vBlur9x, back, 2.f);
+	back = Set(src);
+	BlurStage(hBlur9x, back, 3.f);
+	back = Set(bloom);
+	BlurStage(vBlur9x, back, 3.f);
 	back = Reset();
-	BloomPass2Stage(back, rt[final].txt);
+	CombineMAdd(back, rt[original].txt);
+
 	glActiveTexture(GL_TEXTURE0);
 #ifndef VAO_SUPPORT
 	glDisableVertexAttribArray(0);
@@ -175,7 +176,7 @@ void RT::ShadowMaskStage(size_t index) {
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 template<typename T>
-void RT::BlurStage(T& shader, size_t index) {
+void RT::BlurStage(T& shader, size_t index, float offsetMul) {
 	// render target quad vertices
 	glEnableVertexAttribArray(0);
 	glBindBuffer(GL_ARRAY_BUFFER, vbo1);
@@ -198,7 +199,7 @@ void RT::BlurStage(T& shader, size_t index) {
 	glBindTexture(GL_TEXTURE_2D, rt[index].txt);
 	glUseProgram(shader.id);
 	glUniform1i(shader.uSmp, 0);
-	glUniform2f(shader.uOffset, 1.f/rt[index].w, 1.f/rt[index].h);
+	glUniform2f(shader.uOffset, 1.f/rt[index].w * offsetMul, 1.f/rt[index].h * offsetMul);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
@@ -274,8 +275,73 @@ RT::Target RT::GenTarget(int width, int height, size_t index) {
 	return res;
 }
 
-void RT::BloomPass1Stage(size_t index) {
-	auto& shader = bloomPass1;
+//void RT::BloomPass1Stage(size_t index) {
+//	auto& shader = bloomPass1;
+//	glEnableVertexAttribArray(0);
+//	glBindBuffer(GL_ARRAY_BUFFER, vbo1);
+//	glVertexAttribPointer(shader.aPos,
+//		3,
+//		GL_FLOAT,
+//		GL_FALSE,
+//		0,
+//		(void*)0);
+//	// render target uv
+//	glEnableVertexAttribArray(1);
+//	glBindBuffer(GL_ARRAY_BUFFER, uv);
+//	glVertexAttribPointer(shader.aUV,
+//		2,
+//		GL_FLOAT,
+//		GL_FALSE,
+//		0,
+//		(void*)0);
+//	glActiveTexture(GL_TEXTURE0);
+//	glBindTexture(GL_TEXTURE_2D, rt[index].txt);
+//	glUseProgram(shader.id);
+//	glUniform1i(shader.uSmp, 0);
+//	glUniform2f(shader.uOffset, 1.f / rt[index].w, 1.f / rt[index].h);
+//	glUniform1f(shader.uThreshold, bloomThreshold);
+//	glUniform1f(shader.uRamp, bloomRamp);
+//	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+//}
+//
+//void RT::BloomPass2Stage(size_t index, GLuint txt2) {
+//	auto& shader = bloomPass2;
+//	glEnableVertexAttribArray(0);
+//	glBindBuffer(GL_ARRAY_BUFFER, vbo1);
+//	glVertexAttribPointer(shader.aPos,
+//		3,
+//		GL_FLOAT,
+//		GL_FALSE,
+//		0,
+//		(void*)0);
+//	// render target uv
+//	glEnableVertexAttribArray(1);
+//	glBindBuffer(GL_ARRAY_BUFFER, uv);
+//	glVertexAttribPointer(shader.aUV,
+//		2,
+//		GL_FLOAT,
+//		GL_FALSE,
+//		0,
+//		(void*)0);
+//	glActiveTexture(GL_TEXTURE0);
+//	glBindTexture(GL_TEXTURE_2D, rt[index].txt);
+//	glActiveTexture(GL_TEXTURE1);
+//	glBindTexture(GL_TEXTURE_2D, txt2);
+//	glUseProgram(shader.id);
+//	glUniform1i(shader.uSmp1, 0);
+//	glUniform1i(shader.uSmp2, 1);
+//	glUniform2f(shader.uOffset, 1.f / rt[index].w, 1.f / rt[index].h);
+//	glUniform1f(shader.uMix, bloomMix);
+//	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+//	glActiveTexture(GL_TEXTURE0);
+//}
+
+glm::ivec2 RT::GetCurrentRes() const {
+	return{ rt[current].w, rt[current].h };
+}
+
+void RT::Highlight(size_t index) {
+	auto& shader = highlight;
 	glEnableVertexAttribArray(0);
 	glBindBuffer(GL_ARRAY_BUFFER, vbo1);
 	glVertexAttribPointer(shader.aPos,
@@ -284,7 +350,7 @@ void RT::BloomPass1Stage(size_t index) {
 		GL_FALSE,
 		0,
 		(void*)0);
-	// render target uv
+	
 	glEnableVertexAttribArray(1);
 	glBindBuffer(GL_ARRAY_BUFFER, uv);
 	glVertexAttribPointer(shader.aUV,
@@ -297,14 +363,13 @@ void RT::BloomPass1Stage(size_t index) {
 	glBindTexture(GL_TEXTURE_2D, rt[index].txt);
 	glUseProgram(shader.id);
 	glUniform1i(shader.uSmp, 0);
-	glUniform2f(shader.uOffset, 1.f / rt[index].w, 1.f / rt[index].h);
 	glUniform1f(shader.uThreshold, bloomThreshold);
 	glUniform1f(shader.uRamp, bloomRamp);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
-void RT::BloomPass2Stage(size_t index, GLuint txt2) {
-	auto& shader = bloomPass2;
+void RT::CombineMAdd(size_t index, GLuint txt2) {
+	auto& shader = combineMAdd;
 	glEnableVertexAttribArray(0);
 	glBindBuffer(GL_ARRAY_BUFFER, vbo1);
 	glVertexAttribPointer(shader.aPos,
@@ -313,7 +378,7 @@ void RT::BloomPass2Stage(size_t index, GLuint txt2) {
 		GL_FALSE,
 		0,
 		(void*)0);
-	// render target uv
+
 	glEnableVertexAttribArray(1);
 	glBindBuffer(GL_ARRAY_BUFFER, uv);
 	glVertexAttribPointer(shader.aUV,
@@ -329,12 +394,7 @@ void RT::BloomPass2Stage(size_t index, GLuint txt2) {
 	glUseProgram(shader.id);
 	glUniform1i(shader.uSmp1, 0);
 	glUniform1i(shader.uSmp2, 1);
-	glUniform2f(shader.uOffset, 1.f / rt[index].w, 1.f / rt[index].h);
 	glUniform1f(shader.uMix, bloomMix);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 	glActiveTexture(GL_TEXTURE0);
-}
-
-glm::ivec2 RT::GetCurrentRes() const {
-	return{ rt[current].w, rt[current].h };
 }

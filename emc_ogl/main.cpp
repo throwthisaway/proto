@@ -35,7 +35,11 @@
 #include "RT.h"
 #include "SAT.h"
 #include "Envelope.h"
-
+// TODO::
+// - add motion vector to plyr
+// - add life to missl
+// - add blink of background on hit
+// - add blink to startfield
 template<typename T>
 constexpr size_t ID5(const T& t, size_t offset) {
 	return ((t[offset + 4] - '0') << 20) | ((t[offset + 3] - '0') << 15) | ((t[offset + 2] - '0') << 10) | ((t[offset + 1] - '0') << 5) | (t[offset] - '0');

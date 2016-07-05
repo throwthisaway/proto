@@ -102,6 +102,18 @@
     <ClCompile Include="..\..\emc_ogl\shader\CRTShader.cpp">
       <Filter>Source Files\shader</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\emc_ogl\shader\BloomPass1.cpp">
+      <Filter>Source Files\shader</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\emc_ogl\shader\BloomPass2.cpp">
+      <Filter>Source Files\shader</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\emc_ogl\shader\Highlight.cpp">
+      <Filter>Source Files\shader</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\emc_ogl\shader\CombineMAdd.cpp">
+      <Filter>Source Files\shader</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\MeshLoader\Deserialize.h">
@@ -204,6 +216,18 @@
       <Filter>Header Files\shader</Filter>
     </ClInclude>
     <ClInclude Include="..\..\emc_ogl\shader\CRTShader.h">
+      <Filter>Header Files\shader</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\emc_ogl\shader\BloomPass1.h">
+      <Filter>Header Files\shader</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\emc_ogl\shader\BloomPass2.h">
+      <Filter>Header Files\shader</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\emc_ogl\shader\Highlight.h">
+      <Filter>Header Files\shader</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\emc_ogl\shader\CombineMAdd.h">
       <Filter>Header Files\shader</Filter>
     </ClInclude>
   </ItemGroup>

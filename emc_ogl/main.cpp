@@ -39,7 +39,6 @@
 // - add motion vector to plyr
 // - add life to missl
 // - add blink of background on hit
-// - add blink to startfield
 template<typename T>
 constexpr size_t ID5(const T& t, size_t offset) {
 	return ((t[offset + 4] - '0') << 20) | ((t[offset + 3] - '0') << 15) | ((t[offset + 2] - '0') << 10) | ((t[offset + 1] - '0') << 5) | (t[offset] - '0');
@@ -90,7 +89,10 @@ struct {
 		tracking_height_ratio = .75f,
 		tracking_width_ratio = .75f,
 		blink_duration = 5000.f,
-		invincibility_blink_rate = 100.f; // ms
+		invincibility_blink_rate = 100.f, // ms
+		starfield_layer1_blink_rate = 49.f, // ms
+		starfield_layer2_blink_rate = 31.f, // ms
+		starfield_layer3_blink_rate = 61.f; // ms
 	const glm::vec4 radar_dot_color{ 1.f, 1.f, 1.f, 1.f };
 	const gsl::span<const glm::vec4, gsl::dynamic_range> palette = gsl::as_span(cpc, sizeof(cpc) / sizeof(cpc[0]));
 	Timer timer;
@@ -992,7 +994,7 @@ struct Renderer {
 		size_t count;
 		struct Layer {
 			float z;
-			glm::vec3 color;
+			size_t color_idx;
 		}layer1, layer2, layer3;
 	}starField;
 	static void DumpCircle(const size_t steps = 16) {
@@ -1167,7 +1169,13 @@ struct Renderer {
 			}
 			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_STARFIELD]);
 			glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * data.size(), &data.front(), GL_STATIC_DRAW);
-			starField = { count_per_layer, scene_bounds, vbo[VBO_STARFIELD], count_per_layer * layer_count, {1.f, {1.f, 1.f, 1.f}}, {.5f,{.5f,.0f,.0f }}, {.25f,{.0f,.0f,.5f } } };
+			starField = { count_per_layer, scene_bounds, vbo[VBO_STARFIELD], count_per_layer * layer_count, {1.f, 0}, {.5f, 0}, {.25f, 0 } };
+			globals.envelopes.push_back(std::unique_ptr<Envelope>(new SequenceAsc(starField.layer1.color_idx, 0., globals.timer.ElapsedMs(),
+				globals.starfield_layer1_blink_rate, starField.layer1.color_idx, globals.palette.size()-1, 1, 1)));
+			globals.envelopes.push_back(std::unique_ptr<Envelope>(new SequenceAsc(starField.layer2.color_idx, 0., globals.timer.ElapsedMs(),
+				globals.starfield_layer2_blink_rate, starField.layer2.color_idx, globals.palette.size() - 1, 1, 1)));
+			globals.envelopes.push_back(std::unique_ptr<Envelope>(new SequenceAsc(starField.layer3.color_idx, 0., globals.timer.ElapsedMs(),
+				globals.starfield_layer3_blink_rate, starField.layer3.color_idx, globals.palette.size() - 1, 1, 1)));
 		}
 		
 		{
@@ -1239,17 +1247,20 @@ struct Renderer {
 		glm::vec3 pos = cam.pos * starField.layer3.z;
 		glm::mat4 mvp = glm::translate(cam.vp, pos);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		glUniform4f(shader.uCol, starField.layer3.color.r, starField.layer3.color.g, starField.layer3.color.b, 1.f);
+		auto col = globals.palette[starField.layer3.color_idx];
+		glUniform4f(shader.uCol, col.r, col.g, col.b, 1.f);
 		glDrawArrays(GL_TRIANGLES, starField.count_per_layer * 6 * 2, starField.count_per_layer);
 		pos = cam.pos * starField.layer2.z;
 		mvp = glm::translate(cam.vp, pos);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		glUniform4f(shader.uCol, starField.layer2.color.r, starField.layer2.color.g, starField.layer2.color.b, 1.f);
+		col = globals.palette[starField.layer2.color_idx];
+		glUniform4f(shader.uCol, col.r, col.g, col.b, 1.f);
 		glDrawArrays(GL_TRIANGLES, starField.count_per_layer * 6 * 1, starField.count_per_layer);
 		pos = cam.pos * starField.layer1.z;
 		mvp = glm::translate(cam.vp, pos);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		glUniform4f(shader.uCol, starField.layer1.color.r, starField.layer1.color.g, starField.layer1.color.b, 1.f);
+		col = globals.palette[starField.layer1.color_idx];
+		glUniform4f(shader.uCol, col.r, col.g, col.b, 1.f);
 		glDrawArrays(GL_TRIANGLES, 0, starField.count_per_layer);
 		glDisableVertexAttribArray(0);
 	}

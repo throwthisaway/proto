@@ -82,7 +82,7 @@ size_t RT::Reset() {
 	return res;
 }
 
-void RT::GenRenderTargets(GLuint mask, int maskW, int maskH) {
+void RT::GenRenderTargets() {
 	size_t index = 0;
 	//rt[index] = GenTarget(width / (maskW * maskRepeat), width / maskH, index);
 	rt[index] = GenTarget(width, height, index);
@@ -90,9 +90,7 @@ void RT::GenRenderTargets(GLuint mask, int maskW, int maskH) {
 	rt[index] = GenTarget(width, height, index);
 	index++;
 	rt[index] = GenTarget(width, height, index);
-
-	this->mask = mask;
-	GenMaskUVBufferData((float)width, (float)height, maskW, maskH);
+	//GenMaskUVBufferData((float)width, (float)height, maskW, maskH);
 }
 
 void RT::Render() {

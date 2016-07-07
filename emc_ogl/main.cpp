@@ -36,8 +36,8 @@
 #include "SAT.h"
 #include "Envelope.h"
 // TODO::
-// - add motion vector to plyr
-// - add life to missl
+// - test proto->fx with lag
+// - finalize missile look
 // - add blink of background on hit
 template<typename T>
 constexpr size_t ID5(const T& t, size_t offset) {
@@ -92,7 +92,8 @@ struct {
 		invincibility_blink_rate = 100.f, // ms
 		starfield_layer1_blink_rate = 49.f, // ms
 		starfield_layer2_blink_rate = 31.f, // ms
-		starfield_layer3_blink_rate = 61.f; // ms
+		starfield_layer3_blink_rate = 61.f, // ms
+		missile_life = 300.; // ms
 	const glm::vec4 radar_dot_color{ 1.f, 1.f, 1.f, 1.f };
 	const gsl::span<const glm::vec4, gsl::dynamic_range> palette = gsl::as_span(cpc, sizeof(cpc) / sizeof(cpc[0]));
 	Timer timer;
@@ -386,13 +387,16 @@ namespace Asset {
 //					images.push_back(std::move(img));
 //				}
 //				masks_end = images.size();
-				images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x4.tga"));
-				images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_staggered_6x8.tga"));
-				images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x3_scanline.tga"));
-				images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x4_scanline.tga"));
-				images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x4_scanline2.tga"));
-				images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x4_scanline_bright.tga"));
-				masks_image_index = images.size() - 1;
+
+
+				//images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x4.tga"));
+				//images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_staggered_6x8.tga"));
+				//images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x3_scanline.tga"));
+				//images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x4_scanline.tga"));
+				//images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x4_scanline2.tga"));
+				//images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x4_scanline_bright.tga"));
+				//masks_image_index = images.size() - 1;
+
 
 #ifdef __EMSCRIPTEN__
 				emscripten_log(EM_LOG_CONSOLE, "image count %d\n", images.size());
@@ -598,11 +602,12 @@ struct Missile {
 	float vel;
 	ProtoX* owner;
 	size_t id;
-	// TODO:: life
+	float life;
 	Missile& operator=(const Missile&) = default;
 	Missile(const glm::vec3 pos, float rot, float vel, ProtoX* owner, size_t id) : pos(pos), prev(pos),
-		rot(rot), vel(vel), owner(owner), id(id) {}
+		rot(rot), vel(vel), owner(owner), id(id), life(globals.missile_life) {}
 	void Update(const Time& t) {
+		life -= (float)t.frame;
 		prev = pos;
 		pos += glm::vec3{ std::cos(rot), std::sin(rot), 0.f } * vel * (float)t.frame;
 	}
@@ -651,11 +656,11 @@ struct Sess{
 };
 struct Plyr {
 	const size_t tag, id;
-	const float x, y, rot, invincible;
+	const float x, y, rot, invincible, fx, fy;
 };
 struct Misl {
 	const size_t tag, player_id, missile_id;
-	const float x, y, rot, vel;
+	const float x, y, rot, vel, life;
 };
 struct Scor {
 	const size_t tag, owner_id, target_id, missile_id;
@@ -697,6 +702,7 @@ struct ProtoX {
 	size_t score = 0, missile_id = 0;
 	enum class Ctrl{Full, Prop, Turret};
 	Ctrl ctrl = Ctrl::Full;
+	bool pos_invalidated = false; // from web-message
 	struct Propulsion {
 		const glm::vec3 pos;
 		const float rot;
@@ -762,7 +768,7 @@ struct ProtoX {
 		missiles.emplace_back(pos + missile_start_offset, rot, glm::length(missile_vec), this, ++missile_id );
 		if (ws) {
 			auto& m = missiles.back();
-			Misl misl{ Tag("MISL"), id, m.id, m.pos.x, m.pos.y, m.rot, m.vel};
+			Misl misl{ Tag("MISL"), id, m.id, m.pos.x, m.pos.y, m.rot, m.vel, m.life};
 			globals.ws->Send((char*)&misl, sizeof(misl));
 		}
 	}
@@ -835,10 +841,12 @@ struct ProtoX {
 		left.Update(t);
 		right.Update(t);
 		bottom.Update(t);
-		vel += (f / m) * (float)t.frame;
-		pos += vel * (float)t.frame;
-		vel.x = std::max(-max_vel, std::min(max_vel, vel.x));
-		vel.y = std::max(-max_vel, std::min(max_vel, vel.y));
+		if (!pos_invalidated) {
+			vel += (f / m) * (float)t.frame;
+			vel.x = std::max(-max_vel, std::min(max_vel, vel.x));
+			vel.y = std::max(-max_vel, std::min(max_vel, vel.y));
+			pos += vel * (float)t.frame;
+		} else pos_invalidated = false;
 		// ground constraint
 		if (pos.y + aabb.b <= bounds.b + ground_level) {
 			pos.y = bounds.b + ground_level - aabb.b;
@@ -852,7 +860,7 @@ struct ProtoX {
 			vel.y = 0.f;
 		}
 		if (ws) {
-			Plyr player{ Tag("PLYR"), id, pos.x, pos.y, turret.rot, invincible };
+			Plyr player{ Tag("PLYR"), id, pos.x, pos.y, turret.rot, invincible, f.x, f.y };
 			globals.ws->Send((char*)&player, sizeof(Plyr));
 		}
 	}
@@ -1010,33 +1018,35 @@ struct Renderer {
 	}
 	void Init(const AABB& scene_bounds) {
 		glDisable(GL_DEPTH_TEST);
-		tex.resize(assets.images.size());
-		glGenTextures(tex.size(), &tex.front());
-		for (size_t i = 0; i < tex.size(); ++i) {
-		
-			GLint fmt, internalFmt;
-			auto& img = assets.images[i];
-			if (img.pf == Img::PF_RGBA)
-				fmt = internalFmt = GL_RGBA;
-			else if (img.pf == Img::PF_RGB)
-				fmt = internalFmt = GL_RGB;
-			else if (img.pf == Img::PF_BGR)
-				fmt = internalFmt = GL_BGR;
-			else if (img.pf == Img::PF_BGRA)
-				fmt = internalFmt = GL_BGRA;
-			else
-				throw custom_exception("Image format is neiter RGBA nor RGB");
+		if (!assets.images.empty()) {
+			tex.resize(assets.images.size());
+			glGenTextures(tex.size(), &tex.front());
+			for (size_t i = 0; i < tex.size(); ++i) {
 
-			glBindTexture(GL_TEXTURE_2D, tex[i]);
-			glTexImage2D(GL_TEXTURE_2D, 0, internalFmt, img.width, img.height, 0, fmt, GL_UNSIGNED_BYTE, &img.data.front());
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+				GLint fmt, internalFmt;
+				auto& img = assets.images[i];
+				if (img.pf == Img::PF_RGBA)
+					fmt = internalFmt = GL_RGBA;
+				else if (img.pf == Img::PF_RGB)
+					fmt = internalFmt = GL_RGB;
+				else if (img.pf == Img::PF_BGR)
+					fmt = internalFmt = GL_BGR;
+				else if (img.pf == Img::PF_BGRA)
+					fmt = internalFmt = GL_BGRA;
+				else
+					throw custom_exception("Image format is neiter RGBA nor RGB");
+
+				glBindTexture(GL_TEXTURE_2D, tex[i]);
+				glTexImage2D(GL_TEXTURE_2D, 0, internalFmt, img.width, img.height, 0, fmt, GL_UNSIGNED_BYTE, &img.data.front());
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+			}
+			glBindTexture(GL_TEXTURE_2D, 0);
 		}
-		rt.GenRenderTargets(tex[assets.masks_image_index], assets.images[assets.masks_image_index].width,
-			assets.images[assets.masks_image_index].height);
-		glBindTexture(GL_TEXTURE_2D, 0);
+		rt.GenRenderTargets();
+		
 
 		glGenBuffers(sizeof(vbo) / sizeof(vbo[0]), vbo);
 		// ProtoX
@@ -1478,11 +1488,10 @@ struct Renderer {
 	}
 
 	void RenderHUD(const Camera& cam, const AABB& bounds, const ProtoX* player, const std::map<size_t, std::unique_ptr<ProtoX>>& players) {
-		const float score_scale = 2.f, border = 8.f, text_y = -assets.text.aabb.t - assets.text.aabb.b, text_width = assets.text.aabb.r - assets.text.aabb.l + border;
-		const glm::vec3 pos1{ -globals.width/2.f + text_width, text_y, 0.f }, pos2 = { globals.width / 2.f + text_width, text_y, 0.f };
+		const float score_scale = 2.f, 
+			border = 12.f, 
+			text_y = -assets.text.aabb.t - assets.text.aabb.b;
 		Draw(cam, vbo[VBO_RADAR], {/*radar pos*/}, assets.radar);
-		std::vector<Text> texts;
-		texts.push_back({pos1, score_scale, Text::Align::Left, std::to_string(player->score) });
 		const auto& shader = colorPosAttribShader;
 		glUseProgram(shader.id);
 		glBindBuffer(GL_ARRAY_BUFFER, Particles::vbo);
@@ -1513,7 +1522,11 @@ struct Renderer {
 			glVertexAttrib3fv(shader.aVertex, &(pos)[0]);
 			glDrawArrays(GL_TRIANGLES, 0, Particles::vertex_count);
 		}
-		texts.push_back({pos2, score_scale, Text::Align::Right, std::to_string(max) });
+
+		std::vector<Text> texts;
+		const glm::vec3 pos1{ aabb.l, text_y, 0.f }, pos2 = { aabb.r + border, text_y, 0.f };
+		texts.push_back({ pos1, score_scale, Text::Align::Right, std::to_string(player->score) });
+		texts.push_back({pos2, score_scale, Text::Align::Left, std::to_string(max) });
 		glDisableVertexAttribArray(shader.aPos);
 		Draw(cam, texts);
 	}
@@ -1604,7 +1617,8 @@ struct Renderer {
 	}
 	~Renderer() {
 		glDeleteBuffers(sizeof(vbo)/sizeof(vbo[0]), vbo);
-		glDeleteTextures(tex.size(), &tex.front());
+		if (!tex.empty())
+			glDeleteTextures(tex.size(), &tex.front());
 #ifdef VAO_SUPPORT
 		glDeleteVertexArrays(1, &vao);
 #endif
@@ -1882,17 +1896,11 @@ public:
 		return true;
 	}
 	void KeyCallback(int key, int scancode, int action, int mods) {
-		static float w = (float)assets.images[assets.masks_image_index].width, h =
-			(float)assets.images[assets.masks_image_index].height;
-		if (key == GLFW_KEY_PAGE_UP && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-			renderer.rt.GenMaskUVBufferData( (float)globals.width, (float)globals.height, w+=.1f, h+=.1f);
-		} else if (key == GLFW_KEY_PAGE_DOWN && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-			renderer.rt.GenMaskUVBufferData((float)globals.width, (float)globals.height, w-=.1f, h-=.1f);
 		//}else if (key == GLFW_KEY_HOME && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
 		//	renderer.rt.maskOpacity+=.05f;
 		//}else if (key == GLFW_KEY_END && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
 		//	renderer.rt.maskOpacity-=.05f;
-		} else if (key == GLFW_KEY_LEFT_BRACKET && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+		if (key == GLFW_KEY_LEFT_BRACKET && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
 			renderer.rt.contrast -= .05f;
 		} else if (key == GLFW_KEY_RIGHT_BRACKET && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
 			renderer.rt.contrast += .05f;
@@ -1973,7 +1981,7 @@ public:
 			while (it != missiles.end()) {
 				bool missile_removed = false;
 				auto& m = *it;
-				if (m.IsOutOfBounds(bounds)) {
+				if (m.life<=0.f || m.IsOutOfBounds(bounds)) {
 					if (RemoveMissile(m)) break;
 					continue;
 				}
@@ -2089,12 +2097,15 @@ public:
 		else
 			proto = it->second.get();
 		proto->pos.x = player->x; proto->pos.y = player->y; proto->turret.rot = player->rot; proto->invincible = player->invincible;
+		proto->f.x = player->fx; proto->f.y = player->fy;
 	}
 	void OnMisl(const std::vector<unsigned char>& msg) {
 		const Misl* misl = reinterpret_cast<const Misl*>(&msg.front());
 		auto it = players.find(misl->player_id);
-		if (it != players.end())
+		if (it != players.end()) {
 			missiles.push_back({ { misl->x, misl->y, 0.f }, misl->rot, misl->vel, it->second.get(), misl->missile_id });
+			missiles.back().life = misl->life;
+		}
 	}
 	void OnScor(const std::vector<unsigned char>& msg, const Time& t) {
 		if (!player) return;

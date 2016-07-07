@@ -44,7 +44,6 @@ class RT {
 	size_t Reset();
 public:
 	Shader::CRTShader shadowMask;
-	GLuint mask = 0;
 	float contrast = 2.14999890f, brightness = 0.550000072f;
 	float /*maskOpacity = 0.149999812f, maskRepeat = .75f,*/ crtRadius = 3.f,
 		bloomThreshold = .2f, bloomRamp = .2f, bloomMix = .7f;
@@ -52,7 +51,7 @@ public:
 	void GenMaskUVBufferData(float sw, float sh, float iw, float ih);
 	void Render();
 	size_t Set(size_t index = 0);
-	void GenRenderTargets(GLuint mask, int maskW, int maskH);
+	void GenRenderTargets();
 	glm::ivec2 GetCurrentRes() const;
 	~RT();
 };

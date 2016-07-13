@@ -125,8 +125,11 @@ if (ipaddress === "127.0.0.1") {
 
 function broadcastToSession(sender, session, data) {
     session.forEach(function each(client) {
-        if (client != sender)
-            client.send(data);
+        try{
+            if (client != sender)
+                client.send(data);
+        } catch(err) {
+            console.log('client unexpectedly closed: ' + err.message); }
     });
 };
 function findClientToCtrl(session) {

@@ -7,5 +7,5 @@
 #include <iostream>
 #include <iomanip>
 #define LOG_ERR(error, msg) std::cerr << "ERROR: " << error << " : " << msg << "\n";
-#define LOG_INFO(msg) std::cerr << msg;
+#define LOG_INFO(msg) std::cout << msg;
 #endif

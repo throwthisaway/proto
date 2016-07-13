@@ -36,7 +36,7 @@ void main()
 	if (pow(squircle.x, 5.) + pow(squircle.y, 5.) < pow(squircle_r, 5.))
 		gl_FragColor = texture2D( uSmp, ab);
 	else
-		gl_FragColor = vec4(0., 0., 0., 1.f);	//discard;
+		gl_FragColor = vec4(0., 0., 0., 1.);	//discard;
 }
 )";
 	Shader::Program program{ vs, fs, 0 };
@@ -44,9 +44,7 @@ void main()
 namespace Shader {
 	Spherical::Spherical() { Reload(); }
 	void Spherical::Reload() {
-		#ifdef __EMSCRIPTEN__
-			emscripten_log(EM_LOG_CONSOLE, ">>>Compile spherical shader");
-		#endif
+		LOG_INFO(">>>Compile Spherical shader");
 		id = program.Load();
 		if (!id) return;
 		aPos = glGetAttribLocation(id, "aPos");

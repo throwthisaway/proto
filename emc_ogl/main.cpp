@@ -36,8 +36,10 @@
 #include "SAT.h"
 #include "Envelope.h"
 // TODO::
-// - handle ctrl messages
-// - test proto->fx with lag
+// - fix spherical/swuicle shader in emscripten
+// - test connection loss on broadcast messages
+// - test ctrl messages
+// - fix proto->fx with lag
 // - finalize missile look
 // - add blink of background on hit
 template<typename T>
@@ -762,6 +764,7 @@ struct ProtoX {
 		
 	}
 	void Shoot(std::vector<Missile>& missiles) {
+		if (ctrl != Ctrl::Turret && ctrl != Ctrl::Full) return;
 		if (killed) return;
 		const float missile_vel = 1.f;
 		auto rot = turret.rest_pos + turret.rot;
@@ -773,7 +776,14 @@ struct ProtoX {
 			globals.ws->Send((char*)&misl, sizeof(misl));
 		}
 	}
+	void TurretControl(double x, double px) {
+		if (ctrl != Ctrl::Turret && ctrl != Ctrl::Full) return;
+		const double rot_ratio = (turret.max_rot - turret.min_rot) / globals.width;
+		turret.SetRot(float((globals.width >> 1) - x) * rot_ratio);
+		//turret.rot += float((px - x) * rot_ratio);
+	}
 	void Move(const Time& t, bool lt, bool rt, bool bt) {
+		if (ctrl != Ctrl::Prop && ctrl != Ctrl::Full) return;
 		left.Set(lt);
 		right.Set(rt);
 		bottom.Set(bt);
@@ -1922,11 +1932,7 @@ public:
 		if (inputHandler.keys[(size_t)InputHandler::Keys::Right])
 			camera.Translate(float(scroll_speed * t.frame), 0.f, 0.f);
 		if (player) {
-			if (inputHandler.update) {
-				const double rot_ratio = (player->turret.max_rot - player->turret.min_rot) / globals.width;
-				player->turret.SetRot(float((globals.width >> 1) - inputHandler.x) * rot_ratio);
-				//player->turret.rot += float((inputHandler.px - inputHandler.x) * rot_ratio);
-			}
+			if (inputHandler.update) player->TurretControl(inputHandler.x, inputHandler.px);
 			player->Move(t, inputHandler.keys[(size_t)InputHandler::Keys::A],
 				inputHandler.keys[(size_t)InputHandler::Keys::D],
 				inputHandler.keys[(size_t)InputHandler::Keys::W]);
@@ -2088,6 +2094,13 @@ public:
 //#ifdef __EMSCRIPTEN__
 //		emscripten_log(EM_LOG_CONSOLE, "OnPlyr %d ", player.id, player.x, player.y, player.rot, player.invincible);
 //#endif
+		if (this->player->id == player->id) {
+			if (this->player->ctrl == ProtoX::Ctrl::Prop) this->player->turret.rot = player->rot;
+			else if (this->player->ctrl == ProtoX::Ctrl::Turret) {
+				this->player->pos.x = player->x; this->player->pos.y = player->y;
+			}
+			return;
+		}
 		auto it = players.find(player->id);
 		ProtoX * proto;
 		if (it == players.end()) {
@@ -2102,11 +2115,15 @@ public:
 	}
 	void OnMisl(const std::vector<unsigned char>& msg) {
 		const Misl* misl = reinterpret_cast<const Misl*>(&msg.front());
-		auto it = players.find(misl->player_id);
-		if (it != players.end()) {
-			missiles.push_back({ { misl->x, misl->y, 0.f }, misl->rot, misl->vel, it->second.get(), misl->missile_id });
-			missiles.back().life = misl->life;
+		ProtoX* proto = nullptr;
+		if (player->id == misl->player_id) proto = player.get();
+		else {
+			auto it = players.find(misl->player_id);
+			if (it != players.end()) proto = it->second.get();
 		}
+		if (!proto) return;
+		missiles.push_back({ { misl->x, misl->y, 0.f }, misl->rot, misl->vel, proto, misl->missile_id });
+		missiles.back().life = misl->life;
 	}
 	void OnScor(const std::vector<unsigned char>& msg, const Time& t) {
 		if (!player) return;
@@ -2117,6 +2134,7 @@ public:
 		if (it != missiles.end()) {
 			RemoveMissile(*it);
 		}
+		if (scor->owner_id == player->id && player->ctrl == ProtoX::Ctrl::Prop) ++player->score;
 		if (scor->target_id == player->id)
 			player->Kill({ scor->x, scor->y, 0.f }, t.total);
 		else {

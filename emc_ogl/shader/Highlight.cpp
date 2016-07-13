@@ -1,6 +1,7 @@
 #include "Highlight.h"
 #include "Shader.h"
 #include "../Globals.h"
+#include "../Logging.h"
 
 namespace {
 	const char * vs =
@@ -45,6 +46,7 @@ void main()
 namespace Shader {
 	Highlight::Highlight() { Reload(); }
 	void Highlight::Reload() {
+		LOG_INFO(">>>Compile Highlight shader");
 		id = program.Load();
 		if (!id) return;
 		aPos = glGetAttribLocation(id, "aPos");

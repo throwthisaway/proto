@@ -21,14 +21,20 @@ build Exception.bc: cpp Exception.cpp
 build Shader.bc: cpp Shader\Shader.cpp
 build Color.bc: cpp Shader\Color.cpp
 build ColorPosAttrib.bc: cpp Shader\ColorPosAttrib.cpp
-build RTShader.bc: cpp Shader\RTShader.cpp
+build CRTShader.bc: cpp Shader\CRTShader.cpp
 build Simple.bc: cpp Shader\Simple.cpp
 build Texture.bc: cpp Shader\Texture.cpp
-build VBlur3x.bc: cpp Shader\VBlur3x.cpp
-build HBlur3x.bc: cpp Shader\HBlur3x.cpp
+build VBlur7x.bc: cpp Shader\VBlur7x.cpp
+build HBlur7x.bc: cpp Shader\HBlur7x.cpp
+build VBlur9x.bc: cpp Shader\VBlur9x.cpp
+build HBlur9x.bc: cpp Shader\HBlur9x.cpp
 build Contrast.bc: cpp Shader\Contrast.cpp
 build Spherical.bc: cpp Shader\Spherical.cpp
+build BloomPass1.bc: cpp Shader\BloomPass1.cpp
+build BloomPass2.bc: cpp Shader\BloomPass2.cpp
+build Highlight.bc: cpp Shader\Highlight.cpp
+build CombineMAdd.bc: cpp Shader\CombineMAdd.cpp
 build RT.bc: cpp RT.cpp
 build SAT.bc: cpp SAT.cpp
 build Timer.bc: cpp Timer.cpp
-build main.js: link main.bc MeshLoader.bc types.bc MeshSurface.bc FileReader.bc File.bc Img.bc Tga.bc Log.bc Exception.bc RT.bc Shader.bc Color.bc ColorPosAttrib.bc RTShader.bc Simple.bc Texture.bc VBlur3x.bc HBlur3x.bc Contrast.bc SAT.bc Spherical.bc Timer.bc
+build main.js: link main.bc MeshLoader.bc types.bc MeshSurface.bc FileReader.bc File.bc Img.bc Tga.bc Log.bc Exception.bc RT.bc Shader.bc Color.bc ColorPosAttrib.bc CRTShader.bc Simple.bc Texture.bc VBlur7x.bc HBlur7x.bc VBlur9x.bc HBlur9x.bc Contrast.bc SAT.bc Spherical.bc Timer.bc BloomPass1.bc BloomPass2.bc Highlight.bc CombineMAdd.bc

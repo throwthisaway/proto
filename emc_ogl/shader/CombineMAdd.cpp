@@ -1,6 +1,7 @@
 #include "CombineMAdd.h"
 #include "Shader.h"
 #include "../Globals.h"
+#include "../Logging.h"
 
 namespace {
 	const char * vs =
@@ -15,7 +16,7 @@ attribute vec2 aUV;
 varying vec2 vUV;
 
 void main() {
-	gl_Position = vec4(aPos, 1.0);
+	gl_Position = vec4(aPos, 1.);
 	vUV = aUV;
 }
 )", *fs =
@@ -39,6 +40,7 @@ void main()
 namespace Shader {
 	CombineMAdd::CombineMAdd() { Reload(); }
 	void CombineMAdd::Reload() {
+		LOG_INFO(">>>Compile CombineMAdd shader");
 		id = program.Load();
 		if (!id) return;
 		aPos = glGetAttribLocation(id, "aPos");

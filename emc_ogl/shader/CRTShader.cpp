@@ -2,6 +2,7 @@
 #include "Shader.h"
 #include "../Exception.h"
 #include "../Globals.h"
+#include "../Logging.h"
 // https://www.shadertoy.com/view/ls2SRD
 // https://software.intel.com/en-us/blogs/2014/07/15/an-investigation-of-fast-real-time-gpu-based-image-blur-algorithms
 // http://rastergrid.com/blog/2010/09/efficient-gaussian-blur-with-linear-sampling/
@@ -33,11 +34,12 @@ varying vec2 vUV;
 uniform sampler2D uSmpRT;
 uniform vec2 uScreenSize, uTexelSize;
 
-const float scanLineHeight = 4.f, scanLineStep = 1./scanLineHeight,
+const float scanLineHeight = 4., scanLineStep = 1./scanLineHeight,
 	scanLineBrightness = .7;
+
 vec4 Scan(vec2 pos){
 	float d = pos.y * uScreenSize.y / scanLineHeight;
-	d = abs(fract(d) - .5 + scanLineStep / 2.) * 2;
+	d = abs(fract(d) - .5 + scanLineStep / 2.) * 2.;
 	d = 1. - pow(d * scanLineBrightness, 4.);
 	return vec4(d, d, d, 1.);
 }
@@ -96,6 +98,7 @@ namespace Shader {
 		Reload();
 	}
 	void CRTShader::Reload() {
+		LOG_INFO(">>>Compile CRTShader shader");
 		if (id) glDeleteProgram(id);
 		id = program.Load();
 		if (!id) return;

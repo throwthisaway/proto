@@ -46,7 +46,7 @@ void main()
 namespace Shader {
 	Highlight::Highlight() { Reload(); }
 	void Highlight::Reload() {
-		LOG_INFO(">>>Compile Highlight shader");
+		LOG_INFO(">>>Compile Highlight shader\n");
 		id = program.Load();
 		if (!id) return;
 		aPos = glGetAttribLocation(id, "aPos");

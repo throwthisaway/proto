@@ -252,7 +252,6 @@ void RT::SphericalStage(size_t index) {
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, rt[index].txt);
 	glUniform1i(shader.uSmp, 0);
-	glUniform1f(shader.uAspect, (float)rt[index].w / rt[index].h);
 	glUniform1f(shader.uR, crtRadius);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }

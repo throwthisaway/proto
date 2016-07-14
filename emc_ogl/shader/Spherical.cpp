@@ -24,16 +24,18 @@ R"(
 precision highp float;
 varying vec2 vUV;
 uniform sampler2D uSmp;
-uniform float uR, uAspect;
+uniform float uR;
 const float squircle_r = 1.;
 void main()
 {
 	vec2 ab = vUV;
 	ab = (ab - .5) * 2.;
+	// this should be herer: vec2 squircle = ab;
 	ab = ab*uR/sqrt(uR * uR - dot(ab, ab))/*/6.28 stretch uv to the sphere diameter*/;
 	vec2 squircle = ab;
 	ab = ab / 2. + .5;
-	if (pow(squircle.x, 5.) + pow(squircle.y, 5.) < pow(squircle_r, 5.))
+	// pow is buggy for negative numbers on webgl...
+	if (pow(abs(squircle.x), 5.) + pow(abs(squircle.y), 5.) < pow(squircle_r, 5.))
 		gl_FragColor = texture2D( uSmp, ab);
 	else
 		gl_FragColor = vec4(0., 0., 0., 1.);	//discard;
@@ -44,13 +46,12 @@ void main()
 namespace Shader {
 	Spherical::Spherical() { Reload(); }
 	void Spherical::Reload() {
-		LOG_INFO(">>>Compile Spherical shader");
+		LOG_INFO(">>>Compile Spherical shader\n");
 		id = program.Load();
 		if (!id) return;
 		aPos = glGetAttribLocation(id, "aPos");
 		aUV = glGetAttribLocation(id, "aUV");
 		uSmp = glGetUniformLocation(id, "uSmp");
-		uAspect = glGetUniformLocation(id, "uAspect");
 		uR = glGetUniformLocation(id, "uR");
 	}
 }

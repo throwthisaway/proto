@@ -3,7 +3,7 @@
 #include <GL/glew.h>
 namespace Shader {
 	struct Spherical {
-		GLuint id, aPos, aUV, uSmp, uAspect, uR;
+		GLuint id, aPos, aUV, uSmp, uR;
 		Spherical();
 		void Reload();
 	};

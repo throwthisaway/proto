@@ -40,7 +40,7 @@ void main()
 namespace Shader {
 	CombineMAdd::CombineMAdd() { Reload(); }
 	void CombineMAdd::Reload() {
-		LOG_INFO(">>>Compile CombineMAdd shader");
+		LOG_INFO(">>>Compile CombineMAdd shader\n");
 		id = program.Load();
 		if (!id) return;
 		aPos = glGetAttribLocation(id, "aPos");

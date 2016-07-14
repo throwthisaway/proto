@@ -98,7 +98,7 @@ namespace Shader {
 		Reload();
 	}
 	void CRTShader::Reload() {
-		LOG_INFO(">>>Compile CRTShader shader");
+		LOG_INFO(">>>Compile CRTShader shader\n");
 		if (id) glDeleteProgram(id);
 		id = program.Load();
 		if (!id) return;

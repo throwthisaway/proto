@@ -36,6 +36,8 @@
 #include "SAT.h"
 #include "Envelope.h"
 // TODO::
+// - send velocity instead of f
+// - show propulsion when remote controlled
 // - fix spherical/swuicle shader in emscripten
 // - test connection loss on broadcast messages
 // - test ctrl messages
@@ -857,6 +859,11 @@ struct ProtoX {
 			vel.x = std::max(-max_vel, std::min(max_vel, vel.x));
 			vel.y = std::max(-max_vel, std::min(max_vel, vel.y));
 			pos += vel * (float)t.frame;
+			//std::string str("!pos_invalidated ");
+			//str += std::to_string(f.x);
+			//str += " ";
+			//str += std::to_string(f.y);
+			//LOG_INFO(str.c_str());
 		} else pos_invalidated = false;
 		// ground constraint
 		if (pos.y + aabb.b <= bounds.b + ground_level) {
@@ -2097,7 +2104,9 @@ public:
 		if (this->player->id == player->id) {
 			if (this->player->ctrl == ProtoX::Ctrl::Prop) this->player->turret.rot = player->rot;
 			else if (this->player->ctrl == ProtoX::Ctrl::Turret) {
+				this->player->pos_invalidated = true;
 				this->player->pos.x = player->x; this->player->pos.y = player->y;
+				this->player->f.x = player->fx; this->player->f.y = player->fy;
 			}
 			return;
 		}
@@ -2112,6 +2121,7 @@ public:
 			proto = it->second.get();
 		proto->pos.x = player->x; proto->pos.y = player->y; proto->turret.rot = player->rot; proto->invincible = player->invincible;
 		proto->f.x = player->fx; proto->f.y = player->fy;
+		proto->pos_invalidated = true;
 	}
 	void OnMisl(const std::vector<unsigned char>& msg) {
 		const Misl* misl = reinterpret_cast<const Misl*>(&msg.front());

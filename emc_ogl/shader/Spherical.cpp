@@ -30,7 +30,7 @@ void main()
 {
 	vec2 ab = vUV;
 	ab = (ab - .5) * 2.;
-	// this should be herer: vec2 squircle = ab;
+	// this should be here: vec2 squircle = ab;
 	ab = ab*uR/sqrt(uR * uR - dot(ab, ab))/*/6.28 stretch uv to the sphere diameter*/;
 	vec2 squircle = ab;
 	ab = ab / 2. + .5;
@@ -38,7 +38,7 @@ void main()
 	if (pow(abs(squircle.x), 5.) + pow(abs(squircle.y), 5.) < pow(squircle_r, 5.))
 		gl_FragColor = texture2D( uSmp, ab);
 	else
-		gl_FragColor = vec4(0., 0., 0., 1.);	//discard;
+		gl_FragColor = vec4(1., 1., 1., 1.);	//discard;
 }
 )";
 	Shader::Program program{ vs, fs, 0 };

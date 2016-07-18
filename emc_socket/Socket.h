@@ -91,8 +91,12 @@ protected:
 		char msg[1024*10];
 		memset(msg, 0, sizeof(msg));
 		int res = recv(fd, msg, sizeof(msg), 0);
-		if (res == -1) {
-			assert(errno == EAGAIN);
+		if (res == SOCKET_ERROR) {
+#ifdef __EMSCRIPTEN__
+			if (errno != EAGAIN)
+				emscripten_log(EM_LOG_ERROR, "message_callback error: %d", errno);
+#endif
+			// TODO:: this happens witth errno 20 sometimes assert(errno == EAGAIN);
 		}
 		//printf("message callback %d %s\n", res, msg);
 		auto socket = (Socket*)_this;

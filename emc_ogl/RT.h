@@ -46,7 +46,7 @@ public:
 	Shader::CRTShader shadowMask;
 	float contrast = 2.14999890f, brightness = 0.550000072f;
 	float /*maskOpacity = 0.149999812f, maskRepeat = .75f,*/ crtRadius = 3.f,
-		bloomThreshold = .2f, bloomRamp = .2f, bloomMix = .7f;
+		bloomThreshold = .2f, bloomRamp = .1f, bloomMix = .7f;
 	RT(int width, int height);
 	void GenMaskUVBufferData(float sw, float sh, float iw, float ih);
 	void Render();

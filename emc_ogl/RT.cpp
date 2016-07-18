@@ -100,8 +100,6 @@ void RT::Render() {
 	BlurStage(vBlur7x, back);
 	back = Set(1);
 	SphericalStage(back);
-	back = Set(0);
-	ShadowMaskStage(back);
 	/*back = Set(1);
 	ContrastStage(back);*/
 	size_t src = back, bloom = 2,
@@ -120,9 +118,41 @@ void RT::Render() {
 	BlurStage(hBlur9x, back, 3.f);
 	back = Set(bloom);
 	BlurStage(vBlur9x, back, 3.f);
-	back = Reset();
-	CombineMAdd(back, rt[original].txt);
 
+	bloom = Set(src);
+	ShadowMaskStage(original);
+
+	back = Reset();
+	CombineMAdd(bloom, rt[back].txt);
+	//--------------------------------
+	//auto back = Set(1);
+	//BlurStage(hBlur7x, back);
+	//back = Set(0);
+	//BlurStage(vBlur7x, back);
+	//back = Set(1);
+	//SphericalStage(back);
+	//back = Set(0);
+	//ShadowMaskStage(back);
+	///*back = Set(1);
+	//ContrastStage(back);*/
+	//size_t src = back, bloom = 2,
+	//	original = Set(bloom);
+	//back = original;
+	//Highlight(back);
+	//back = Set(src);
+	//BlurStage(hBlur9x, back);
+	//back = Set(bloom);
+	//BlurStage(vBlur9x, back);
+	//back = Set(src);
+	//BlurStage(hBlur9x, back, 2.f);
+	//back = Set(bloom);
+	//BlurStage(vBlur9x, back, 2.f);
+	//back = Set(src);
+	//BlurStage(hBlur9x, back, 3.f);
+	//back = Set(bloom);
+	//BlurStage(vBlur9x, back, 3.f);
+	//back = Reset();
+	//CombineMAdd(back, rt[original].txt);
 	glActiveTexture(GL_TEXTURE0);
 #ifndef VAO_SUPPORT
 	glDisableVertexAttribArray(0);

@@ -36,12 +36,8 @@
 #include "SAT.h"
 #include "Envelope.h"
 // TODO::
-// - send velocity instead of f
-// - show propulsion when remote controlled
-// - fix spherical/swuicle shader in emscripten
 // - test connection loss on broadcast messages
 // - test ctrl messages
-// - fix proto->fx with lag
 // - finalize missile look
 // - add blink of background on hit
 template<typename T>
@@ -99,7 +95,7 @@ struct {
 		starfield_layer2_blink_rate = 31.f, // ms
 		starfield_layer3_blink_rate = 61.f, // ms
 		missile_life = 300.; // ms
-	const glm::vec4 radar_dot_color{ 1.f, 1.f, 1.f, 1.f };
+	const glm::vec4 radar_player_color{ .5f, 1.f, .5f, 1.f }, radar_enemy_color{ 1.f, .5f, .5f, 1.f };
 	const gsl::span<const glm::vec4, gsl::dynamic_range> palette = gsl::as_span(cpc, sizeof(cpc) / sizeof(cpc[0]));
 	Timer timer;
 	std::string host = "localhost";
@@ -661,14 +657,15 @@ struct Sess{
 };
 struct Plyr {
 	const size_t tag, id;
-	const float x, y, rot, invincible, fx, fy;
+	const float x, y, rot, invincible, vx, vy;
+	const bool prop_left, prop_right, prop_bottom;
 };
 struct Misl {
 	const size_t tag, player_id, missile_id;
 	const float x, y, rot, vel, life;
 };
 struct Scor {
-	const size_t tag, owner_id, target_id, missile_id;
+	const size_t tag, owner_id, target_id, missile_id, score;
 	const float x, y;
 };
 struct Kill {
@@ -794,10 +791,19 @@ struct ProtoX {
 		if (rt) f.x += force;
 		f.y = (bt) ? force : g;
 	}
-	void Init() {
-		invincible = globals.invincibility; fade_out = fade_out_time;
+	void SetInvincibility() {
+		invincible = globals.invincibility;
 		globals.envelopes.push_back(std::unique_ptr<Envelope>(
-			new Blink(visible, invincible, globals.timer.TotalMs(), globals.invincibility_blink_rate, 0.f))); 
+			new Blink(visible, invincible, globals.timer.TotalMs(), globals.invincibility_blink_rate, 0.f)));
+	}
+	void SetCtrl(Ctrl ctrl) {
+		SetInvincibility();
+		this->ctrl = ctrl;
+		pos_invalidated = false;
+	}
+	void Init() {
+		SetInvincibility();
+		fade_out = fade_out_time;
 		globals.envelopes.push_back(std::unique_ptr<Envelope>(
 			new Blink(blink, 0., globals.timer.TotalMs(), globals.blink_rate, globals.blink_ratio)));
 		hit = killed = false;
@@ -813,7 +819,7 @@ struct ProtoX {
 		for (auto& cfs : debris_centrifugal_speed) cfs = dist_cfs(mt);
 		for (auto& sp : debris_speed) sp = dist_sp(mt);
 	}
-	void Update(const Time& t, const AABB& bounds) {
+	void Update(const Time& t, const AABB& bounds, bool player_self) {
 		if (invincible > 0.f) {
 			invincible -= (float)t.frame;
 			if (invincible <= 0.f) {
@@ -854,17 +860,28 @@ struct ProtoX {
 		left.Update(t);
 		right.Update(t);
 		bottom.Update(t);
-		if (!pos_invalidated) {
+		if (player_self && (ctrl == Ctrl::Full || ctrl == Ctrl::Prop)) {
 			vel += (f / m) * (float)t.frame;
 			vel.x = std::max(-max_vel, std::min(max_vel, vel.x));
 			vel.y = std::max(-max_vel, std::min(max_vel, vel.y));
 			pos += vel * (float)t.frame;
-			//std::string str("!pos_invalidated ");
-			//str += std::to_string(f.x);
+			//std::string str;
+			//str += std::to_string(vel.x);
 			//str += " ";
-			//str += std::to_string(f.y);
+			//str += std::to_string(vel.y);
+			//str += "\n";
 			//LOG_INFO(str.c_str());
-		} else pos_invalidated = false;
+		}
+		else if (!pos_invalidated) {
+			//std::string str("!pos_invalidated ");
+			//str += std::to_string(vel.x);
+			//str += " ";
+			//str += std::to_string(vel.y);
+			//str += "\n";
+			//LOG_INFO(str.c_str());
+			pos += vel * (float)t.frame;
+		}
+
 		// ground constraint
 		if (pos.y + aabb.b <= bounds.b + ground_level) {
 			pos.y = bounds.b + ground_level - aabb.b;
@@ -878,7 +895,7 @@ struct ProtoX {
 			vel.y = 0.f;
 		}
 		if (ws) {
-			Plyr player{ Tag("PLYR"), id, pos.x, pos.y, turret.rot, invincible, f.x, f.y };
+			Plyr player{ Tag("PLYR"), id, pos.x, pos.y, turret.rot, invincible, vel.x, vel.y, left.on, right.on, bottom.on };
 			globals.ws->Send((char*)&player, sizeof(Plyr));
 		}
 	}
@@ -1208,7 +1225,7 @@ struct Renderer {
 		
 		{
 			// particle
-			const float particle_size = 3.f;
+			const float particle_size = 6.f;
 			glBindBuffer(GL_ARRAY_BUFFER, Particles::vbo = vbo[VBO_PARTICLE]);
 			std::vector<glm::vec3> data;
 			GenerateSquare(0.f, 0.f, particle_size, data);
@@ -1228,7 +1245,7 @@ struct Renderer {
 		}
 
 		{
-			// raadar
+			// radar
 			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_RADAR]);
 			glBufferData(GL_ARRAY_BUFFER, assets.radar.vertices.size() * sizeof(assets.radar.vertices[0]), &assets.radar.vertices.front(), GL_STATIC_DRAW);
 			glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -1521,7 +1538,7 @@ struct Renderer {
 			0,
 			(void*)0);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &cam.vp[0][0]);
-		const auto col = globals.radar_dot_color * player->blink;
+		const auto col = globals.radar_player_color * player->blink;
 		glUniform4f(shader.uCol, col.r, col.g, col.b, col.a);
 		const AABB& aabb = assets.radar.aabb;
 		const auto rw = aabb.r - aabb.l, rh = aabb.t - aabb.b, sw = bounds.r - bounds.l, sh = bounds.t - bounds.b,
@@ -1531,12 +1548,11 @@ struct Renderer {
 		glVertexAttrib3fv(shader.aVertex, &(pos)[0]);
 		glDrawArrays(GL_TRIANGLES, 0, Particles::vertex_count);
 
-		glUniform4f(shader.uCol, globals.radar_dot_color.r, globals.radar_dot_color.g, globals.radar_dot_color.b, globals.radar_dot_color.a);
+		glUniform4f(shader.uCol, globals.radar_enemy_color.r, globals.radar_enemy_color.g, globals.radar_enemy_color.b, globals.radar_enemy_color.a);
 		size_t max = 0;
 		for (const auto& p : players) {
 			max = std::max(max, p.second->score);
 			const glm::vec3 pos(p.second->pos.x * rx, (p.second->pos.y + bounds.b)* ry, 0.f);
-			const auto col = globals.radar_dot_color * player->blink;
 			glVertexAttrib3fv(shader.aVertex, &(pos)[0]);
 			glDrawArrays(GL_TRIANGLES, 0, Particles::vertex_count);
 		}
@@ -1586,6 +1602,7 @@ struct Renderer {
 		glUniform1i(textureShader.uSmp, 0);
 		const auto vp = cam.proj * cam.view;
 		for (const auto& missile : missiles) {
+			if (!missile.owner->visible) continue;
 			const glm::mat4 mvp = glm::rotate(glm::translate(vp, missile.pos), missile.rot, { 0.f, 0.f, 1.f });
 			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 			for (const auto& l : assets.missile.layers) {
@@ -1805,7 +1822,7 @@ public:
 	}
 	void SetCtrl(ProtoX::Ctrl ctrl) {
 		if (!player) return;
-		player->ctrl = ctrl;
+		player->SetCtrl(ctrl);
 		if (ctrl == ProtoX::Ctrl::Full || ctrl == ProtoX::Ctrl::Prop)
 			globals.envelopes.push_back(std::unique_ptr<Envelope>(new Blink(renderer.wsad_decal.factor, globals.blink_duration, globals.timer.ElapsedMs(), globals.blink_rate, globals.blink_ratio)));
 		if (ctrl == ProtoX::Ctrl::Full || ctrl == ProtoX::Ctrl::Turret)
@@ -1952,10 +1969,10 @@ public:
 					break;
 				}
 			}
-			player->Update(t, bounds);
+			player->Update(t, bounds, true);
 		}
 		for (auto& p : players) {
-			p.second->Update(t, bounds);
+			p.second->Update(t, bounds, false);
 		}
 
 		for (auto p = std::begin(players); p != std::end(players);) {
@@ -1964,9 +1981,12 @@ public:
 			}
 			else ++p;
 		}
-		if (player->killed) {
+		if (player && player->killed) {
+			auto ctrl = player->ctrl;
+			auto score = player->score;
 			player = std::make_unique<ProtoX>(player->id, assets.probe, assets.debris, assets.propulsion.layers.size(), globals.ws.get());
-			SetCtrl(player->ctrl);
+			SetCtrl(ctrl);
+			player->score = score;
 			RandomizePos(*player.get());
 		}
 		for (auto& m : missiles) {
@@ -2000,6 +2020,11 @@ public:
 					continue;
 				}
 				else {
+					//invincible players can't kill
+					if (m.owner->invincible > 0.f) {
+						++it;
+						continue;	
+					}
 					// TODO:: test all hits or just ours?
 					if (m.owner != player.get()) {
 						++it;
@@ -2014,7 +2039,7 @@ public:
 							particles.push_back({ hit_pos, t.total });
 							++player->score;
 							if (player->ws) {
-								Scor msg{ Tag("SCOR"), player->id, p.second->id, m.id, hit_pos.x, hit_pos.y };
+								Scor msg{ Tag("SCOR"), player->id, p.second->id, m.id, hit_pos.x, hit_pos.y, player->score };
 								player->ws->Send((const char*)&msg, sizeof(msg));
 							}
 							last = RemoveMissile(m);
@@ -2036,6 +2061,12 @@ public:
 				particles.erase(temp);
 			}
 			else ++it;
+		}
+		// reset pos_invalidated
+		if (player)
+			player->pos_invalidated = false;
+		for (auto& p : players) {
+			p.second->pos_invalidated = false;
 		}
 #ifdef DEBUG_REL
 		if (players.size()<MAX_NPC) {
@@ -2084,12 +2115,12 @@ public:
 		#ifdef __EMSCRIPTEN__
 				emscripten_log(EM_LOG_CONSOLE, "OnConn id: %5s ctrl: %d", conn->client_id, player->ctrl);
 		#endif
-#ifndef DEBUG_REL
+//#ifndef DEBUG_REL
 		float dx = (assets.probe.aabb.r - assets.probe.aabb.l) / 2.f,
 			dy = (assets.probe.aabb.t - assets.probe.aabb.b) / 2.f;
 		std::uniform_real_distribution<> x_dist(bounds.l + dx, bounds.r - dx), y_dist(bounds.b + dy, bounds.t - dy);
 		player->pos = { x_dist(mt), y_dist(mt), 0.f };
-#endif
+//#endif
 	}
 	void SendSessionID() {
 		Sess msg{ Tag("SESS") };
@@ -2106,7 +2137,8 @@ public:
 			else if (this->player->ctrl == ProtoX::Ctrl::Turret) {
 				this->player->pos_invalidated = true;
 				this->player->pos.x = player->x; this->player->pos.y = player->y;
-				this->player->f.x = player->fx; this->player->f.y = player->fy;
+				this->player->vel.x = player->vx; this->player->vel.y = player->vy;
+				this->player->left.on = player->prop_left; this->player->right.on = player->prop_right;  this->player->bottom.on = player->prop_bottom;
 			}
 			return;
 		}
@@ -2120,7 +2152,8 @@ public:
 		else
 			proto = it->second.get();
 		proto->pos.x = player->x; proto->pos.y = player->y; proto->turret.rot = player->rot; proto->invincible = player->invincible;
-		proto->f.x = player->fx; proto->f.y = player->fy;
+		proto->vel.x = player->vx; proto->vel.y = player->vy;
+		proto->left.on = player->prop_left; proto->right.on = player->prop_right;  proto->bottom.on = player->prop_bottom;
 		proto->pos_invalidated = true;
 	}
 	void OnMisl(const std::vector<unsigned char>& msg) {
@@ -2142,6 +2175,7 @@ public:
 		auto it = std::find_if(missiles.begin(), missiles.end(), [=](const Missile& m) {
 			return m.owner->id == scor->owner_id && m.id == scor->missile_id;});
 		if (it != missiles.end()) {
+			it->owner->score = scor->score;
 			RemoveMissile(*it);
 		}
 		if (scor->owner_id == player->id && player->ctrl == ProtoX::Ctrl::Prop) ++player->score;

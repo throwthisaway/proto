@@ -91,11 +91,12 @@ struct {
 		tracking_width_ratio = .75f,
 		blink_duration = 5000.f,
 		invincibility_blink_rate = 100.f, // ms
-		starfield_layer1_blink_rate = 49.f, // ms
-		starfield_layer2_blink_rate = 31.f, // ms
-		starfield_layer3_blink_rate = 61.f, // ms
-		missile_life = 300.; // ms
-	const glm::vec4 radar_player_color{ .5f, 1.f, .5f, 1.f }, radar_enemy_color{ 1.f, .5f, .5f, 1.f };
+		starfield_layer1_blink_rate = 13.f, // ms
+		starfield_layer2_blink_rate = 7.f, // ms
+		starfield_layer3_blink_rate = 11.f, // ms
+		missile_life = 300., // ms
+		dot_size = 6.f;
+	const glm::vec4 radar_player_color{ 1.f, 1.f, 1.f, 1.f }, radar_enemy_color{ 1.f, .5f, .5f, 1.f };
 	const gsl::span<const glm::vec4, gsl::dynamic_range> palette = gsl::as_span(cpc, sizeof(cpc) / sizeof(cpc[0]));
 	Timer timer;
 	std::string host = "localhost";
@@ -1198,7 +1199,7 @@ struct Renderer {
 		}
 		{
 			// Starfield
-			const float star_size = 3.f;
+			const float star_size = globals.dot_size;
 			const size_t count_per_layer = 3000, layer_count = 3;
 			std::vector<glm::vec3> data;
 			data.reserve(count_per_layer *layer_count * 6);
@@ -1225,10 +1226,9 @@ struct Renderer {
 		
 		{
 			// particle
-			const float particle_size = 6.f;
 			glBindBuffer(GL_ARRAY_BUFFER, Particles::vbo = vbo[VBO_PARTICLE]);
 			std::vector<glm::vec3> data;
-			GenerateSquare(0.f, 0.f, particle_size, data);
+			GenerateSquare(0.f, 0.f, globals.dot_size, data);
 			glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * data.size(), &data.front(), GL_STATIC_DRAW);
 			Particles::vertex_count = data.size();
 		}

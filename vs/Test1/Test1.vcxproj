@@ -47,6 +47,7 @@
     <ClCompile Include="..\..\emc_ogl\shader\Simple.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\Spherical.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\Texture.cpp" />
+    <ClCompile Include="..\..\emc_ogl\shader\TextureColorMod.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\VBlur7x.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\VBlur9x.cpp" />
     <ClCompile Include="..\..\emc_ogl\Timer.cpp" />
@@ -86,10 +87,11 @@
     <ClInclude Include="..\..\emc_ogl\shader\Simple.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Spherical.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Texture.h" />
+    <ClInclude Include="..\..\emc_ogl\shader\TextureColorMod.h" />
     <ClInclude Include="..\..\emc_ogl\shader\VBlur7x.h" />
     <ClInclude Include="..\..\emc_ogl\shader\VBlur9x.h" />
+    <ClInclude Include="..\..\emc_ogl\Socket.h" />
     <ClInclude Include="..\..\emc_ogl\Timer.h" />
-    <ClInclude Include="..\..\emc_socket\Socket.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{DE93DCEE-D835-438C-A0C2-565C0C4463F9}</ProjectGuid>

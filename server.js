@@ -7,7 +7,9 @@ var http = require('http');
 var server = http.createServer(app);
 var sessionIDLen = 5,
     headerLen = 3 + sessionIDLen,
-    clientIDLen = 5;
+    clientIDLen = 5,
+    minPlayers = 4,
+    maxPlayers = 255;
 var sessions = [];
 function ab2strUtf16(buf) {
     return String.fromCharCode.apply(null, new Uint16Array(buf));
@@ -24,11 +26,21 @@ function str2abUtf16(str) {
     return buf;
 }
 function str2ab(str) {
-    var buf = new ArrayBuffer(str.length); // 2 bytes for each char
+    var buf = new ArrayBuffer(str.length);
     var bufView = new Uint8Array(buf);
     for (var i = 0, strLen = str.length; i < strLen; i++) {
         bufView[i] = str.charCodeAt(i);
     }
+    return buf;
+}
+function str_and_number2ab(str, num) {
+    var numLen = 1; // 1 byte number size
+    var buf = new ArrayBuffer(str.length + numLen);
+    var bufView = new Uint8Array(buf);
+    for (var i = 0, strLen = str.length; i < strLen; i++) {
+        bufView[i] = str.charCodeAt(i);
+    }
+    bufView[bufView.length - 1] = num;
     return buf;
 }
 function generateID(count) {
@@ -159,6 +171,12 @@ wss.on('connection', function(ws) {
                 ws.terminate();
                 return;
             }
+            if (session.length > maxPlayers) {
+                console.log('session is full, redirect to new session');
+                // TODO:: how to redirect from here
+                ws.terminate();
+                return;
+            }
             client = findClientToCtrl(session);
             if (client) {
                 client.ctrl = 1;
@@ -174,6 +192,11 @@ wss.on('connection', function(ws) {
             session.push(ws);
             ws.session = session;
             console.log('session player count: ' + session.length);
+
+            if (session.length < minPlayers)
+                broadcastToSession(null, session, str_and_number2ab('WAIT', minPlayers - session.length));
+            else
+                broadcastToSession(null, session, str_and_number2ab('WAIT', 0));
             return;
         }
         if (ws.session == undefined) {
@@ -198,8 +221,8 @@ wss.on('connection', function(ws) {
             if (ws.session.length < 1) {
                 console.log('deleting session: ' + ws.session.id);
                 delete sessions[ws.session.id];
-            }
-            
+            } else  if (ws.session.length < minPlayers)
+                broadcastToSession(null, ws.session, str_and_number2ab('WAIT', minPlayers - ws.session.length));
         }
         console.log('Client ' + ws.clientID + ' disconnected ' + code + ' ' + message);
     });

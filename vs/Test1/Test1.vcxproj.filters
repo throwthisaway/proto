@@ -114,6 +114,9 @@
     <ClCompile Include="..\..\emc_ogl\shader\CombineMAdd.cpp">
       <Filter>Source Files\shader</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\emc_ogl\shader\TextureColorMod.cpp">
+      <Filter>Source Files\shader</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\MeshLoader\Deserialize.h">
@@ -182,9 +185,6 @@
     <ClInclude Include="..\..\emc_ogl\shader\Contrast.h">
       <Filter>Header Files\shader</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\emc_socket\Socket.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\emc_ogl\Globals.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -228,6 +228,12 @@
       <Filter>Header Files\shader</Filter>
     </ClInclude>
     <ClInclude Include="..\..\emc_ogl\shader\CombineMAdd.h">
+      <Filter>Header Files\shader</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\emc_ogl\Socket.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\emc_ogl\shader\TextureColorMod.h">
       <Filter>Header Files\shader</Filter>
     </ClInclude>
   </ItemGroup>

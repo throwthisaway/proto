@@ -70,7 +70,7 @@ protected:
 
 		int ret = getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len);
 
-		printf("error message: %s\n", msg);
+		LOG_ERR(err, "error_callback");
 		auto socket = (Socket*)_this;
 		if (err == error)
 		{
@@ -92,13 +92,10 @@ protected:
 		memset(msg, 0, sizeof(msg));
 		int res = recv(fd, msg, sizeof(msg), 0);
 		if (res == SOCKET_ERROR) {
-#ifdef __EMSCRIPTEN__
 			if (errno != EAGAIN)
-				emscripten_log(EM_LOG_ERROR, "message_callback error: %d", errno);
-#endif
+				LOG_ERR(errno, "message_callback errno != EAGAIN");
 			// TODO:: this happens witth errno 20 sometimes assert(errno == EAGAIN);
 		}
-		//printf("message callback %d %s\n", res, msg);
 		auto socket = (Socket*)_this;
 		if (socket->session.onMessage) {
 			socket->session.onMessage(msg, res);
@@ -106,7 +103,6 @@ protected:
 	}
 	static void open_callback(int fd, void* _this)
 	{
-		printf("open_callback\n");
 		auto socket = (Socket*)_this;
 		if (socket->session.onOpen) {
 			socket->session.onOpen();
@@ -114,7 +110,6 @@ protected:
 	}
 	static void close_callback(int fd, void* _this)
 	{
-		printf("close_callback\n");
 		auto socket = (Socket*)_this;
 		if (socket->session.onClose) {
 			socket->session.onClose();
@@ -144,7 +139,7 @@ public:
 		fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
 		if (fd == -1)
 		{
-			perror("cannot create socket");
+			LOG_ERR(-1, "cannot create socket");
 			exit(EXIT_FAILURE);
 		}
 		if (async) {
@@ -162,7 +157,7 @@ public:
 			host = gethostbyname(inet_addr);
 			if (host == NULL)
 			{
-				perror("no such host");
+				LOG_ERR(-1, "no such host");
 				exit(EXIT_FAILURE);
 			}
 			memset(&addr, 0, sizeof(addr));
@@ -178,10 +173,7 @@ public:
 				if (WSAGetLastError() != WSAEWOULDBLOCK)
 #endif
 				{
-#ifdef __EMSCRIPTEN__
-					emscripten_log(EM_LOG_ERROR, "connect failed: %d", errno);
-#endif
-					perror("connect failed");
+					LOG_ERR(errno, "connect failed");
 					finish(EXIT_FAILURE);
 				}
 			}
@@ -197,7 +189,7 @@ public:
 //			// Resolve the server address and port
 //			res = getaddrinfo(inet_addr, NULL, &hints, &host);
 //			if (res != 0) {
-//				printf("getaddrinfo failed with error: %d\n", res);
+//				LOG_ERR(res, "getaddrinfo failed with error");
 //				exit(EXIT_FAILURE);
 //			}
 //
@@ -207,11 +199,7 @@ public:
 //				fd = socket(ptr->ai_family, ptr->ai_socktype,
 //					ptr->ai_protocol);
 //				if (fd == INVALID_SOCKET) {
-//#ifdef __EMSCRIPTEN__
-//					perror("socket failed");
-//#else
-//					printf("socket failed with error: %ld\n", WSAGetLastError());
-//#endif
+//			LOG_ERR(WSAGetLastError(), "socket call failed");
 //					exit(EXIT_FAILURE);
 //				}
 //
@@ -231,36 +219,26 @@ public:
 //			freeaddrinfo(host);
 //
 //			if (fd == INVALID_SOCKET) {
-//				printf("Unable to connect to server!\n");
+//				LOG_ERR(fd, "Unable to connect to server");
 //				exit(EXIT_FAILURE);
 //			}
 
 			memset(&addr, 0, sizeof(addr));
 			if (inet_pton(AF_INET, inet_addr, &addr.sin_addr) != 1)
 			{
-#ifdef __EMSCRIPTEN__
-				emscripten_log(EM_LOG_ERROR, "inet_pton failed: %d", errno);
-#endif
-				perror("inet_pton failed");
+				LOG_ERR(errno, "inet_pton failed");
 				exit(EXIT_FAILURE);
 			}
 			addr.sin_family = AF_INET;
 			addr.sin_port = htons(port);
 			res = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
-#ifdef __EMSCRIPTEN__
-			emscripten_log(EM_LOG_CONSOLE, "connect: %d", res);
-#endif
-
 			if (res == -1 && errno != EINPROGRESS)
 			{
 #ifndef __EMSCRIPTEN__
 				if (WSAGetLastError() != WSAEWOULDBLOCK)
 #endif
 				{
-					//auto r = WSAGetLastError();
-
-
-					perror("connect failed");
+					LOG_ERR(errno/* WSAGetLastError()*/, "connect failed");
 					finish(EXIT_FAILURE);
 				}
 			}
@@ -273,7 +251,6 @@ public:
 		if (res == -1) {
 			assert(errno == EAGAIN);
 		}
-		printf("message callback %d %s\n", res, msg);
 		return res;
 	}
 	int Send(const char* msg, size_t len) {
@@ -288,7 +265,7 @@ public:
 		res = select(64, nullptr/*&fdr*/, &fdw, NULL, NULL);
 		if (res == -1)
 		{
-			perror("select failed");
+			LOG_ERR(-1, "select failed");
 			finish(EXIT_FAILURE);
 			return -1;
 		}
@@ -298,7 +275,7 @@ public:
 		//}
 		if (!FD_ISSET(fd, &fdw))
 		{
-			perror("isset failed for write");
+			LOG_ERR(-1, "isset failed for write");
 			return -1;
 		}
 //#ifdef __EMSCRIPTEN__
@@ -324,7 +301,7 @@ public:
 		if (res == -1)
 		{
 			if (errno != EAGAIN && errno != EINPROGRESS)
-				perror("send error");
+				LOG_ERR(errno, "send error");
 			assert(errno == EAGAIN || errno == EINPROGRESS);
 			return res;
 		}
@@ -369,7 +346,7 @@ public:
 		fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
 		if (fd == -1)
 		{
-			perror("cannot create socket");
+			LOG_ERR(-1, "cannot create socket");
 			exit(EXIT_FAILURE);
 		}
 #ifdef __EMSCRIPTEN__
@@ -384,7 +361,7 @@ public:
 		addr.sin_port = htons(port);
 		addr.sin_addr.s_addr = INADDR_ANY;
 		if (bind(fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
-			perror("bind failed");
+			LOG_ERR(errno, "bind failed");
 			exit(EXIT_FAILURE);
 		}
 	}
@@ -406,7 +383,7 @@ public:
 		for (;;) {
 			client_fd = accept(fd, (struct sockaddr *)&client_addr, &client_addr_len);
 			if (client_fd == INVALID_SOCKET) {
-				perror("accept failed");
+				LOG_ERR(errno, "accept failed");
 				exit(EXIT_FAILURE);
 			} 
 			clients.emplace_back(client_fd, client_addr);

@@ -31,7 +31,8 @@ uniform sampler2D uSmp;
 uniform float uThreshold, uRamp;
 vec4 Highlight(vec2 pos) {
 	vec4 frag = texture2D( uSmp, pos);
-	float sum = (frag.x + frag.y + frag.z) / 3.;
+	//float sum = (frag.x + frag.y + frag.z) / 3.;
+	float sum = max(frag.x, max(frag.y, frag.z));
 	frag *= smoothstep(uThreshold, uThreshold + uRamp, sum);
 	frag.w = 1.;
 	return frag;

@@ -18,24 +18,27 @@
 #include <random>
 #include <string>
 #include <memory>
+#include <mutex>
+//#include <thread>
 #include "Globals.h"
 #include "../../MeshLoader/MeshLoader.h"
-#include "../emc_socket/Socket.h"
+#include "Logging.h"
+#include "Socket.h"
 #include <GLFW/glfw3.h>
 #include <inttypes.h>
 #include "../../MeshLoader/Tga.h"
 #include "../../MeshLoader/File.h"
-
 #include "Exception.h"
-#include "Logging.h"
 #include "Shader/Simple.h"
 #include "Shader/Color.h"
 #include "Shader/ColorPosAttrib.h"
-#include "Shader/Texture.h"
+//#include "Shader/Texture.h"
+#include "Shader/TextureColorMod.h"
 #include "RT.h"
 #include "SAT.h"
 #include "Envelope.h"
 // TODO::
+// - display session lost on socket error
 // - test connection loss on broadcast messages
 // - test ctrl messages
 // - finalize missile look
@@ -76,7 +79,7 @@ class Scene;
 class Envelope;
 struct {
 #ifdef DEBUG_REL
-	const float invincibility = 5000.f;
+	const float invincibility = 10.f;
 #else
 	const float invincibility = 5000.f;
 #endif
@@ -85,6 +88,7 @@ struct {
 		text_spacing = 30.f,
 		text_scale = 120.f,
 		missile_size = 120.f,
+		missile_blink_rate = 33.f, //ms
 		blink_rate = 500., // ms
 		blink_ratio = .5f,
 		tracking_height_ratio = .75f,
@@ -94,14 +98,14 @@ struct {
 		starfield_layer1_blink_rate = 13.f, // ms
 		starfield_layer2_blink_rate = 7.f, // ms
 		starfield_layer3_blink_rate = 11.f, // ms
-		missile_life = 300., // ms
+		missile_life = 500., // ms
 		dot_size = 6.f;
 	const glm::vec4 radar_player_color{ 1.f, 1.f, 1.f, 1.f }, radar_enemy_color{ 1.f, .5f, .5f, 1.f };
 	const gsl::span<const glm::vec4, gsl::dynamic_range> palette = gsl::as_span(cpc, sizeof(cpc) / sizeof(cpc[0]));
 	Timer timer;
 	std::string host = "localhost";
 	unsigned short port = 8000;
-	int width = 640, height = 480;
+	int width = 1024, height = 768;
 	std::string sessionID;
 	std::unique_ptr<Scene> scene;
 	std::unique_ptr<Client> ws;
@@ -313,7 +317,7 @@ namespace Asset {
 
 	Model Reconstruct(const std::vector<glm::vec3>& mesh_vertices,
 		std::vector<MeshLoader::PolyLine>& lines,
-		const std::vector<glm::vec2>& mesh_texcoord, float scale = 1.f, float lineWidth = 3.f) {
+		const std::vector<glm::vec2>& mesh_texcoord, float scale = 1.f, float lineWidth = LINE_WIDTH) {
 		std::vector<glm::vec3> vertices;
 		std::vector<glm::vec2> texcoord;
 #ifdef LINE_RENDER
@@ -342,7 +346,7 @@ namespace Asset {
 		
 	}
 
-	Model ExtractLines(MeshLoader::Mesh& mesh, float scale = 1.f, float lineWidth = 3.f) {
+	Model ExtractLines(MeshLoader::Mesh& mesh, float scale = 1.f, float lineWidth = LINE_WIDTH) {
 		std::vector<glm::vec3> vertices;
 		std::vector<glm::vec2> vertexNormals = GenLineNormals(mesh.vertices, mesh.lines, lineWidth);
 		for (const auto& l : mesh.lines) {
@@ -398,11 +402,6 @@ namespace Asset {
 				//images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x4_scanline2.tga"));
 				//images.push_back(LoadImage(PATH_PREFIX"asset//masks//mask_straight_3x4_scanline_bright.tga"));
 				//masks_image_index = images.size() - 1;
-
-
-#ifdef __EMSCRIPTEN__
-				emscripten_log(EM_LOG_CONSOLE, "image count %d\n", images.size());
-#endif
 			}
 			//{
 			//	MeshLoader::Mesh mesh;
@@ -481,7 +480,7 @@ namespace Asset {
 				{ 1.f, 0.f, 0.f } };
 				std::vector<MeshLoader::PolyLine> lines{ {0, 1}, {1, 2}};
 				const std::vector<glm::vec2> texcoord { { 0.f, 0.f },{.5f, 0.f},{ 1.f, 0.f} };
-				missile = Reconstruct(vertices, lines, texcoord, globals.missile_size, 10.f);
+				missile = Reconstruct(vertices, lines, texcoord, globals.missile_size, globals.dot_size);
 				models.push_back(&missile);
 			}
 			for (auto& m : models) {
@@ -603,15 +602,28 @@ struct Missile {
 	float rot;
 	float vel;
 	ProtoX* owner;
-	size_t id;
-	float life;
+	size_t id, col_idx;
+	float life, blink;
+	bool first = true;
 	Missile& operator=(const Missile&) = default;
 	Missile(const glm::vec3 pos, float rot, float vel, ProtoX* owner, size_t id) : pos(pos), prev(pos),
-		rot(rot), vel(vel), owner(owner), id(id), life(globals.missile_life) {}
+		rot(rot), vel(vel), owner(owner), id(id), life(globals.missile_life), blink(globals.missile_blink_rate) {
+		GenColIdx();
+	}
+	void GenColIdx() {
+		std::uniform_int_distribution<> col_idx_dist(0, globals.palette.size() - 1);
+		col_idx = col_idx_dist(mt);
+	}
 	void Update(const Time& t) {
+		if (first) { first = false; return; }	// draw at least once, and exist at initial position
 		life -= (float)t.frame;
 		prev = pos;
 		pos += glm::vec3{ std::cos(rot), std::sin(rot), 0.f } * vel * (float)t.frame;
+		blink -= (float)t.frame;
+		if (blink < 0.f) {
+			blink += globals.missile_blink_rate;
+			GenColIdx();
+		}
 	}
 	bool HitTest(const AABB& bounds, glm::vec3& hit_pos) {
 		if (pos == prev) return false;
@@ -628,7 +640,7 @@ struct Missile {
 		
 		// approximate hit position
 		auto c = Center(bounds);
-		hit_pos = end;// (glm::distance(c, start) < glm::distance(c, end)) ? start : end;
+		hit_pos = /*end;*/ (glm::distance(c, start) < glm::distance(c, end)) ? start : end;
 		// broad phase
 
 		if (end.x < start.x) std::swap(end, start);
@@ -667,7 +679,7 @@ struct Misl {
 };
 struct Scor {
 	const size_t tag, owner_id, target_id, missile_id, score;
-	const float x, y;
+	const float x, y, vec_x, vec_y;
 };
 struct Kill {
 	const size_t tag;
@@ -677,6 +689,10 @@ struct Conn {
 	const size_t tag;
 	const char client_id[CLIENTID_LEN];
 	const unsigned char ctrl;
+};
+struct Wait {
+	const size_t tag;
+	const unsigned char n;
 };
 struct ProtoX {
 	const size_t id;
@@ -758,10 +774,6 @@ struct ProtoX {
 		debris_centrifugal_speed.resize(debris.vertices.size() / 6);
 		debris_speed.resize(debris.vertices.size() / 6);
 		Init();
-#ifdef __EMSCRIPTEN__
-		emscripten_log(EM_LOG_CONSOLE, "Player connected");
-#endif
-		
 	}
 	void Shoot(std::vector<Missile>& missiles) {
 		if (ctrl != Ctrl::Turret && ctrl != Ctrl::Full) return;
@@ -830,7 +842,7 @@ struct ProtoX {
 		else if (hit) {
 			auto fade_time = (float)(t.total - hit_time) / fade_out_time;
 			fade_out = 1.f - fade_time * fade_time * fade_time * fade_time * fade_time;
-			if (killed = (fade_out <= 0.0001f)) return;
+			if ((killed = (fade_out <= 0.0001f))) return;
 			// TODO:: refactor to continuous fx instead of incremental
 			for (size_t i = 0, cfs = 0; i < debris.vertices.size(); i += 6, ++cfs) {
 				// TODO:: only enough to have the average of the furthest vertices
@@ -937,7 +949,8 @@ struct Renderer {
 	RT rt;
 	Shader::Color colorShader;
 	Shader::ColorPosAttrib colorPosAttribShader;
-	Shader::Texture textureShader;
+//	Shader::Texture textureShader;
+	Shader::TextureColorMod textureColorModShader;
 	static const size_t VBO_PROTOX = 0,
 		VBO_MISSILE_UV = 1,
 		VBO_LANDSCAPE = 2,
@@ -972,8 +985,9 @@ struct Renderer {
 		static GLuint vbo;
 		static GLsizei vertex_count;
 		static const size_t count = 200;
-		static constexpr float slowdown =.01f, g = -.00005f, init_mul = 1.f, min_fade = 750.f, max_fade = 1500.,
-			v_min =.05f, v_max =.35f, blink_rate = 16.;
+		static constexpr float slowdown = .02f, g = -.001f, init_mul = 1.f, min_fade = 750.f, max_fade = 1500.f,
+			v_min = .05f, v_max = .55f, blink_rate = 16.f;
+		const float vec_ratio = .7f; // static constexpr makes emscripten complain about unresolved symbol...
 		glm::vec3 pos;
 		bool kill = false;
 		float time;
@@ -992,7 +1006,7 @@ struct Renderer {
 //#endif
 //			}
 //		};
-		Particles(const glm::vec3& pos, double time) : pos(pos), time((float)time) {
+		Particles(const glm::vec3& pos,const glm::vec3& vec, double time) : pos(pos), time((float)time) {
 			//static A a(1, 2), b(3, 4), c(5, 6), d(7, 8), e(9, 10), f(11, 12), g(13, 14), h(15, 16);
 			//static A a1(17, 18) , b1(31, 41), /*missing*/c1(51, 61), d1(71, 81), e1(91, 101), f1(111, 121), g1(131, 141), h1(151, 161);
 			static std::uniform_real_distribution<> col_dist(0., 1.);
@@ -1001,15 +1015,16 @@ struct Renderer {
 			static std::uniform_real_distribution<> v_dist(v_min, v_max);
 			static std::uniform_int_distribution<> col_idx_dist(0, globals.palette.size() - 1);
 
-#ifdef __EMSCRIPTEN__
-			emscripten_log(EM_LOG_CONSOLE, "%d %x %x", sizeof(col_idx_dist), *reinterpret_cast<int*>(&col_idx_dist), *(reinterpret_cast<int*>(&col_idx_dist) + 1));
-#endif
+//#ifdef __EMSCRIPTEN__
+//			emscripten_log(EM_LOG_CONSOLE, "%d %x %x", sizeof(col_idx_dist), *reinterpret_cast<int*>(&col_idx_dist), *(reinterpret_cast<int*>(&col_idx_dist) + 1));
+//#endif
 			for (size_t i = 0; i < count; ++i) {
 				arr[i].col = { col_dist(mt), col_dist(mt), col_dist(mt), 1.f };
 				arr[i].pos = {};
 				auto r = rad_dist(mt);
 
 				arr[i].v = { std::cos(r) * v_dist(mt) * init_mul, std::sin(r) * v_dist(mt) * init_mul, 0.f };
+				arr[i].v += vec * vec_ratio;
 				arr[i].life = 1.f;
 				arr[i].fade_duration = fade_dist(mt);
 				arr[i].start_col_idx = col_idx_dist(mt);
@@ -1166,19 +1181,22 @@ struct Renderer {
 				auto rnd = dist(mt);
 				size_t idx = (size_t)std::max(0., std::min(double(size - 1), rnd));
 				idx *= 4;
-				texture_data[idx++] = 0;// u_dist(mt);
-				texture_data[idx++] = 255;// u_dist(mt);
-				texture_data[idx++] = 0;// u_dist(mt);
+				texture_data[idx++] = 0xff;// u_dist(mt);
+				texture_data[idx++] = 0xff;// u_dist(mt);
+				texture_data[idx++] = 0xff;// u_dist(mt);
+				//texture_data[idx++] = u_dist(mt);
+				//texture_data[idx++] = u_dist(mt);
+				//texture_data[idx++] = u_dist(mt);
 				texture_data[idx] = 255;
 			}
-			texture_data[0] = 0;// u_dist(mt);
-			texture_data[1] = 0;// u_dist(mt);
-			texture_data[2] = 255;// u_dist(mt);
-			texture_data[3] = 255;
-			texture_data[(size - 1)  * 4] = 255;// u_dist(mt);
-			texture_data[(size - 1) * 4 + 1] = 0;// u_dist(mt);
-			texture_data[(size - 1) * 4 + 2] = 0;// u_dist(mt);
-			texture_data[(size - 1) * 4 + 3] = 255;
+			//texture_data[0] = 0;// u_dist(mt);
+			//texture_data[1] = 0;// u_dist(mt);
+			//texture_data[2] = 255;// u_dist(mt);
+			//texture_data[3] = 255;
+			//texture_data[(size - 1)  * 4] = 255;// u_dist(mt);
+			//texture_data[(size - 1) * 4 + 1] = 0;// u_dist(mt);
+			//texture_data[(size - 1) * 4 + 2] = 0;// u_dist(mt);
+			//texture_data[(size - 1) * 4 + 3] = 255;
 
 			glGenTextures(1, &missile.texID);
 			glBindTexture(GL_TEXTURE_2D, missile.texID);
@@ -1572,7 +1590,7 @@ struct Renderer {
 		glEnable(GL_BLEND);
 		glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
 		glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
-		auto& shader = textureShader;
+		auto& shader = textureColorModShader;
 		glUseProgram(shader.id);
 		// vertex data
 		glEnableVertexAttribArray(0);
@@ -1599,12 +1617,15 @@ struct Renderer {
 		//glUniform1f(textureShader.uElapsed, (GLfloat)timer.Elapsed());
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, this->missile.texID);
-		glUniform1i(textureShader.uSmp, 0);
+		glUniform1i(shader.uSmp, 0);
+		
 		const auto vp = cam.proj * cam.view;
 		for (const auto& missile : missiles) {
 			if (!missile.owner->visible) continue;
 			const glm::mat4 mvp = glm::rotate(glm::translate(vp, missile.pos), missile.rot, { 0.f, 0.f, 1.f });
 			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+			const auto& col = globals.palette[missile.col_idx];
+			glUniform4f(shader.uCol, col.r, col.g, col.b, 1.f);
 			for (const auto& l : assets.missile.layers) {
 				for (const auto& p : l.parts) {
 					glDrawArrays(GL_TRIANGLES, p.first, p.count);
@@ -1758,6 +1779,7 @@ public:
 	Camera camera{ (int)globals.width, (int)globals.height }, hud{ (int)globals.width, (int)globals.height },
 		overlay;
 	InputHandler inputHandler;
+	std::mutex msgMutex;
 	//GLuint VertexArrayID;
 	//GLuint vertexbuffer;
 	//GLuint uvbuffer;
@@ -1804,6 +1826,7 @@ public:
 		hud.SetProj(globals.width, HUD_RATIO(globals.height));
 	}
 	void RandomizePos(ProtoX& p) {
+		return;
 		const AABB aabb{ bounds.l - p.aabb.l, bounds.t - p.aabb.t, bounds.r - p.aabb.r, bounds.b - p.aabb.b };
 		std::uniform_real_distribution<> xdist(aabb.l, aabb.r), ydist(aabb.b, aabb.t);
 		p.pos.x = xdist(mt); p.pos.y = ydist(mt);
@@ -2036,10 +2059,11 @@ public:
 						glm::vec3 hit_pos;
 						if (!p.second->hit && !p.second->killed && p.second->invincible == 0.f && m.HitTest(p.second->aabb.Translate(p.second->pos), hit_pos)) {
 							p.second->Kill(hit_pos, (double)t.total);
-							particles.push_back({ hit_pos, t.total });
+							glm::vec3 vec{ std::cos(m.rot), std::sin(m.rot), 0.f };
+							particles.push_back({ hit_pos,  vec, t.total });
 							++player->score;
 							if (player->ws) {
-								Scor msg{ Tag("SCOR"), player->id, p.second->id, m.id, hit_pos.x, hit_pos.y, player->score };
+								Scor msg{ Tag("SCOR"), player->id, p.second->id, m.id, player->score, hit_pos.x, hit_pos.y, vec.x, vec.y };
 								player->ws->Send((const char*)&msg, sizeof(msg));
 							}
 							last = RemoveMissile(m);
@@ -2085,26 +2109,17 @@ public:
 		////glDeleteVertexArrays(1, &VertexArrayID);
 	}
 	void OnError(int code, const char* msg) {
-#ifdef __EMSCRIPTEN__
-		emscripten_log(EM_LOG_ERROR, "Socket error: %d  %s", code, msg);
-#endif
+		LOG_INFO("Socket error: %d  %s\n", code, msg);
 	}
 	void OnClose() {
-#ifdef __EMSCRIPTEN__
-		emscripten_log(EM_LOG_CONSOLE, "Socket closed");
-#endif
+		LOG_INFO("Socket closed\n");
 	}
 	void OnOpen() {
-#ifdef __EMSCRIPTEN__
-		emscripten_log(EM_LOG_CONSOLE, "Socket open");
-#endif
 		SendSessionID();
 	}
 	void OnMessage(const char* msg, int len) {
-//#ifdef __EMSCRIPTEN__
-//		std::string str{ msg, (unsigned int)len };
-//		emscripten_log(EM_LOG_CONSOLE, "Socket message: %s", str.c_str());
-//#endif
+		//LOG_INFO("OnMessage thread id: %d", std::hash<std::thread::id>()(std::this_thread::get_id()));
+		std::lock_guard<std::mutex> lock(msgMutex);
 		messages.push(std::vector<unsigned char>{ msg, msg + (size_t)len });
 	}
 	void OnConn(const std::vector<unsigned char>& msg) {
@@ -2112,9 +2127,6 @@ public:
 		size_t id = ID5(conn->client_id, 0);
 		player = std::make_unique<ProtoX>(id, assets.probe, assets.debris, assets.propulsion.layers.size(), globals.ws.get());
 		player->ctrl = static_cast<ProtoX::Ctrl>(conn->ctrl - 48/*TODO:: eliminate conversion*/);
-		#ifdef __EMSCRIPTEN__
-				emscripten_log(EM_LOG_CONSOLE, "OnConn id: %5s ctrl: %d", conn->client_id, player->ctrl);
-		#endif
 //#ifndef DEBUG_REL
 		float dx = (assets.probe.aabb.r - assets.probe.aabb.l) / 2.f,
 			dy = (assets.probe.aabb.t - assets.probe.aabb.b) / 2.f;
@@ -2129,9 +2141,6 @@ public:
 	}
 	void OnPlyr(const std::vector<unsigned char>& msg) {
 		const Plyr* player = reinterpret_cast<const Plyr*>(&msg.front());
-//#ifdef __EMSCRIPTEN__
-//		emscripten_log(EM_LOG_CONSOLE, "OnPlyr %d ", player.id, player.x, player.y, player.rot, player.invincible);
-//#endif
 		if (this->player->id == player->id) {
 			if (this->player->ctrl == ProtoX::Ctrl::Prop) this->player->turret.rot = player->rot;
 			else if (this->player->ctrl == ProtoX::Ctrl::Turret) {
@@ -2171,7 +2180,7 @@ public:
 	void OnScor(const std::vector<unsigned char>& msg, const Time& t) {
 		if (!player) return;
 		const Scor* scor = reinterpret_cast<const Scor*>(&msg.front());
-		particles.push_back({ glm::vec3{scor->x, scor->y, 0.f}, t.total });
+		particles.push_back({ glm::vec3{scor->x, scor->y, 0.f},glm::vec3{ scor->vec_x, scor->vec_y, 0.f },  t.total });
 		auto it = std::find_if(missiles.begin(), missiles.end(), [=](const Missile& m) {
 			return m.owner->id == scor->owner_id && m.id == scor->missile_id;});
 		if (it != missiles.end()) {
@@ -2196,15 +2205,17 @@ public:
 		if (it == std::end(players)) return;
 		auto& p = it->second;
 		auto hit_pos = p->pos + glm::vec3{ p->aabb.r - p->aabb.l, p->aabb.t - p->aabb.b, 0.f };
-		particles.push_back({hit_pos, t.total });
+		particles.push_back({ hit_pos, {}, t.total });
 		p->Kill(hit_pos, t.total);
 	}
 	void OnCtrl(const std::vector<unsigned char>& msg) {
 		const Ctrl* ctrl = reinterpret_cast<const Ctrl*>(&msg.front());
 		SetCtrl(static_cast<ProtoX::Ctrl>(ctrl->ctrl - 48/*TODO:: eliminate conversion*/));
-#ifdef __EMSCRIPTEN__
-		emscripten_log(EM_LOG_CONSOLE, "ctrl %x ", player->ctrl);
-#endif
+	}
+	void OnWait(const std::vector<unsigned char>& msg) {
+		auto wait = reinterpret_cast<const Wait*>(&msg.front());
+		// TODO:: set or clear wait message
+		LOG_INFO("OnWait: %d", wait->n);
 	}
 	void Dispatch(const std::vector<unsigned char>& msg, const Time& t) {
 		size_t tag = Tag(msg);
@@ -2213,10 +2224,8 @@ public:
 			plyr = Tag("PLYR"), // clientID, pos.x, pos.y, invincible
 			misl = Tag("MISL"), // clientID, pos.x, pos.y, v.x, v.y
 			scor = Tag("SCOR"), // clientID, clientID
-			ctrl = Tag("CTRL"); // other str clientID , upper = '1' / lower = '0'
-//#ifdef __EMSCRIPTEN__
-//		emscripten_log(EM_LOG_CONSOLE, "Dispatch %x ", tag);
-//#endif
+			ctrl = Tag("CTRL"), // other str clientID , upper = '1' / lower = '0'
+			wait = Tag("WAIT");	// n - number to wait for
 		switch (tag) {
 		case conn:
 			OnConn(msg);
@@ -2236,9 +2245,14 @@ public:
 		case ctrl:
 			OnCtrl(msg);
 			break;
+		case wait:
+			OnWait(msg);
+			break;
 		}
 	}
 	void ProcessMessages(const Time& t) {
+		//LOG_INFO("ProcessMessage thread id: %d", std::hash<std::thread::id>()(std::this_thread::get_id()));
+		std::lock_guard<std::mutex> lock(msgMutex);
 		while (messages.size()) {
 			auto& msg = messages.front();
 			Dispatch(msg, t);
@@ -2291,9 +2305,7 @@ int main(int argc, char** argv) {
 	}
 	if (argc > 4) {
 		globals.sessionID = argv[4];
-#ifdef __EMSCRIPTEN__
-		emscripten_log(EM_LOG_CONSOLE, "SessionID is: %s", argv[4]);
-#endif
+		LOG_INFO("SessionID is: %s\n", argv[4]);
 	}
 	init(globals.width, globals.height);
 
@@ -2302,11 +2314,7 @@ int main(int argc, char** argv) {
 		globals.scene = std::make_unique<Scene>();
 	}
 	catch (const custom_exception& ex) {
-#ifdef __EMSCRIPTEN__
-		emscripten_log(EM_LOG_ERROR, ex.what());
-#else
-		std::cout << ex.what();
-#endif
+		LOG_INFO("main loop exception: %s\n", ex.what());
 		throw;
 	}
 #ifdef __EMSCRIPTEN__
@@ -2339,11 +2347,7 @@ void main_loop() {
 		InputHandler::Reset();
 //	}
 //	catch (...) {
-//#ifdef __EMSCRIPTEN__
-//		emscripten_log(EM_LOG_ERROR, "exception has been thrown");
-//#else
-//		std::cout << "exception has been thrown";
-//#endif
+//	LOG_INFO("exception has been thrown\n");
 //		throw;
 //	}
 }

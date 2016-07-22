@@ -91,6 +91,10 @@ app.get('/main.js', function (req, res) {
     res.sendFile(__dirname + '/emc_ogl/main.js');
 });
 
+app.get('/main.js.mem', function (req, res) {
+    res.sendFile(__dirname + '/emc_ogl/main.js.mem');
+});
+
 /*app.use(function(req, res, next) {
     console.log("Sending compressed index.js");
   if (req.originalUrl === "/index.js") {

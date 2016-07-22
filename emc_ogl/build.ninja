@@ -2,8 +2,11 @@ MeshLoaderPath = ..\..\MeshLoader\
 MeshExportPath = ..\..\MeshExport\
 EMCC_PATH=f:\Programs\Emscripten\emscripten\1.35.0\
 
-cppflags = -v -s USE_GLFW=3 -s NO_EXIT_RUNTIME=1 -DGLM -s DEMANGLE_SUPPORT=1 -Wswitch -std=c++14 -I..\..\..\3rdparty\glm -I..\..\..\3rdparty\GSL\include -i${MeshLoaderPath} -i${MeshExportPath}MeshCommon -i${MeshExportPath}MeshView2005\Img
-linkflags = -v -s USE_GLFW=3 -s NO_EXIT_RUNTIME=1 -s DEMANGLE_SUPPORT=1 --embed-file asset
+debug = -s DEMANGLE_SUPPORT=1
+release = -O3 -s NO_EXIT_RUNTIME=1
+build_config = $release
+cppflags = -v -s USE_GLFW=3 -s NO_EXIT_RUNTIME=1 -DGLM $build_config -std=c++14 -I..\..\..\3rdparty\glm -I..\..\..\3rdparty\GSL\include -i${MeshLoaderPath} -i${MeshExportPath}MeshCommon -i${MeshExportPath}MeshView2005\Img
+linkflags = -v -s USE_GLFW=3 -s NO_EXIT_RUNTIME=1 $build_config --embed-file asset
 rule cpp
   command = ${EMCC_PATH}emcc.bat $cppflags $in -o $out
 rule link
@@ -38,5 +41,7 @@ build TextureColorMod.bc: cpp Shader\TextureColorMod.cpp
 build RT.bc: cpp RT.cpp
 build SAT.bc: cpp SAT.cpp
 build Timer.bc: cpp Timer.cpp
+build Palette.bc: cpp Palette.cpp
 build main.js: link main.bc MeshLoader.bc types.bc MeshSurface.bc FileReader.bc File.bc Img.bc Tga.bc Log.bc Exception.bc RT.bc Shader.bc Color.bc ColorPosAttrib.bc CRTShader.bc Simple.bc Texture.bc VBlur7x.bc HBlur7x.bc VBlur9x.bc HBlur9x.bc Contrast.bc SAT.bc Spherical.bc Timer.bc BloomPass1.bc BloomPass2.bc Highlight.bc CombineMAdd.bc $
-TextureColorMod.bc
+TextureColorMod.bc $
+Palette.bc

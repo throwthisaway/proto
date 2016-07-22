@@ -37,12 +37,19 @@
 #include "RT.h"
 #include "SAT.h"
 #include "Envelope.h"
+#include "Palette.h"
 // TODO::
+// - investigate random crashes on network play (message delete for example)
+// - add sound
+// - finish network game mechanics
+// - finalize/cleanup html
+// - create preview/thumbnail image
+// - player collision
+// - refactor pallette
+// - redesign proto
+// - colorize player only
 // - display session lost on socket error
-// - test connection loss on broadcast messages
-// - test ctrl messages
-// - finalize missile look
-// - add blink of background on hit
+// - test connection loss on broadcast messages (remove connection on exception)
 template<typename T>
 constexpr size_t ID5(const T& t, size_t offset) {
 	return ((t[offset + 4] - '0') << 20) | ((t[offset + 3] - '0') << 15) | ((t[offset + 2] - '0') << 10) | ((t[offset + 1] - '0') << 5) | (t[offset] - '0');
@@ -64,17 +71,6 @@ static GLFWwindow * window;
 static std::random_device rd;
 static std::mt19937 mt(rd());
 
-static const glm::vec4 c64[] = {/* {0.f/255.f,0.f/255.f,0.f/255.f, 1.f},*/{ 255.f / 255.f, 255.f / 255.f, 255.f / 255.f, 1.f },{ 152.f / 255.f, 75.f / 255.f, 67.f / 255.f, 1.f },{ 121.f / 255.f, 193.f / 255.f, 200.f / 255.f, 1.f },{ 155.f / 255.f, 81.f / 255.f, 165.f / 255.f, 1.f },{ 104.f / 255.f, 174.f / 255.f, 92.f / 255.f, 1.f },{ 82.f / 255.f, 66.f / 255.f, 157.f / 255.f, 1.f },{ 201.f / 255.f, 214.f / 255.f, 132.f / 255.f, 1.f },
-{ 155.f / 255.f, 103.f / 255.f, 57.f / 255.f, 1.f },{ 106.f / 255.f, 84.f / 255.f, 0.f / 255.f, 1.f },{ 195.f / 255.f, 123.f / 255.f, 117.f / 255.f, 1.f },{ 99.f / 255.f, 99.f / 255.f, 99.f / 255.f, 1.f },{ 138.f / 255.f, 138.f / 255.f, 138.f / 255.f, 1.f },{ 163.f / 255.f, 229.f / 255.f, 153.f / 255.f, 1.f },{ 138.f / 255.f, 123.f / 255.f, 206.f / 255.f, 1.f },{ 173.f / 255.f, 173.f / 255.f, 173.f / 255.f, 1.f } },
-cpc[] = {/* { 0.f/255.f,0.f/255.f,0.f/255.f, 1.f},*/{ 0.f / 255.f, 0.f / 255.f, 128.f / 255.f, 1.f },{ 0.f / 255.f, 0.f / 255.f, 255.f / 255.f, 1.f },{ 128.f / 255.f, 0.f / 255.f, 0.f / 255.f, 1.f },{ 128.f / 255.f, 0.f / 255.f, 128.f / 255.f, 1.f },{ 128.f / 255.f, 0.f / 255.f, 255.f / 255.f, 1.f },{ 255.f / 255.f, 0.f / 255.f, 0.f / 255.f, 1.f },{ 255.f / 255.f, 0.f / 255.f, 128.f / 255.f, 1.f },{ 255.f / 255.f, 0.f / 255.f, 255.f / 255.f, 1.f },
-{ 0.f / 255.f, 128.f / 255.f, 0.f / 255.f, 1.f },{ 0.f / 255.f, 128.f / 255.f, 128.f / 255.f, 1.f },{ 0.f / 255.f, 128.f / 255.f, 255.f / 255.f, 1.f },{ 128.f / 255.f, 128.f / 255.f, 0.f / 255.f, 1.f },{ 128.f / 255.f, 128.f / 255.f, 128.f / 255.f, 1.f },{ 128.f / 255.f, 128.f / 255.f, 255.f / 255.f, 1.f },{ 255.f / 255.f, 128.f / 255.f, 0.f / 255.f, 1.f },{ 255.f / 255.f, 128.f / 255.f, 128.f / 255.f, 1.f },{ 255.f / 255.f, 128.f / 255.f, 255.f / 255.f, 1.f },
-{ 0.f / 255.f, 255.f / 255.f, 0.f / 255.f, 1.f },{ 0.f / 255.f, 255.f / 255.f, 128.f / 255.f, 1.f },{ 0.f / 255.f, 255.f / 255.f, 255.f / 255.f, 1.f },{ 128.f / 255.f, 255.f / 255.f, 0.f / 255.f, 1.f },{ 128.f / 255.f, 255.f / 255.f, 128.f / 255.f, 1.f },{ 128.f / 255.f, 255.f / 255.f, 255.f / 255.f, 1.f },{ 255.f / 255.f, 255.f / 255.f, 0.f / 255.f, 1.f },{ 255.f / 255.f, 255.f / 255.f, 128.f / 255.f, 1.f },{ 255.f / 255.f, 255.f / 255.f, 255.f / 255.f, 1. } },
-speccy[] = {/* { 0.f/255.f,0.f/255.f,0.f/255.f, 1.f},*/{ 0.f / 255.f, 0.f / 255.f, 202.f / 255.f, 1.f },{ 202.f / 255.f, 0.f / 255.f, 0.f / 255.f, 1.f },{ 202.f / 255.f, 0.f / 255.f, 202.f / 255.f, 1.f },{ 0.f / 255.f, 202.f / 255.f, 0.f / 255.f, 1.f },{ 0.f / 255.f, 202.f / 255.f, 202.f / 255.f, 1.f },{ 202.f / 255.f, 202.f / 255.f, 0.f / 255.f, 1.f },{ 202.f / 255.f, 202.f / 255.f, 202.f / 255.f, 1.f },
-/*{ 0.f/255.f,0.f/255.f,0.f/255.f, 1.f},*/{ 0.f / 255.f, 0.f / 255.f, 255.f / 255.f, 1.f },{ 255.f / 255.f, 0.f / 255.f, 0.f / 255.f, 1.f },{ 255.f / 255.f, 0.f / 255.f, 255.f / 255.f, 1.f },{ 0.f / 255.f, 255.f / 255.f, 0.f / 255.f, 1.f },{ 0.f / 255.f, 255.f / 255.f, 255.f / 255.f, 1.f },{ 255.f / 255.f, 255.f / 255.f, 0.f / 255.f, 1.f },{ 255.f / 255.f, 255.f / 255.f, 255.f / 255.f, 1.f } };
-//const glm::vec4 colors[] = { { 1.0f,0.5f,0.5f , 1.f },{ 1.0f,0.75f,0.5f , 1.f },{ 1.0f,1.0f,0.5f , 1.f },{ 0.75f,1.0f,0.5f , 1.f },
-//{ 0.5f,1.0f,0.5f , 1.f },{ 0.5f,1.0f,0.75f , 1.f },{ 0.5f,1.0f,1.0f , 1.f },{ 0.5f,0.75f,1.0f , 1.f },
-//{ 0.5f,0.5f,1.0f , 1.f },{ 0.75f,0.5f,1.0f , 1.f },{ 1.0f,0.5f,1.0f , 1.f },{ 1.0f,0.5f,0.75f , 1.f } };
-
 class Scene;
 class Envelope;
 struct {
@@ -85,7 +81,7 @@ struct {
 #endif
 	const float	scale = 40.f,
 		propulsion_scale = 80.f,
-		text_spacing = 30.f,
+		text_spacing = 10.f,
 		text_scale = 120.f,
 		missile_size = 120.f,
 		missile_blink_rate = 33.f, //ms
@@ -95,13 +91,15 @@ struct {
 		tracking_width_ratio = .75f,
 		blink_duration = 5000.f,
 		invincibility_blink_rate = 100.f, // ms
-		starfield_layer1_blink_rate = 13.f, // ms
-		starfield_layer2_blink_rate = 7.f, // ms
-		starfield_layer3_blink_rate = 11.f, // ms
+		starfield_layer1_blink_rate = 133.f, // ms
+		starfield_layer2_blink_rate = 99.f, // ms
+		starfield_layer3_blink_rate = 243.f, // ms
 		missile_life = 500., // ms
-		dot_size = 6.f;
+		dot_size = 6.f, // px
+		clear_color_blink_rate = 16.f; //ms
+	int ab = a;
 	const glm::vec4 radar_player_color{ 1.f, 1.f, 1.f, 1.f }, radar_enemy_color{ 1.f, .5f, .5f, 1.f };
-	const gsl::span<const glm::vec4, gsl::dynamic_range> palette = gsl::as_span(cpc, sizeof(cpc) / sizeof(cpc[0]));
+	const gsl::span<const glm::vec4, gsl::dynamic_range>& palette = pal, &grey_palette = grey_pal;
 	Timer timer;
 	std::string host = "localhost";
 	unsigned short port = 8000;
@@ -722,6 +720,7 @@ struct ProtoX {
 	enum class Ctrl{Full, Prop, Turret};
 	Ctrl ctrl = Ctrl::Full;
 	bool pos_invalidated = false; // from web-message
+	float clear_color_blink;
 	struct Propulsion {
 		const glm::vec3 pos;
 		const float rot;
@@ -770,7 +769,8 @@ struct ProtoX {
 		left({ 25.f, 15.f, 0.f }, glm::half_pi<float>(), frame_count),
 		right({ -25.f, 15.f, 0.f }, -glm::half_pi<float>(), frame_count),
 		bottom({}, 0.f, frame_count),
-		turret(model.layers.back()) {
+		turret(model.layers.back()),
+		clear_color_blink(globals.clear_color_blink_rate){
 		debris_centrifugal_speed.resize(debris.vertices.size() / 6);
 		debris_speed.resize(debris.vertices.size() / 6);
 		Init();
@@ -840,6 +840,10 @@ struct ProtoX {
 			}
 		}
 		else if (hit) {
+			if (clear_color_blink < 0.f)
+				clear_color_blink += globals.clear_color_blink_rate;
+			else
+				clear_color_blink -= (float)t.frame;
 			auto fade_time = (float)(t.total - hit_time) / fade_out_time;
 			fade_out = 1.f - fade_time * fade_time * fade_time * fade_time * fade_time;
 			if ((killed = (fade_out <= 0.0001f))) return;
@@ -967,6 +971,7 @@ struct Renderer {
 		VBO_COUNT = 13;
 	GLuint vbo[VBO_COUNT];
 	std::vector<GLuint> tex;
+	glm::vec4 clearColor;
 #ifdef VAO_SUPPORT
 	GLuint vao;
 #endif
@@ -1064,7 +1069,8 @@ struct Renderer {
 		}
 	}
 	Renderer(Asset::Assets& assets, const AABB& scene_bounds) : assets(assets),
-		rt(globals.width, globals.height) {
+		rt(globals.width, globals.height),
+		clearColor(0.f, .0f, .0f, 1.f) {
 		Init(scene_bounds);
 	}
 	void Init(const AABB& scene_bounds) {
@@ -1235,11 +1241,11 @@ struct Renderer {
 			glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * data.size(), &data.front(), GL_STATIC_DRAW);
 			starField = { count_per_layer, scene_bounds, vbo[VBO_STARFIELD], count_per_layer * layer_count, {1.f, 0}, {.5f, 0}, {.25f, 0 } };
 			globals.envelopes.push_back(std::unique_ptr<Envelope>(new SequenceAsc(starField.layer1.color_idx, 0., globals.timer.ElapsedMs(),
-				globals.starfield_layer1_blink_rate, starField.layer1.color_idx, globals.palette.size()-1, 1, 1)));
+				globals.starfield_layer1_blink_rate, starField.layer1.color_idx, globals.grey_palette.size(), 1, 1)));
 			globals.envelopes.push_back(std::unique_ptr<Envelope>(new SequenceAsc(starField.layer2.color_idx, 0., globals.timer.ElapsedMs(),
-				globals.starfield_layer2_blink_rate, starField.layer2.color_idx, globals.palette.size() - 1, 1, 1)));
+				globals.starfield_layer2_blink_rate, starField.layer2.color_idx, globals.grey_palette.size(), 1, 1)));
 			globals.envelopes.push_back(std::unique_ptr<Envelope>(new SequenceAsc(starField.layer3.color_idx, 0., globals.timer.ElapsedMs(),
-				globals.starfield_layer3_blink_rate, starField.layer3.color_idx, globals.palette.size() - 1, 1, 1)));
+				globals.starfield_layer3_blink_rate, starField.layer3.color_idx, globals.grey_palette.size(), 1, 1)));
 		}
 		
 		{
@@ -1286,6 +1292,7 @@ struct Renderer {
 	}
 	void PreRender() {
 		rt.Set();
+		glClearColor(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
 		glClear(GL_COLOR_BUFFER_BIT);
 		//glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 		//glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -1310,19 +1317,19 @@ struct Renderer {
 		glm::vec3 pos = cam.pos * starField.layer3.z;
 		glm::mat4 mvp = glm::translate(cam.vp, pos);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		auto col = globals.palette[starField.layer3.color_idx];
+		auto col = globals.grey_palette[starField.layer3.color_idx];
 		glUniform4f(shader.uCol, col.r, col.g, col.b, 1.f);
 		glDrawArrays(GL_TRIANGLES, starField.count_per_layer * 6 * 2, starField.count_per_layer);
 		pos = cam.pos * starField.layer2.z;
 		mvp = glm::translate(cam.vp, pos);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		col = globals.palette[starField.layer2.color_idx];
+		col = globals.grey_palette[starField.layer2.color_idx];
 		glUniform4f(shader.uCol, col.r, col.g, col.b, 1.f);
 		glDrawArrays(GL_TRIANGLES, starField.count_per_layer * 6 * 1, starField.count_per_layer);
 		pos = cam.pos * starField.layer1.z;
 		mvp = glm::translate(cam.vp, pos);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		col = globals.palette[starField.layer1.color_idx];
+		col = globals.grey_palette[starField.layer1.color_idx];
 		glUniform4f(shader.uCol, col.r, col.g, col.b, 1.f);
 		glDrawArrays(GL_TRIANGLES, 0, starField.count_per_layer);
 		glDisableVertexAttribArray(0);
@@ -1576,7 +1583,7 @@ struct Renderer {
 		}
 
 		std::vector<Text> texts;
-		const glm::vec3 pos1{ aabb.l, text_y, 0.f }, pos2 = { aabb.r + border, text_y, 0.f };
+		const glm::vec3 pos1{ aabb.l + border, text_y, 0.f }, pos2 = { aabb.r + border, text_y, 0.f };
 		texts.push_back({ pos1, score_scale, Text::Align::Right, std::to_string(player->score) });
 		texts.push_back({pos2, score_scale, Text::Align::Left, std::to_string(max) });
 		glDisableVertexAttribArray(shader.aPos);
@@ -1653,10 +1660,12 @@ struct Renderer {
 			(void*)0);
 		auto& shader = colorShader;
 		glUseProgram(shader.id);
+		auto w = assets.text.aabb.r - assets.text.aabb.l;
 		for (const auto& str : texts) {
 			auto pos = str.pos;
+			const auto incr = (w + globals.text_spacing) * str.scale;
 			if (str.align == Text::Align::Right || str.align == Text::Align::Center) {
-				auto ofs = str.str.size() * globals.text_spacing * str.scale;
+				auto ofs = incr * str.str.size() ;
 				if (str.align == Text::Align::Center) ofs /= 2.f;
 				pos.x -= ofs;
 			}
@@ -1667,7 +1676,7 @@ struct Renderer {
 				glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 				Draw<GL_TRIANGLES>(shader.uCol, layer.parts);
 				Draw<GL_LINES>(shader.uCol, layer.line_parts);
-				pos.x += layer.aabb.r - layer.aabb.l + globals.text_spacing;
+				pos.x += incr;
 			}
 		}
 	}
@@ -1786,6 +1795,7 @@ public:
 	//GLuint texID;
 	//GLuint uTexSize;
 	std::queue<std::vector<unsigned char>> messages;
+	int wait = 0;
 #ifndef __EMSCRIPTEN__
 	void* operator new(size_t i)
 	{
@@ -1826,7 +1836,6 @@ public:
 		hud.SetProj(globals.width, HUD_RATIO(globals.height));
 	}
 	void RandomizePos(ProtoX& p) {
-		return;
 		const AABB aabb{ bounds.l - p.aabb.l, bounds.t - p.aabb.t, bounds.r - p.aabb.r, bounds.b - p.aabb.b };
 		std::uniform_real_distribution<> xdist(aabb.l, aabb.r), ydist(aabb.b, aabb.t);
 		p.pos.x = xdist(mt); p.pos.y = ydist(mt);
@@ -1859,7 +1868,7 @@ public:
 		overlay(camera) {
 		const auto size = renderer.rt.GetCurrentRes();
 		SetHudVp(size.x, size.y);
-		texts.push_back(Text{ {}, 1.f, Text::Align::Center, "A !\"'()&%$#0123456789:;<=>?AMKXR" });
+		//texts.push_back(Text{ {}, 1.f, Text::Align::Center, "A !\"'()&%$#0123456789:;<=>?AMKXR" });
 		/*bounds.t = float((height >> 1) + (height >> 2));
 		bounds.b = -float((height >> 1) + (height >> 2));*/
 #ifdef DEBUG_REL
@@ -1978,6 +1987,15 @@ public:
 			camera.Translate(float(scroll_speed * t.frame), 0.f, 0.f);
 		if (inputHandler.keys[(size_t)InputHandler::Keys::Right])
 			camera.Translate(float(scroll_speed * t.frame), 0.f, 0.f);
+		texts.clear();
+		if (wait > 0) {
+			std::stringstream ss;
+			ss << "SESSION NEEDS " << wait << " MORE PLAYER" << ((wait == 1) ? "":"S");
+			texts.push_back({ {}, .8f, Text::Align::Center, ss.str() });
+			ss.str("");
+			ss << "INVITE PLAYERS WITH THE URL IN THE ADDRESS BAR!";
+			texts.push_back({ {0.f,  -(assets.text.aabb.t - assets.text.aabb.b), 0.f}, .5f, Text::Align::Center, ss.str() });
+		}
 		if (player) {
 			if (inputHandler.update) player->TurretControl(inputHandler.x, inputHandler.px);
 			player->Move(t, inputHandler.keys[(size_t)InputHandler::Keys::A],
@@ -2004,10 +2022,15 @@ public:
 			}
 			else ++p;
 		}
+		if (player->hit && player->clear_color_blink < 0.f) {
+			std::uniform_int_distribution<> col_idx_dist(0, globals.palette.size() - 1);
+			renderer.clearColor = globals.palette[col_idx_dist(mt)];
+		}
 		if (player && player->killed) {
 			auto ctrl = player->ctrl;
 			auto score = player->score;
 			player = std::make_unique<ProtoX>(player->id, assets.probe, assets.debris, assets.propulsion.layers.size(), globals.ws.get());
+			renderer.clearColor = { 0.f, 0.f, 0.f, 1.f };
 			SetCtrl(ctrl);
 			player->score = score;
 			RandomizePos(*player.get());
@@ -2214,7 +2237,7 @@ public:
 	}
 	void OnWait(const std::vector<unsigned char>& msg) {
 		auto wait = reinterpret_cast<const Wait*>(&msg.front());
-		// TODO:: set or clear wait message
+		this->wait = wait->n;
 		LOG_INFO("OnWait: %d", wait->n);
 	}
 	void Dispatch(const std::vector<unsigned char>& msg, const Time& t) {
@@ -2284,7 +2307,6 @@ static void init(int width, int height) {
 	ThrowIf(glewInit() != GLEW_OK, "glew init failed");
 	ThrowIf(glewGetString(0) != NULL, (const char*)glewGetString(0));
 
-	glClearColor(0.f,.0f,.0f, 1.f);
 #ifdef REPORT_RESULT  
 	int result = 1;
 	REPORT_RESULT();

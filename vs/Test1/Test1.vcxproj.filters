@@ -117,6 +117,9 @@
     <ClCompile Include="..\..\emc_ogl\shader\TextureColorMod.cpp">
       <Filter>Source Files\shader</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\emc_ogl\Palette.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\MeshLoader\Deserialize.h">
@@ -235,6 +238,9 @@
     </ClInclude>
     <ClInclude Include="..\..\emc_ogl\shader\TextureColorMod.h">
       <Filter>Header Files\shader</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\emc_ogl\Palette.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

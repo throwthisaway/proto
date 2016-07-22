@@ -31,6 +31,7 @@
     <ClCompile Include="..\..\..\MeshLoader\MeshLoader.cpp" />
     <ClCompile Include="..\..\..\MeshLoader\MeshSurface.cpp" />
     <ClCompile Include="..\..\..\MeshLoader\types.cpp" />
+    <ClCompile Include="..\..\emc_ogl\Palette.cpp" />
     <ClCompile Include="..\..\emc_ogl\RT.cpp" />
     <ClCompile Include="..\..\emc_ogl\SAT.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\BloomPass1.cpp" />
@@ -71,6 +72,7 @@
     <ClInclude Include="..\..\emc_ogl\Globals.h" />
     <ClInclude Include="..\..\emc_ogl\Helpers.h" />
     <ClInclude Include="..\..\emc_ogl\Logging.h" />
+    <ClInclude Include="..\..\emc_ogl\Palette.h" />
     <ClInclude Include="..\..\emc_ogl\RT.h" />
     <ClInclude Include="..\..\emc_ogl\SAT.h" />
     <ClInclude Include="..\..\emc_ogl\shader\BloomPass1.h" />

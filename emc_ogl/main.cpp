@@ -75,11 +75,12 @@ class Scene;
 class Envelope;
 struct {
 #ifdef DEBUG_REL
-	const float invincibility = 10.f;
+	const float invincibility = 5000.f;
 #else
 	const float invincibility = 5000.f;
 #endif
 	const float	scale = 40.f,
+		radar_scale = 75.f,
 		propulsion_scale = 80.f,
 		text_spacing = 10.f,
 		text_scale = 120.f,
@@ -457,7 +458,7 @@ namespace Asset {
 			{
 				MeshLoader::Mesh mesh;
 				ReadMeshFile(PATH_PREFIX"asset//radar.mesh", mesh);
-				radar = Reconstruct(mesh, globals.scale);
+				radar = Reconstruct(mesh, globals.radar_scale);
 				models.push_back(&radar);
 			}
 			{
@@ -699,31 +700,35 @@ struct ProtoX {
 	const Asset::Model& debris_ref;
 	Asset::Model debris;
 	std::vector<float> debris_centrifugal_speed, debris_speed;
-	const float max_vel =.3f,
+	const float max_vel = .3f,
 		m = 500.f,
-		force =.1f,
-		slowdown =.0003f,
+		force = .1f,
+		slowdown = .0003f,
 		g = -.1f, /* m/ms2 */
 		ground_level = 20.f,
 		fade_out_time = 1500.f, // ms
-		max_debris_speed =.3f, //px/ ms
+		max_debris_speed = .3f, //px/ ms
 		min_debris_speed = .05f, //px/ ms
-		debris_max_centrifugal_speed =.02f; // rad/ms
+		debris_max_centrifugal_speed = .02f, // rad/ms
+		rot_max = glm::radians(25.f),
+		rot_max_speed = .001f, //rad/ms
+		rot_inc = .000004; // rad/ms*ms
 	// state...
 	float invincible, fade_out, visible = 1.f, blink = 1.f;
 	double hit_time;
 	bool hit, killed;
-	glm::vec3 pos, vel, f, hit_pos;
-	const glm::vec3 missile_start_offset;
+	const glm::vec3 pos;
+	glm::vec3 prev_pos, vel, f, hit_pos;
 	const Asset::Layer& layer;
 	size_t score = 0, missile_id = 0;
 	enum class Ctrl{Full, Prop, Turret};
 	Ctrl ctrl = Ctrl::Full;
 	bool pos_invalidated = false; // from web-message
 	float clear_color_blink;
+	float rot = 0.f, rot_speed = 0.f;
 	struct Propulsion {
 		const glm::vec3 pos;
-		const float rot;
+		const float rot, scale;
 		const size_t frame_count;
 		bool on = false;
 		const double frame_time = 100.; //ms
@@ -746,8 +751,12 @@ struct ProtoX {
 				elapsed = 0.;
 			}
 		}
-		Propulsion(const glm::vec3& pos, float rot, size_t frame_count) :
-			pos(pos), rot(rot), frame_count(frame_count) {}
+		Propulsion(const glm::vec3& pos, float rot, float scale, size_t frame_count) :
+			pos(pos), rot(rot), scale(scale), frame_count(frame_count) {}
+		auto GetModel(const glm::mat4& m) const {
+			return glm::rotate(
+				glm::translate(m, pos) * glm::scale(glm::vec3{ scale, scale, 1.f }), rot, { 0.f, 0.f, 1.f });
+		}
 	}left, bottom, right;
 	struct Turret {
 		float rot = 0.f;
@@ -755,33 +764,51 @@ struct ProtoX {
 			min_rot = -glm::radians(45.f) - rest_pos,
 			max_rot = glm::radians(225.f) - rest_pos;
 		const Asset::Layer& layer;
-		Turret(const Asset::Layer& layer) :layer(layer) {}
+		const glm::vec3 missile_start_offset;
+		Turret(const Asset::Layer& layer) : layer(layer),
+			missile_start_offset(layer.pivot) {}
 		void SetRot(const float rot) {
 			this->rot = std::min(max_rot, std::max(min_rot, rot));
 		}
+		auto GetModel(const glm::mat4& model) const {
+			return glm::translate(
+					glm::rotate(
+						glm::translate(model, layer.pivot), rot, { 0.f, 0.f, 1.f }), -layer.pivot);
+		}
 	}turret;
-	ProtoX(const size_t id, const Asset::Model& model, const Asset::Model& debris, size_t frame_count, Client* ws = nullptr) : id(id),
+	ProtoX(const size_t id, const Asset::Model& model, const Asset::Model& debris, size_t frame_count, const glm::vec3& pos, Client* ws = nullptr) : id(id),
 		aabb(model.aabb),
 		ws(ws),
 		debris_ref(debris),
-		missile_start_offset(model.layers[model.layers.size() - 1].pivot),
 		layer(model.layers.front()),
-		left({ 25.f, 15.f, 0.f }, glm::half_pi<float>(), frame_count),
-		right({ -25.f, 15.f, 0.f }, -glm::half_pi<float>(), frame_count),
-		bottom({}, 0.f, frame_count),
+		left({ 90.f, 12.f, 0.f }, glm::half_pi<float>(), 1.f, frame_count),
+		right({ -90.f, 12.f, 0.f }, -glm::half_pi<float>(), 1.f, frame_count),
+		bottom({ 0.f, -20.f, 0.f }, 0.f, 2.f, frame_count),
 		turret(model.layers.back()),
-		clear_color_blink(globals.clear_color_blink_rate){
+		clear_color_blink(globals.clear_color_blink_rate),
+		pos(pos),
+		prev_pos(pos) {
 		debris_centrifugal_speed.resize(debris.vertices.size() / 6);
 		debris_speed.resize(debris.vertices.size() / 6);
 		Init();
+	}
+	void SetPos(float x, float y) {	SetPos({ x, y, 0.f }); }
+	void SetPos(const glm::vec3 pos) {
+		prev_pos = this->pos;
+		const_cast<glm::vec3&>(this->pos) = pos;
+	}
+	auto GetModel() const {
+		return glm::translate(glm::rotate(glm::translate({}, pos + layer.pivot), rot, { 0.f, 0.f, 1.f }), -layer.pivot);
 	}
 	void Shoot(std::vector<Missile>& missiles) {
 		if (ctrl != Ctrl::Turret && ctrl != Ctrl::Full) return;
 		if (killed) return;
 		const float missile_vel = 1.f;
-		auto rot = turret.rest_pos + turret.rot;
-		const glm::vec3 missile_vec{ std::cos(rot) * missile_vel, std::sin(rot) * missile_vel,.0f};
-		missiles.emplace_back(pos + missile_start_offset, rot, glm::length(missile_vec), this, ++missile_id );
+		auto rot = turret.rest_pos + turret.rot + this->rot;
+		glm::vec3 missile_vec{ std::cos(rot) * missile_vel, std::sin(rot) * missile_vel,.0f};
+
+		auto start_pos = RotateZ(turret.missile_start_offset, layer.pivot, this->rot) + layer.pivot;
+		missiles.emplace_back(pos + start_pos, rot, glm::length(missile_vec), this, ++missile_id );
 		if (ws) {
 			auto& m = missiles.back();
 			Misl misl{ Tag("MISL"), id, m.id, m.pos.x, m.pos.y, m.rot, m.vel, m.life};
@@ -832,6 +859,9 @@ struct ProtoX {
 		for (auto& cfs : debris_centrifugal_speed) cfs = dist_cfs(mt);
 		for (auto& sp : debris_speed) sp = dist_sp(mt);
 	}
+	bool IsOnGround(const AABB& bounds) const {
+		return pos.y + aabb.b <= bounds.b + ground_level;
+	}
 	void Update(const Time& t, const AABB& bounds, bool player_self) {
 		if (invincible > 0.f) {
 			invincible -= (float)t.frame;
@@ -840,13 +870,14 @@ struct ProtoX {
 			}
 		}
 		else if (hit) {
+			auto fade_time = (float)(t.total - hit_time) / fade_out_time;
+			fade_out = 1.f - fade_time * fade_time * fade_time * fade_time * fade_time;
+			if ((killed = (fade_out <= 0.0001f))) return;
+			left.on = right.on = bottom.on = false;
 			if (clear_color_blink < 0.f)
 				clear_color_blink += globals.clear_color_blink_rate;
 			else
 				clear_color_blink -= (float)t.frame;
-			auto fade_time = (float)(t.total - hit_time) / fade_out_time;
-			fade_out = 1.f - fade_time * fade_time * fade_time * fade_time * fade_time;
-			if ((killed = (fade_out <= 0.0001f))) return;
 			// TODO:: refactor to continuous fx instead of incremental
 			for (size_t i = 0, cfs = 0; i < debris.vertices.size(); i += 6, ++cfs) {
 				// TODO:: only enough to have the average of the furthest vertices
@@ -881,7 +912,7 @@ struct ProtoX {
 			vel += (f / m) * (float)t.frame;
 			vel.x = std::max(-max_vel, std::min(max_vel, vel.x));
 			vel.y = std::max(-max_vel, std::min(max_vel, vel.y));
-			pos += vel * (float)t.frame;
+			SetPos(pos + vel * (float)t.frame);
 			//std::string str;
 			//str += std::to_string(vel.x);
 			//str += " ";
@@ -896,21 +927,41 @@ struct ProtoX {
 			//str += std::to_string(vel.y);
 			//str += "\n";
 			//LOG_INFO(str.c_str());
-			pos += vel * (float)t.frame;
+			SetPos(pos + vel * (float)t.frame);
 		}
 
 		// ground constraint
-		if (pos.y + aabb.b <= bounds.b + ground_level) {
-			pos.y = bounds.b + ground_level - aabb.b;
+		if (IsOnGround(bounds)) {
+			rot = 0.f;
+			SetPos(pos.x, bounds.b + ground_level - aabb.b);
 			if (std::abs(vel.y) < 0.001f)
 				vel.y = 0.f;
 			else
 				vel = { 0.f, -vel.y / 2.f, 0.f };
 		}
 		else if (pos.y + aabb.t >= bounds.t) {
-			pos.y = bounds.t - aabb.t;
+			SetPos(pos.x, bounds.t - aabb.t);
 			vel.y = 0.f;
 		}
+		if (!IsOnGround(bounds)) {
+			rot_speed += std::min(rot_inc * (float)t.frame, rot_max_speed);
+			if (right.on) {
+				rot = std::max(-rot_max, rot - rot_speed * (float)t.frame);
+			}
+			if (left.on) {
+				rot = std::min(rot_max, rot + rot_speed * (float)t.frame);
+			}
+		}
+		//if (!right.on && !left.on && rot != 0.f) {
+		//	rot_speed -= std::min(rot_inc * (float)t.frame, rot_max_speed);
+		//	float sign = (rot < 0.f) ? 1.f : -1.f;
+		//	float next_val = rot + sign * rot_speed * (float)t.frame;
+		//	if (rot < 0.f)
+		//		rot = std::min(0.f, next_val);
+		//	else
+		//		rot = std::max(0.f, next_val);
+		//}
+		if (!right.on && !left.on || rot == 0.f || (right.on && left.on)) rot_speed = 0.f;
 		if (ws) {
 			Plyr player{ Tag("PLYR"), id, pos.x, pos.y, turret.rot, invincible, vel.x, vel.y, left.on, right.on, bottom.on };
 			globals.ws->Send((char*)&player, sizeof(Plyr));
@@ -919,12 +970,12 @@ struct ProtoX {
 	float WrapAround(float min, float max) {
 		float dif = pos.x - max;
 		if (dif >= 0) {
-			pos.x = min + dif;
+			SetPos(min + dif, pos.y);
 			return dif;
 		}
 		dif = pos.x - min;
 		if (dif < 0) {
-			pos.x = max + dif;
+			SetPos(max + dif, pos.y);
 			return dif;
 		}
 		return 0.f;
@@ -1383,7 +1434,7 @@ struct Renderer {
 		glDrawArrays(GL_LINE_STRIP, 0, 5);
 		glDisableVertexAttribArray(0);
 	}
-	void Draw(const Camera& cam, const ProtoX& proto, const ProtoX::Propulsion& prop) {
+	void Draw(const Camera& cam, const ProtoX& proto, const ProtoX::Propulsion& prop, const glm::mat4& parent_model) {
 		auto& shader = colorShader;
 		glUseProgram(shader.id);
 		glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_PROPULSION]);
@@ -1396,9 +1447,7 @@ struct Renderer {
 		const size_t frame_count = assets.propulsion.layers.size();
 		const auto& model = assets.propulsion;
 		if (prop.on) {
-			glm::mat4 m = glm::translate({}, proto.pos + prop.pos);
-			m = glm::rotate(m, prop.rot, { 0.f, 0.f, 1.f });
-			glm::mat4 mvp = cam.vp * m;
+			glm::mat4 mvp = cam.vp * prop.GetModel(parent_model);
 			glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 
 			auto& layer = assets.propulsion.layers[proto.left.frame];
@@ -1456,6 +1505,7 @@ struct Renderer {
 	void Draw(const Camera& cam, const ProtoX& proto, bool player = false) {
 		if (!proto.visible)
 			return;
+		const auto m = proto.GetModel();
 		if (proto.hit) {
 			glEnable(GL_BLEND);
 			glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
@@ -1472,7 +1522,7 @@ struct Renderer {
 			const auto& shader = colorShader;
 			glUseProgram(shader.id);
 			auto& p = assets.debris.layers.front().parts.front();
-			glm::mat4 mvp = glm::translate(cam.vp, proto.pos);
+			glm::mat4 mvp = cam.vp * m;
 			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 			glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, proto.fade_out);
 			glDrawArrays(GL_TRIANGLES, p.first, p.count);
@@ -1494,7 +1544,7 @@ struct Renderer {
 #endif
 		auto& shader = colorShader;
 		glUseProgram(shader.id);
-		const glm::mat4 mvp = glm::translate(cam.vp, proto.pos);
+		const glm::mat4 mvp = cam.vp * m;
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 		float prop_blink = 1.f, turret_blink = 1.f;
 		if (player) {
@@ -1506,17 +1556,19 @@ struct Renderer {
 		Draw<GL_TRIANGLES>(shader.uCol, proto.layer.parts, prop_blink);
 		Draw<GL_LINES>(shader.uCol, proto.layer.line_parts, prop_blink);
 		{ 
-			const glm::mat4 m = glm::translate(
-				glm::rotate(
-					glm::translate({}, proto.pos + proto.turret.layer.pivot), proto.turret.rot, { 0.f, 0.f, 1.f }), -proto.turret.layer.pivot);
-			const glm::mat4 mvp = cam.vp * m;
+			const glm::mat4 mvp = cam.vp * proto.turret.GetModel(m);
 			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 			Draw<GL_TRIANGLES>(shader.uCol, proto.turret.layer.parts, turret_blink);
 			Draw<GL_LINES>(shader.uCol, proto.turret.layer.line_parts, turret_blink);
 		}
-		Draw(cam, proto, proto.left);
-		Draw(cam, proto, proto.right);
-		Draw(cam, proto, proto.bottom);
+		Draw(cam, proto, proto.left, m);
+		Draw(cam, proto, proto.right, m);
+		Draw(cam, proto, proto.bottom, m);
+		std::vector<Text> msg;
+		std::stringstream ss;
+		ss << proto.IsOnGround(assets.land.aabb);
+		msg.push_back({ proto.pos + glm::vec3{100.f, 0.f, 0.f}, 1.f, Text::Align::Left, ss.str() });
+		Draw(cam, msg);
 		//if (proto.state.rthruster) {
 		//	mvp = cam.vp;
 		//	m = glm::translate({}, proto.pos) * glm::scale({}, proto.scale) * proto.rthruster_model;
@@ -1569,7 +1621,7 @@ struct Renderer {
 		const auto rw = aabb.r - aabb.l, rh = aabb.t - aabb.b, sw = bounds.r - bounds.l, sh = bounds.t - bounds.b,
 			rx = rw / sw, ry = rh / sh;
 
-		const glm::vec3 pos(player->pos.x * rx, (player->pos.y + bounds.b) * ry, 0.f);
+		const glm::vec3 pos(player->pos.x * rx, (player->pos.y - bounds.b) * ry + aabb.b, 0.f);
 		glVertexAttrib3fv(shader.aVertex, &(pos)[0]);
 		glDrawArrays(GL_TRIANGLES, 0, Particles::vertex_count);
 
@@ -1577,7 +1629,7 @@ struct Renderer {
 		size_t max = 0;
 		for (const auto& p : players) {
 			max = std::max(max, p.second->score);
-			const glm::vec3 pos(p.second->pos.x * rx, (p.second->pos.y + bounds.b)* ry, 0.f);
+			const glm::vec3 pos(p.second->pos.x * rx, (p.second->pos.y - bounds.b) * ry + aabb.b, 0.f);
 			glVertexAttrib3fv(shader.aVertex, &(pos)[0]);
 			glDrawArrays(GL_TRIANGLES, 0, Particles::vertex_count);
 		}
@@ -1835,16 +1887,16 @@ public:
 		camera.SetProj(globals.width, VP_RATIO(globals.height));
 		hud.SetProj(globals.width, HUD_RATIO(globals.height));
 	}
-	void RandomizePos(ProtoX& p) {
-		const AABB aabb{ bounds.l - p.aabb.l, bounds.t - p.aabb.t, bounds.r - p.aabb.r, bounds.b - p.aabb.b };
+	glm::vec3 RandomizePos(const AABB& asset_aabb) {
+		const AABB aabb{ bounds.l - asset_aabb.l, bounds.t - asset_aabb.t, bounds.r - asset_aabb.r, bounds.b - asset_aabb.b };
 		std::uniform_real_distribution<> xdist(aabb.l, aabb.r), ydist(aabb.b, aabb.t);
-		p.pos.x = xdist(mt); p.pos.y = ydist(mt);
-		//p.pos.x = 0; p.pos.y = 0.;
+		return{ xdist(mt), ydist(mt), 0.f };
 	}
 	void GenerateNPC() {
 		static size_t i = 0;
-		auto p = std::make_unique<ProtoX>((size_t)0xbeef, assets.probe, assets.debris, assets.propulsion.layers.size());
-		RandomizePos(*p.get());
+		auto p = std::make_unique<ProtoX>((size_t)0xbeef, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb));
+		std::uniform_real_distribution<> rot_dist(-p->rot_max, p->rot_max);
+		p->rot = rot_dist(mt);
 		players[++i] = std::move(p);
 	}
 	void GenerateNPCs() {
@@ -1861,9 +1913,11 @@ public:
 			globals.envelopes.push_back(std::unique_ptr<Envelope>(new Blink(renderer.mouse_decal.factor, globals.blink_duration, globals.timer.ElapsedMs(), globals.blink_rate, globals.blink_ratio)));
 	}
 	Scene() : bounds(assets.land.aabb),
+//#ifndef __EMSCRIPTEN__
 #ifdef DEBUG_REL
-		player(std::make_unique<ProtoX>(0xdeadbeef, assets.probe, assets.debris, assets.propulsion.layers.size())),
+	player(std::make_unique<ProtoX>(0xdeadbeef, assets.probe, assets.debris, assets.propulsion.layers.size(), glm::vec3{})),
 #endif
+//#endif
 		renderer(assets, bounds),
 		overlay(camera) {
 		const auto size = renderer.rt.GetCurrentRes();
@@ -1873,58 +1927,11 @@ public:
 		bounds.b = -float((height >> 1) + (height >> 2));*/
 #ifdef DEBUG_REL
 		SetCtrl(ProtoX::Ctrl::Full);
-		RandomizePos(*player.get());
 		GenerateNPCs();
 #endif
 		inputHandler.keyCb = std::bind(&Scene::KeyCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
 
 		mesh.model = glm::translate(mesh.model, mesh.pos);
-
-		/*texID = GenTexture(texw, texh);
-		auto mvp = camera.proj * camera.view * mesh.model;
-
-		glm::vec4 v{ -1.0f, -1.0f, 0.0f, 1.f };
-		glm::vec4 res1 = v * mvp, res2 = mvp * v;
-
-		static const GLfloat g_vertex_buffer_data[] = { -1.0f, -1.0f, 0.0f,
-			1.0f, -1.0f, 0.0f,
-			0.0f,  1.0f, 0.0f };
-
-		glGenBuffers(1, &vertexbuffer);
-		glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
-		glBufferData(GL_ARRAY_BUFFER, sizeof(g_vertex_buffer_data), g_vertex_buffer_data, GL_STATIC_DRAW);
-
-		static const GLfloat g_uv_buffer_data[] = { 0.f, 0.f,
-			1.f,.0f,
-			.5f,  1.0f };
-
-		glGenBuffers(1, &uvbuffer);
-		glBindBuffer(GL_ARRAY_BUFFER, uvbuffer);
-		glBufferData(GL_ARRAY_BUFFER, sizeof(g_uv_buffer_data), g_uv_buffer_data, GL_STATIC_DRAW);*/
-
-		//glBindVertexArray(0);
-
-		//glGenVertexArrays(1, &VertexArrayID);
-		//glBindVertexArray(VertexArrayID);
-		//glEnableVertexAttribArray(0);
-		//glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
-		//glVertexAttribPointer(0,
-		//	3,
-		//	GL_FLOAT,
-		//	GL_FALSE,
-		//	0,
-		//	(void*)0);
-		//glEnableVertexAttribArray(1);
-		//glBindBuffer(GL_ARRAY_BUFFER, uvbuffer);
-		//glVertexAttribPointer(1,
-		//	2,
-		//	GL_FLOAT,
-		//	GL_FALSE,
-		//	0,
-		//	(void*)0);
-		//glBindVertexArray(0);
-		////glDisableVertexAttribArray(1);
-		////glDisableVertexAttribArray(0);
 	}
 	void Render() {
 		renderer.PreRender();
@@ -2029,11 +2036,10 @@ public:
 		if (player && player->killed) {
 			auto ctrl = player->ctrl;
 			auto score = player->score;
-			player = std::make_unique<ProtoX>(player->id, assets.probe, assets.debris, assets.propulsion.layers.size(), globals.ws.get());
+			player = std::make_unique<ProtoX>(player->id, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(player->aabb), globals.ws.get());
 			renderer.clearColor = { 0.f, 0.f, 0.f, 1.f };
 			SetCtrl(ctrl);
 			player->score = score;
-			RandomizePos(*player.get());
 		}
 		for (auto& m : missiles) {
 			m.Update(t);
@@ -2148,14 +2154,8 @@ public:
 	void OnConn(const std::vector<unsigned char>& msg) {
 		const Conn* conn = reinterpret_cast<const Conn*>(msg.data());
 		size_t id = ID5(conn->client_id, 0);
-		player = std::make_unique<ProtoX>(id, assets.probe, assets.debris, assets.propulsion.layers.size(), globals.ws.get());
+		player = std::make_unique<ProtoX>(id, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), globals.ws.get());
 		player->ctrl = static_cast<ProtoX::Ctrl>(conn->ctrl - 48/*TODO:: eliminate conversion*/);
-//#ifndef DEBUG_REL
-		float dx = (assets.probe.aabb.r - assets.probe.aabb.l) / 2.f,
-			dy = (assets.probe.aabb.t - assets.probe.aabb.b) / 2.f;
-		std::uniform_real_distribution<> x_dist(bounds.l + dx, bounds.r - dx), y_dist(bounds.b + dy, bounds.t - dy);
-		player->pos = { x_dist(mt), y_dist(mt), 0.f };
-//#endif
 	}
 	void SendSessionID() {
 		Sess msg{ Tag("SESS") };
@@ -2168,7 +2168,7 @@ public:
 			if (this->player->ctrl == ProtoX::Ctrl::Prop) this->player->turret.rot = player->rot;
 			else if (this->player->ctrl == ProtoX::Ctrl::Turret) {
 				this->player->pos_invalidated = true;
-				this->player->pos.x = player->x; this->player->pos.y = player->y;
+				this->player->SetPos(player->x, player->y);
 				this->player->vel.x = player->vx; this->player->vel.y = player->vy;
 				this->player->left.on = player->prop_left; this->player->right.on = player->prop_right;  this->player->bottom.on = player->prop_bottom;
 			}
@@ -2177,13 +2177,15 @@ public:
 		auto it = players.find(player->id);
 		ProtoX * proto;
 		if (it == players.end()) {
-			auto ptr = std::make_unique<ProtoX>( player->id, assets.probe, assets.debris, assets.propulsion.layers.size() );
+			auto ptr = std::make_unique<ProtoX>(player->id, assets.probe, assets.debris, assets.propulsion.layers.size(), glm::vec3{ player->x, player->y, 0.f });
 			proto = ptr.get();
 			players[player->id] = std::move(ptr);
 		}
-		else
+		else {
 			proto = it->second.get();
-		proto->pos.x = player->x; proto->pos.y = player->y; proto->turret.rot = player->rot; proto->invincible = player->invincible;
+			proto->SetPos(player->x, player->y);
+		}
+		proto->turret.rot = player->rot; proto->invincible = player->invincible;
 		proto->vel.x = player->vx; proto->vel.y = player->vy;
 		proto->left.on = player->prop_left; proto->right.on = player->prop_right;  proto->bottom.on = player->prop_bottom;
 		proto->pos_invalidated = true;

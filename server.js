@@ -74,7 +74,7 @@ app.get('/emc_socket/index.js', function (req, res) {
     res.sendFile(__dirname + '/emc_socket/index.js');
 });
 
-app.get('/', function (req, res) {
+app.get('/develop', function (req, res) {
     if (req.query.p && sessions[req.query.p] != undefined) {
         res.sendFile(__dirname + '/emc_ogl/main.html');
         //  ?p=' + req.query.p);
@@ -83,18 +83,27 @@ app.get('/', function (req, res) {
         console.log('starting new session: ' + sessionID)
         sessions[sessionID] = [];
         sessions[sessionID].id = sessionID;
-        res.redirect('/?p=' + sessionID);
+        res.redirect('/develop/?p=' + sessionID);
     }
 });
 
-app.get('/main.js', function (req, res) {
+app.get('/develop/main.js', function (req, res) {
     res.sendFile(__dirname + '/emc_ogl/main.js');
 });
 
-app.get('/main.js.mem', function (req, res) {
+app.get('/develop/main.js.mem', function (req, res) {
     res.sendFile(__dirname + '/emc_ogl/main.js.mem');
 });
 
+app.get('/', function (req, res) {
+    res.sendFile(__dirname + '/coming_soon.html');
+});
+app.get('/coming_soon.png', function (req, res) {
+    res.sendFile(__dirname + '/coming_soon.png');
+});
+app.get('/thumbnail1.png', function (req, res) {
+    res.sendFile(__dirname + '/thumbnail1.png');
+});
 /*app.use(function(req, res, next) {
     console.log("Sending compressed index.js");
   if (req.originalUrl === "/index.js") {

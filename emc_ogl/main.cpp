@@ -670,7 +670,7 @@ struct Sess{
 };
 struct Plyr {
 	const size_t tag, id;
-	const float x, y, rot, invincible, vx, vy;
+	const float x, y, turret_rot, invincible, vx, vy, rot;
 	const bool prop_left, prop_right, prop_bottom;
 };
 struct Misl {
@@ -878,6 +878,11 @@ struct ProtoX {
 	auto GetModel() const {
 		return glm::translate(glm::rotate(glm::translate({}, pos + layer.pivot), rot, { 0.f, 0.f, 1.f }), -layer.pivot);
 	}
+	void Kill(size_t id, size_t missile_id, int score, const glm::vec3& hit_pos, const glm::vec3& missile_vec) {
+		if (!ws) return;
+		Scor msg{ Tag("SCOR"), this->id, id, missile_id, score, hit_pos.x, hit_pos.y, missile_vec.x, missile_vec.y };
+		ws->Send((const char*)&msg, sizeof(msg));
+	}
 	void Shoot(std::vector<Missile>& missiles) {
 		if (ctrl != Ctrl::Turret && ctrl != Ctrl::Full) return;
 		if (killed) return;
@@ -1026,20 +1031,24 @@ struct ProtoX {
 			//LOG_INFO(str.c_str());
 		}
 		else if (!pos_invalidated) {
-			//std::string str("!pos_invalidated ");
-			//str += std::to_string(vel.x);
-			//str += " ";
-			//str += std::to_string(vel.y);
-			//str += "\n";
-			//LOG_INFO(str.c_str());
-			SetPos(pos + vel * (float)t.frame);
+			////std::string str("!pos_invalidated ");
+			////str += std::to_string(vel.x);
+			////str += " ";
+			////str += std::to_string(vel.y);
+			////str += "\n";
+			////LOG_INFO(str.c_str());
+			//SetPos(pos + vel * (float)t.frame);
 		}
 
 		// ground constraint
 		if (IsInRestingPos(bounds)) {
 			SetPos(pos.x, bounds.b + ground_level - aabb.b);
 			if (std::abs(rot) > safe_rot && invincible <= 0.f) {
-				Die(pos + glm::vec3{ 0.f, aabb.b, 0.f }, particles, { 0.f, 1.f, 0.f }, t.total);
+				glm::vec3 hit_pos = pos + glm::vec3{ 0.f, aabb.b, 0.f },
+					vec{ 0.f, 1.f, 0.f };
+				Die(hit_pos, particles, vec, t.total);
+				--score;
+				Kill(id, id, score, hit_pos, vec);
 			} else {
 				rot = 0.f;
 				if (std::abs(vel.y) < 0.001f)
@@ -1060,7 +1069,7 @@ struct ProtoX {
 		msg.push_back({ pos + glm::vec3{ 100.f, 0.f, 0.f }, 1.f, Text::Align::Left, ss.str() });
 
 		if (ws) {
-			Plyr player{ Tag("PLYR"), id, pos.x, pos.y, turret.rot, invincible, vel.x, vel.y, left.on, right.on, bottom.on };
+			Plyr player{ Tag("PLYR"), id, pos.x, pos.y, turret.rot, invincible, vel.x, vel.y, rot, left.on, right.on, bottom.on };
 			globals.ws->Send((char*)&player, sizeof(Plyr));
 		}
 	}
@@ -1960,7 +1969,7 @@ public:
 		renderer.Draw(camera, missiles);
 		for (const auto& p : players) {
 			renderer.Draw(camera, *p.second.get());
-			renderer.Draw(camera, p.second->aabb.Translate(p.second->pos));
+		//	renderer.Draw(camera, p.second->aabb.Translate(p.second->pos));
 		}
 		if (player)
 			renderer.Draw(camera, *player.get(), true);
@@ -2015,11 +2024,11 @@ public:
 		texts.clear();
 		if (wait > 0) {
 			std::stringstream ss;
-			ss << "SESSION NEEDS " << wait << " MORE PLAYER" << ((wait == 1) ? "":"S");
+			ss << "WAITING FOR " << wait << " MORE PLAYER" << ((wait == 1) ? "":"S");
 			texts.push_back({ {}, .8f, Text::Align::Center, ss.str() });
 			ss.str("");
-			ss << "INVITE PLAYERS WITH THE URL IN THE ADDRESS BAR!";
-			texts.push_back({ {0.f,  -(assets.text.aabb.t - assets.text.aabb.b), 0.f}, .5f, Text::Align::Center, ss.str() });
+			ss << "SHARE THE URL IN THE ADDRESS BAR";
+			texts.push_back({ {0.f,  -(assets.text.aabb.t - assets.text.aabb.b), 0.f}, .8f, Text::Align::Center, ss.str() });
 		}
 		if (player) {
 			if (inputHandler.update) player->TurretControl(inputHandler.x, inputHandler.px);
@@ -2108,10 +2117,7 @@ public:
 							glm::vec3 vec{ std::cos(m.rot), std::sin(m.rot), 0.f };
 							p.second->Die(hit_pos, particles, vec, (double)t.total);
 							++player->score;
-							if (player->ws) {
-								Scor msg{ Tag("SCOR"), player->id, p.second->id, m.id, player->score, hit_pos.x, hit_pos.y, vec.x, vec.y };
-								player->ws->Send((const char*)&msg, sizeof(msg));
-							}
+							player->Kill(p.second->id, m.id, player->score, hit_pos, vec);
 							last = RemoveMissile(m);
 							missile_removed = true;
 							break;
@@ -2182,10 +2188,11 @@ public:
 	void OnPlyr(const std::vector<unsigned char>& msg) {
 		const Plyr* player = reinterpret_cast<const Plyr*>(&msg.front());
 		if (this->player->id == player->id) {
-			if (this->player->ctrl == ProtoX::Ctrl::Prop) this->player->turret.rot = player->rot;
+			if (this->player->ctrl == ProtoX::Ctrl::Prop) this->player->turret.rot = player->turret_rot;
 			else if (this->player->ctrl == ProtoX::Ctrl::Turret) {
 				this->player->pos_invalidated = true;
 				this->player->SetPos(player->x, player->y);
+				this->player->rot = player->rot;
 				this->player->vel.x = player->vx; this->player->vel.y = player->vy;
 				this->player->left.on = player->prop_left; this->player->right.on = player->prop_right;  this->player->bottom.on = player->prop_bottom;
 			}
@@ -2202,7 +2209,8 @@ public:
 			proto = it->second.get();
 			proto->SetPos(player->x, player->y);
 		}
-		proto->turret.rot = player->rot; proto->invincible = player->invincible;
+		proto->rot = player->rot;
+		proto->turret.rot = player->turret_rot; proto->invincible = player->invincible;
 		proto->vel.x = player->vx; proto->vel.y = player->vy;
 		proto->left.on = player->prop_left; proto->right.on = player->prop_right;  proto->bottom.on = player->prop_bottom;
 		proto->pos_invalidated = true;
@@ -2228,7 +2236,7 @@ public:
 			it->owner->score = scor->score;
 			RemoveMissile(*it);
 		}
-		if (scor->owner_id == player->id && player->ctrl == ProtoX::Ctrl::Prop) ++player->score;
+		if (scor->owner_id == player->id && player->ctrl == ProtoX::Ctrl::Prop) player->score = scor->score;
 		const::glm::vec3 hit_pos(scor->x, scor->y, 0.f),
 			missile_vec{ scor->vec_x, scor->vec_y, 0.f };
 		if (scor->target_id == player->id)

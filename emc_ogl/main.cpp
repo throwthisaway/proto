@@ -73,6 +73,7 @@ static std::mt19937 mt(rd());
 
 class Scene;
 class Envelope;
+static const glm::vec3 g(0.f, -.1f, 0.f);/* m/ms2 */
 struct {
 #ifdef DEBUG_REL
 	const float invincibility = 5000.f;
@@ -693,6 +694,13 @@ struct Wait {
 	const size_t tag;
 	const unsigned char n;
 };
+struct Text {
+	enum class Align { Left, Center, Right };
+	glm::vec3 pos;
+	float scale;
+	Align align;
+	std::string str;
+};
 struct ProtoX {
 	const size_t id;
 	AABB aabb;
@@ -702,17 +710,16 @@ struct ProtoX {
 	std::vector<float> debris_centrifugal_speed, debris_speed;
 	const float max_vel = .3f,
 		m = 500.f,
-		force = .1f,
+		force = .15f,
 		slowdown = .0003f,
-		g = -.1f, /* m/ms2 */
 		ground_level = 20.f,
 		fade_out_time = 1500.f, // ms
 		max_debris_speed = .3f, //px/ ms
 		min_debris_speed = .05f, //px/ ms
 		debris_max_centrifugal_speed = .02f, // rad/ms
-		rot_max = glm::radians(25.f),
-		rot_max_speed = .001f, //rad/ms
-		rot_inc = .000004; // rad/ms*ms
+		rot_max = glm::radians(360.f),
+		rot_max_speed = .003f, //rad/ms
+		rot_inc = .000001f; // rad/ms*ms
 	// state...
 	float invincible, fade_out, visible = 1.f, blink = 1.f;
 	double hit_time;
@@ -726,6 +733,7 @@ struct ProtoX {
 	bool pos_invalidated = false; // from web-message
 	float clear_color_blink;
 	float rot = 0.f, rot_speed = 0.f;
+	std::vector<Text> msg;
 	struct Propulsion {
 		const glm::vec3 pos;
 		const float rot, scale;
@@ -781,8 +789,8 @@ struct ProtoX {
 		ws(ws),
 		debris_ref(debris),
 		layer(model.layers.front()),
-		left({ 90.f, 12.f, 0.f }, glm::half_pi<float>(), 1.f, frame_count),
-		right({ -90.f, 12.f, 0.f }, -glm::half_pi<float>(), 1.f, frame_count),
+		left({ 88.f, 3.f, 0.f }, glm::radians(55.f), 1.f, frame_count),
+		right({ -88.f, 3.f, 0.f }, -glm::radians(55.f), 1.f, frame_count),
 		bottom({ 0.f, -20.f, 0.f }, 0.f, 2.f, frame_count),
 		turret(model.layers.back()),
 		clear_color_blink(globals.clear_color_blink_rate),
@@ -826,10 +834,31 @@ struct ProtoX {
 		left.Set(lt);
 		right.Set(rt);
 		bottom.Set(bt);
-		f.x = 0;
-		if (lt) f.x -= force;
-		if (rt) f.x += force;
-		f.y = (bt) ? force : g;
+		const glm::vec3 vf = glm::vec3{ .0f, -1.f, 0.f } * force;
+		const glm::vec3 force_l = glm::rotateZ(vf, glm::radians(-45.f)),
+			force_r = glm::rotateZ(vf, glm::radians(45.f)),
+			force_b = -vf;
+
+		if (lt) {
+			float sign = 1.f;
+			rot_speed = std::min(rot_speed + sign * rot_inc * (float)t.frame, rot_max_speed);
+		}
+		if (rt) {
+			float sign = -1.f;
+			rot_speed = std::max(rot_speed + sign * rot_inc * (float)t.frame, -rot_max_speed);
+		}
+		if (!lt && !rt) {
+			float sign = (rot_speed < 0.f) ? 1.f : -1.f;
+			if (rot_speed<0.f)
+				rot_speed = std::min(rot_speed + sign * rot_inc * (float)t.frame, 0.f);
+			else if(rot_speed>0.f)
+				rot_speed = std::max(rot_speed + sign * rot_inc * (float)t.frame, 0.f);
+		}
+		glm::vec3 val;
+		//if (lt) val += force_l;
+		//if (rt) val += force_r;
+		if (bt) val += force_b;
+		f = glm::rotateZ(val, rot);
 	}
 	void SetInvincibility() {
 		invincible = globals.invincibility;
@@ -859,10 +888,11 @@ struct ProtoX {
 		for (auto& cfs : debris_centrifugal_speed) cfs = dist_cfs(mt);
 		for (auto& sp : debris_speed) sp = dist_sp(mt);
 	}
-	bool IsOnGround(const AABB& bounds) const {
+	bool IsInRestingPos(const AABB& bounds) const {
 		return pos.y + aabb.b <= bounds.b + ground_level;
 	}
 	void Update(const Time& t, const AABB& bounds, bool player_self) {
+		msg.clear();
 		if (invincible > 0.f) {
 			invincible -= (float)t.frame;
 			if (invincible <= 0.f) {
@@ -909,7 +939,7 @@ struct ProtoX {
 		right.Update(t);
 		bottom.Update(t);
 		if (player_self && (ctrl == Ctrl::Full || ctrl == Ctrl::Prop)) {
-			vel += (f / m) * (float)t.frame;
+			vel += ((f + g) / m) * (float)t.frame;
 			vel.x = std::max(-max_vel, std::min(max_vel, vel.x));
 			vel.y = std::max(-max_vel, std::min(max_vel, vel.y));
 			SetPos(pos + vel * (float)t.frame);
@@ -931,7 +961,7 @@ struct ProtoX {
 		}
 
 		// ground constraint
-		if (IsOnGround(bounds)) {
+		if (IsInRestingPos(bounds)) {
 			rot = 0.f;
 			SetPos(pos.x, bounds.b + ground_level - aabb.b);
 			if (std::abs(vel.y) < 0.001f)
@@ -943,25 +973,15 @@ struct ProtoX {
 			SetPos(pos.x, bounds.t - aabb.t);
 			vel.y = 0.f;
 		}
-		if (!IsOnGround(bounds)) {
-			rot_speed += std::min(rot_inc * (float)t.frame, rot_max_speed);
-			if (right.on) {
-				rot = std::max(-rot_max, rot - rot_speed * (float)t.frame);
-			}
-			if (left.on) {
-				rot = std::min(rot_max, rot + rot_speed * (float)t.frame);
-			}
-		}
-		//if (!right.on && !left.on && rot != 0.f) {
-		//	rot_speed -= std::min(rot_inc * (float)t.frame, rot_max_speed);
-		//	float sign = (rot < 0.f) ? 1.f : -1.f;
-		//	float next_val = rot + sign * rot_speed * (float)t.frame;
-		//	if (rot < 0.f)
-		//		rot = std::min(0.f, next_val);
-		//	else
-		//		rot = std::max(0.f, next_val);
-		//}
-		if (!right.on && !left.on || rot == 0.f || (right.on && left.on)) rot_speed = 0.f;
+		if (IsInRestingPos(bounds))
+			rot = 0.f;
+		else
+			rot += rot_speed * (float)t.frame;
+
+		std::stringstream ss;
+		ss << IsInRestingPos(aabb) << " " << rot_speed ;
+		msg.push_back({ pos + glm::vec3{ 100.f, 0.f, 0.f }, 1.f, Text::Align::Left, ss.str() });
+
 		if (ws) {
 			Plyr player{ Tag("PLYR"), id, pos.x, pos.y, turret.rot, invincible, vel.x, vel.y, left.on, right.on, bottom.on };
 			globals.ws->Send((char*)&player, sizeof(Plyr));
@@ -991,14 +1011,6 @@ void GenerateSquare(float x, float y, float s, std::vector<glm::vec3>& data) {
 	data.emplace_back(x + s, y + s, 0.f);
 	data.emplace_back(x - s, y + s, 0.f);
 }
-
-struct Text {
-	enum class Align{Left, Center, Right};
-	glm::vec3 pos;
-	float scale;
-	Align align;
-	std::string str;
-};
 struct Renderer {
 	const Asset::Assets& assets;
 	RT rt;
@@ -1564,11 +1576,7 @@ struct Renderer {
 		Draw(cam, proto, proto.left, m);
 		Draw(cam, proto, proto.right, m);
 		Draw(cam, proto, proto.bottom, m);
-		std::vector<Text> msg;
-		std::stringstream ss;
-		ss << proto.IsOnGround(assets.land.aabb);
-		msg.push_back({ proto.pos + glm::vec3{100.f, 0.f, 0.f}, 1.f, Text::Align::Left, ss.str() });
-		Draw(cam, msg);
+		Draw(cam, proto.msg);
 		//if (proto.state.rthruster) {
 		//	mvp = cam.vp;
 		//	m = glm::translate({}, proto.pos) * glm::scale({}, proto.scale) * proto.rthruster_model;

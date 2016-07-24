@@ -678,7 +678,8 @@ struct Misl {
 	const float x, y, rot, vel, life;
 };
 struct Scor {
-	const size_t tag, owner_id, target_id, missile_id, score;
+	const size_t tag, owner_id, target_id, missile_id;
+	const int score;
 	const float x, y, vec_x, vec_y;
 };
 struct Kill {
@@ -701,6 +702,74 @@ struct Text {
 	Align align;
 	std::string str;
 };
+struct Particles {
+	static GLuint vbo;
+	static GLsizei vertex_count;
+	static const size_t count = 200;
+	static constexpr float slowdown = .02f, g = -.001f, init_mul = 1.f, min_fade = 750.f, max_fade = 1500.f,
+		v_min = .05f, v_max = .55f, blink_rate = 16.f;
+	const float vec_ratio = .7f; // static constexpr makes emscripten complain about unresolved symbol...
+	glm::vec3 pos;
+	bool kill = false;
+	float time;
+	struct Particle {
+		glm::vec3 pos, v;
+		glm::vec4 col;
+		float life, fade_duration;
+		size_t start_col_idx;
+	};
+	std::array<Particle, count> arr;
+	//		struct A {
+	//			int a, b;
+	//			A(int a, int b) : a(a), b(b) {
+	//#ifdef __EMSCRIPTEN__
+	//				emscripten_log(EM_LOG_CONSOLE, "A ctor. %d %d", a, b);
+	//#endif
+	//			}
+	//		};
+	Particles(const glm::vec3& pos, const glm::vec3& vec, double time) : pos(pos), time((float)time) {
+		//static A a(1, 2), b(3, 4), c(5, 6), d(7, 8), e(9, 10), f(11, 12), g(13, 14), h(15, 16);
+		//static A a1(17, 18) , b1(31, 41), /*missing*/c1(51, 61), d1(71, 81), e1(91, 101), f1(111, 121), g1(131, 141), h1(151, 161);
+		static std::uniform_real_distribution<> col_dist(0., 1.);
+		static std::uniform_real_distribution<> rad_dist(.0, glm::two_pi<float>());
+		static std::uniform_real_distribution<float> fade_dist(min_fade, max_fade);
+		static std::uniform_real_distribution<> v_dist(v_min, v_max);
+		static std::uniform_int_distribution<> col_idx_dist(0, globals.palette.size() - 1);
+
+		//#ifdef __EMSCRIPTEN__
+		//			emscripten_log(EM_LOG_CONSOLE, "%d %x %x", sizeof(col_idx_dist), *reinterpret_cast<int*>(&col_idx_dist), *(reinterpret_cast<int*>(&col_idx_dist) + 1));
+		//#endif
+		for (size_t i = 0; i < count; ++i) {
+			arr[i].col = { col_dist(mt), col_dist(mt), col_dist(mt), 1.f };
+			arr[i].pos = {};
+			auto r = rad_dist(mt);
+
+			arr[i].v = { std::cos(r) * v_dist(mt) * init_mul, std::sin(r) * v_dist(mt) * init_mul, 0.f };
+			arr[i].v += vec * vec_ratio;
+			arr[i].life = 1.f;
+			arr[i].fade_duration = fade_dist(mt);
+			arr[i].start_col_idx = col_idx_dist(mt);
+		}
+	}
+	void Update(const Time& t) {
+		kill = true;
+		for (size_t i = 0; i < count; ++i) {
+			if (arr[i].life <= 0.f) continue;
+			kill = false;
+			arr[i].pos += arr[i].v * (float)t.frame;
+			//arr[i].v *= 1.f - arr[i].decay * (float)t.frame;
+			arr[i].v.y += g * (float)t.frame;
+			arr[i].col = globals.palette[(arr[i].start_col_idx + size_t((t.total - time) / blink_rate)) % globals.palette.size()];
+			arr[i].col.a = arr[i].life;
+			auto fade_time = (float)(t.total - time) / arr[i].fade_duration;
+			arr[i].life = 1.f - fade_time * fade_time * fade_time * fade_time * fade_time;
+			if (arr[i].life <= 0.01f) arr[i].life = 0.f;
+		}
+	}
+};
+GLuint Particles::vbo;
+GLsizei Particles::vertex_count;
+
 struct ProtoX {
 	const size_t id;
 	AABB aabb;
@@ -710,16 +779,16 @@ struct ProtoX {
 	std::vector<float> debris_centrifugal_speed, debris_speed;
 	const float max_vel = .3f,
 		m = 500.f,
-		force = .15f,
+		force = .2f,
 		slowdown = .0003f,
 		ground_level = 20.f,
 		fade_out_time = 1500.f, // ms
 		max_debris_speed = .3f, //px/ ms
 		min_debris_speed = .05f, //px/ ms
 		debris_max_centrifugal_speed = .02f, // rad/ms
-		rot_max = glm::radians(360.f),
 		rot_max_speed = .003f, //rad/ms
-		rot_inc = .000001f; // rad/ms*ms
+		rot_inc = .000005f, // rad/ms*ms
+		safe_rot = glm::radians(35.f);
 	// state...
 	float invincible, fade_out, visible = 1.f, blink = 1.f;
 	double hit_time;
@@ -727,7 +796,8 @@ struct ProtoX {
 	const glm::vec3 pos;
 	glm::vec3 prev_pos, vel, f, hit_pos;
 	const Asset::Layer& layer;
-	size_t score = 0, missile_id = 0;
+	int score = 0;
+	size_t missile_id = 0;
 	enum class Ctrl{Full, Prop, Turret};
 	Ctrl ctrl = Ctrl::Full;
 	bool pos_invalidated = false; // from web-message
@@ -838,25 +908,28 @@ struct ProtoX {
 		const glm::vec3 force_l = glm::rotateZ(vf, glm::radians(-45.f)),
 			force_r = glm::rotateZ(vf, glm::radians(45.f)),
 			force_b = -vf;
-
+		
+		float sign = 0.f, limit;
 		if (lt) {
-			float sign = 1.f;
-			rot_speed = std::min(rot_speed + sign * rot_inc * (float)t.frame, rot_max_speed);
+			sign = 1.f;
+			limit = rot_max_speed;
 		}
 		if (rt) {
-			float sign = -1.f;
-			rot_speed = std::max(rot_speed + sign * rot_inc * (float)t.frame, -rot_max_speed);
+			sign = -1.f;
+			limit = -rot_max_speed;
 		}
-		if (!lt && !rt) {
-			float sign = (rot_speed < 0.f) ? 1.f : -1.f;
-			if (rot_speed<0.f)
-				rot_speed = std::min(rot_speed + sign * rot_inc * (float)t.frame, 0.f);
-			else if(rot_speed>0.f)
-				rot_speed = std::max(rot_speed + sign * rot_inc * (float)t.frame, 0.f);
+		if (!lt && !rt && std::abs(rot_speed) > 0.f) {
+			sign = (rot_speed < 0.f) ? 1.f : -1.f;
+			limit = 0.f;
 		}
+		if (sign>0.f)
+			rot_speed = std::min(rot_speed + sign * rot_inc * (float)t.frame, limit);
+		else if (sign<0.f)
+			rot_speed = std::max(rot_speed + sign * rot_inc * (float)t.frame, limit);
+
 		glm::vec3 val;
-		//if (lt) val += force_l;
-		//if (rt) val += force_r;
+		if (lt) val += force_l;
+		if (rt) val += force_r;
 		if (bt) val += force_b;
 		f = glm::rotateZ(val, rot);
 	}
@@ -877,21 +950,23 @@ struct ProtoX {
 			new Blink(blink, 0., globals.timer.TotalMs(), globals.blink_rate, globals.blink_ratio)));
 		hit = killed = false;
 	}
-	void Kill(const glm::vec3& hit_pos, double hit_time) {
+	void Die(const glm::vec3& hit_pos, std::list<Particles>& particles, const glm::vec3& missile_vec, double hit_time) {
 		if (invincible > 0.f || hit || killed) return;
 		hit = true;
-		this->hit_pos = hit_pos - pos;
+		this->hit_pos = RotateZ(hit_pos, pos, -rot);
 		this->hit_time = hit_time;
 		debris = debris_ref;
 		static std::uniform_real_distribution<float> dist_cfs(-debris_max_centrifugal_speed, debris_max_centrifugal_speed),
 			dist_sp(min_debris_speed, max_debris_speed);
 		for (auto& cfs : debris_centrifugal_speed) cfs = dist_cfs(mt);
 		for (auto& sp : debris_speed) sp = dist_sp(mt);
+
+		particles.push_back({ hit_pos,  missile_vec, hit_time });
 	}
 	bool IsInRestingPos(const AABB& bounds) const {
 		return pos.y + aabb.b <= bounds.b + ground_level;
 	}
-	void Update(const Time& t, const AABB& bounds, bool player_self) {
+	void Update(const Time& t, const AABB& bounds, std::list<Particles>& particles, bool player_self) {
 		msg.clear();
 		if (invincible > 0.f) {
 			invincible -= (float)t.frame;
@@ -962,20 +1037,22 @@ struct ProtoX {
 
 		// ground constraint
 		if (IsInRestingPos(bounds)) {
-			rot = 0.f;
 			SetPos(pos.x, bounds.b + ground_level - aabb.b);
-			if (std::abs(vel.y) < 0.001f)
-				vel.y = 0.f;
-			else
-				vel = { 0.f, -vel.y / 2.f, 0.f };
+			if (std::abs(rot) > safe_rot && invincible <= 0.f) {
+				Die(pos + glm::vec3{ 0.f, aabb.b, 0.f }, particles, { 0.f, 1.f, 0.f }, t.total);
+			} else {
+				rot = 0.f;
+				if (std::abs(vel.y) < 0.001f)
+					vel.y = 0.f;
+				else
+					vel = { 0.f, -vel.y / 2.f, 0.f };
+			}
 		}
 		else if (pos.y + aabb.t >= bounds.t) {
 			SetPos(pos.x, bounds.t - aabb.t);
 			vel.y = 0.f;
 		}
-		if (IsInRestingPos(bounds))
-			rot = 0.f;
-		else
+		if (!IsInRestingPos(bounds))
 			rot += rot_speed * (float)t.frame;
 
 		std::stringstream ss;
@@ -1049,71 +1126,6 @@ struct Renderer {
 		float factor = 1.f;
 		const Asset::Model* model;
 	}wsad_decal, mouse_decal;
-	struct Particles {
-		static GLuint vbo;
-		static GLsizei vertex_count;
-		static const size_t count = 200;
-		static constexpr float slowdown = .02f, g = -.001f, init_mul = 1.f, min_fade = 750.f, max_fade = 1500.f,
-			v_min = .05f, v_max = .55f, blink_rate = 16.f;
-		const float vec_ratio = .7f; // static constexpr makes emscripten complain about unresolved symbol...
-		glm::vec3 pos;
-		bool kill = false;
-		float time;
-		struct Particle {
-			glm::vec3 pos, v;
-			glm::vec4 col;
-			float life, fade_duration;
-			size_t start_col_idx;
-		};
-		std::array<Particle, count> arr;
-//		struct A {
-//			int a, b;
-//			A(int a, int b) : a(a), b(b) {
-//#ifdef __EMSCRIPTEN__
-//				emscripten_log(EM_LOG_CONSOLE, "A ctor. %d %d", a, b);
-//#endif
-//			}
-//		};
-		Particles(const glm::vec3& pos,const glm::vec3& vec, double time) : pos(pos), time((float)time) {
-			//static A a(1, 2), b(3, 4), c(5, 6), d(7, 8), e(9, 10), f(11, 12), g(13, 14), h(15, 16);
-			//static A a1(17, 18) , b1(31, 41), /*missing*/c1(51, 61), d1(71, 81), e1(91, 101), f1(111, 121), g1(131, 141), h1(151, 161);
-			static std::uniform_real_distribution<> col_dist(0., 1.);
-			static std::uniform_real_distribution<> rad_dist(.0, glm::two_pi<float>());
-			static std::uniform_real_distribution<float> fade_dist(min_fade, max_fade);
-			static std::uniform_real_distribution<> v_dist(v_min, v_max);
-			static std::uniform_int_distribution<> col_idx_dist(0, globals.palette.size() - 1);
-
-//#ifdef __EMSCRIPTEN__
-//			emscripten_log(EM_LOG_CONSOLE, "%d %x %x", sizeof(col_idx_dist), *reinterpret_cast<int*>(&col_idx_dist), *(reinterpret_cast<int*>(&col_idx_dist) + 1));
-//#endif
-			for (size_t i = 0; i < count; ++i) {
-				arr[i].col = { col_dist(mt), col_dist(mt), col_dist(mt), 1.f };
-				arr[i].pos = {};
-				auto r = rad_dist(mt);
-
-				arr[i].v = { std::cos(r) * v_dist(mt) * init_mul, std::sin(r) * v_dist(mt) * init_mul, 0.f };
-				arr[i].v += vec * vec_ratio;
-				arr[i].life = 1.f;
-				arr[i].fade_duration = fade_dist(mt);
-				arr[i].start_col_idx = col_idx_dist(mt);
-			}
-		}
-		void Update(const Time& t) {
-			kill = true;
-			for (size_t i = 0; i < count; ++i) {
-				if (arr[i].life <= 0.f) continue;
-				kill = false;
-				arr[i].pos += arr[i].v * (float)t.frame;
-				//arr[i].v *= 1.f - arr[i].decay * (float)t.frame;
-				arr[i].v.y += g * (float)t.frame;
-				arr[i].col = globals.palette[(arr[i].start_col_idx + size_t((t.total - time) / blink_rate)) % globals.palette.size()];
-				arr[i].col.a = arr[i].life;
-				auto fade_time = (float)(t.total - time) / arr[i].fade_duration;
-				arr[i].life = 1.f - fade_time * fade_time * fade_time * fade_time * fade_time;
-				if (arr[i].life <= 0.01f) arr[i].life = 0.f;
-			}
-		}
-	};
 	struct StarField {
 		size_t count_per_layer;
 		AABB bounds;
@@ -1634,7 +1646,7 @@ struct Renderer {
 		glDrawArrays(GL_TRIANGLES, 0, Particles::vertex_count);
 
 		glUniform4f(shader.uCol, globals.radar_enemy_color.r, globals.radar_enemy_color.g, globals.radar_enemy_color.b, globals.radar_enemy_color.a);
-		size_t max = 0;
+		int max = 0;
 		for (const auto& p : players) {
 			max = std::max(max, p.second->score);
 			const glm::vec3 pos(p.second->pos.x * rx, (p.second->pos.y - bounds.b) * ry + aabb.b, 0.f);
@@ -1749,8 +1761,6 @@ struct Renderer {
 #endif
 	}
 };
-GLuint Renderer::Particles::vbo;
-GLsizei Renderer::Particles::vertex_count;
 
 struct InputHandler {
 	enum class Keys{Left, Right, W, A, D, Count};
@@ -1842,7 +1852,7 @@ public:
 	std::unique_ptr<ProtoX> player;
 	std::vector<Missile> missiles;
 	std::map<size_t, std::unique_ptr<ProtoX>> players;
-	std::list<Renderer::Particles> particles;
+	std::list<Particles> particles;
 	std::vector<Text> texts;
 	Object mesh{ { 5.f, 0.f, 0.f } };
 	Camera camera{ (int)globals.width, (int)globals.height }, hud{ (int)globals.width, (int)globals.height },
@@ -1903,7 +1913,7 @@ public:
 	void GenerateNPC() {
 		static size_t i = 0;
 		auto p = std::make_unique<ProtoX>((size_t)0xbeef, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb));
-		std::uniform_real_distribution<> rot_dist(-p->rot_max, p->rot_max);
+		std::uniform_real_distribution<> rot_dist(0., glm::degrees(glm::two_pi<float>()));
 		p->rot = rot_dist(mt);
 		players[++i] = std::move(p);
 	}
@@ -2025,10 +2035,10 @@ public:
 					break;
 				}
 			}
-			player->Update(t, bounds, true);
+			player->Update(t, bounds, particles, true);
 		}
 		for (auto& p : players) {
-			p.second->Update(t, bounds, false);
+			p.second->Update(t, bounds, particles, false);
 		}
 
 		for (auto p = std::begin(players); p != std::end(players);) {
@@ -2095,9 +2105,8 @@ public:
 						// if (m.owner != p.second.get()) continue;
 						glm::vec3 hit_pos;
 						if (!p.second->hit && !p.second->killed && p.second->invincible == 0.f && m.HitTest(p.second->aabb.Translate(p.second->pos), hit_pos)) {
-							p.second->Kill(hit_pos, (double)t.total);
 							glm::vec3 vec{ std::cos(m.rot), std::sin(m.rot), 0.f };
-							particles.push_back({ hit_pos,  vec, t.total });
+							p.second->Die(hit_pos, particles, vec, (double)t.total);
 							++player->score;
 							if (player->ws) {
 								Scor msg{ Tag("SCOR"), player->id, p.second->id, m.id, player->score, hit_pos.x, hit_pos.y, vec.x, vec.y };
@@ -2213,7 +2222,6 @@ public:
 	void OnScor(const std::vector<unsigned char>& msg, const Time& t) {
 		if (!player) return;
 		const Scor* scor = reinterpret_cast<const Scor*>(&msg.front());
-		particles.push_back({ glm::vec3{scor->x, scor->y, 0.f},glm::vec3{ scor->vec_x, scor->vec_y, 0.f },  t.total });
 		auto it = std::find_if(missiles.begin(), missiles.end(), [=](const Missile& m) {
 			return m.owner->id == scor->owner_id && m.id == scor->missile_id;});
 		if (it != missiles.end()) {
@@ -2221,12 +2229,14 @@ public:
 			RemoveMissile(*it);
 		}
 		if (scor->owner_id == player->id && player->ctrl == ProtoX::Ctrl::Prop) ++player->score;
+		const::glm::vec3 hit_pos(scor->x, scor->y, 0.f),
+			missile_vec{ scor->vec_x, scor->vec_y, 0.f };
 		if (scor->target_id == player->id)
-			player->Kill({ scor->x, scor->y, 0.f }, t.total);
+			player->Die(hit_pos, particles, missile_vec, t.total);
 		else {
 			auto it = players.find(scor->target_id);
 			if (it != players.end())
-				it->second->Kill({ scor->x, scor->y, 0.f }, t.total);
+				it->second->Die(hit_pos, particles, missile_vec, t.total);
 		}
 	}
 	void OnKill(const std::vector<unsigned char>& msg, const Time& t) {
@@ -2238,8 +2248,7 @@ public:
 		if (it == std::end(players)) return;
 		auto& p = it->second;
 		auto hit_pos = p->pos + glm::vec3{ p->aabb.r - p->aabb.l, p->aabb.t - p->aabb.b, 0.f };
-		particles.push_back({ hit_pos, {}, t.total });
-		p->Kill(hit_pos, t.total);
+		p->Die(hit_pos, particles, {}, t.total);
 	}
 	void OnCtrl(const std::vector<unsigned char>& msg) {
 		const Ctrl* ctrl = reinterpret_cast<const Ctrl*>(&msg.front());

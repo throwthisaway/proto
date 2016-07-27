@@ -96,13 +96,14 @@ app.get('/develop/main.js.mem', function (req, res) {
 });
 
 app.get('/', function (req, res) {
+    console.log('coming_soon.html visit: ' + new Date().toLocaleString());
     res.sendFile(__dirname + '/coming_soon.html');
 });
 app.get('/coming_soon.png', function (req, res) {
     res.sendFile(__dirname + '/coming_soon.png');
 });
-app.get('/thumbnail1.png', function (req, res) {
-    res.sendFile(__dirname + '/thumbnail1.png');
+app.get('/thumbnail4.png', function (req, res) {
+    res.sendFile(__dirname + '/thumbnail4.png');
 });
 /*app.use(function(req, res, next) {
     console.log("Sending compressed index.js");

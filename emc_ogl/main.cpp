@@ -21,6 +21,7 @@
 #include <mutex>
 //#include <thread>
 #include "Globals.h"
+#include "Helpers.h"
 #include "../../MeshLoader/MeshLoader.h"
 #include "Logging.h"
 #include "Socket.h"
@@ -798,11 +799,12 @@ struct ProtoX {
 	const Asset::Layer& layer;
 	int score = 0;
 	size_t missile_id = 0;
-	enum class Ctrl{Full, Prop, Turret};
+	enum class Ctrl { Full, Prop, Turret };
 	Ctrl ctrl = Ctrl::Full;
 	bool pos_invalidated = false; // from web-message
 	float clear_color_blink;
-	float rot = 0.f, rot_speed = 0.f;
+	float rot_speed = 0.f, prev_rot = 0.f;
+	const float rot = 0.f;
 	std::vector<Text> msg;
 	struct Propulsion {
 		const glm::vec3 pos;
@@ -832,12 +834,12 @@ struct ProtoX {
 		Propulsion(const glm::vec3& pos, float rot, float scale, size_t frame_count) :
 			pos(pos), rot(rot), scale(scale), frame_count(frame_count) {}
 		auto GetModel(const glm::mat4& m) const {
-			return glm::rotate(
-				glm::translate(m, pos) * glm::scale(glm::vec3{ scale, scale, 1.f }), rot, { 0.f, 0.f, 1.f });
+			return ::GetModel(m, pos, rot, /*layer.pivot*/{}, scale);
 		}
 	}left, bottom, right;
 	struct Turret {
-		float rot = 0.f;
+		float prev_rot = 0.f;
+		const float rot = 0.f;
 		const float rest_pos = glm::half_pi<float>(),
 			min_rot = -glm::radians(45.f) - rest_pos,
 			max_rot = glm::radians(225.f) - rest_pos;
@@ -846,12 +848,14 @@ struct ProtoX {
 		Turret(const Asset::Layer& layer) : layer(layer),
 			missile_start_offset(layer.pivot) {}
 		void SetRot(const float rot) {
-			this->rot = std::min(max_rot, std::max(min_rot, rot));
+			prev_rot = this->rot;
+			const_cast<float&>(this->rot) = std::min(max_rot, std::max(min_rot, rot));
 		}
-		auto GetModel(const glm::mat4& model) const {
-			return glm::translate(
-					glm::rotate(
-						glm::translate(model, layer.pivot), rot, { 0.f, 0.f, 1.f }), -layer.pivot);
+		auto GetModel(const glm::mat4& m) const {
+			return ::GetModel(m, {}, rot, layer.pivot);
+		}
+		auto GetPrevModel(const glm::mat4& m) const {
+			return ::GetModel(m, {}, prev_rot, layer.pivot);
 		}
 	}turret;
 	ProtoX(const size_t id, const Asset::Model& model, const Asset::Model& debris, size_t frame_count, const glm::vec3& pos, Client* ws = nullptr) : id(id),
@@ -870,13 +874,20 @@ struct ProtoX {
 		debris_speed.resize(debris.vertices.size() / 6);
 		Init();
 	}
-	void SetPos(float x, float y) {	SetPos({ x, y, 0.f }); }
+	void SetPos(float x, float y) { SetPos({ x, y, 0.f }); }
 	void SetPos(const glm::vec3 pos) {
 		prev_pos = this->pos;
 		const_cast<glm::vec3&>(this->pos) = pos;
 	}
+	void SetRot(float rot) {
+		prev_rot = this->rot;
+		const_cast<float&>(this->rot) = rot;
+	}
 	auto GetModel() const {
-		return glm::translate(glm::rotate(glm::translate({}, pos + layer.pivot), rot, { 0.f, 0.f, 1.f }), -layer.pivot);
+		return ::GetModel({}, pos, rot, layer.pivot);
+	}
+	auto GetPrevModel() const {
+		return ::GetModel({}, prev_pos, prev_rot, layer.pivot);
 	}
 	void Kill(size_t id, size_t missile_id, int score, const glm::vec3& hit_pos, const glm::vec3& missile_vec) {
 		if (!ws) return;
@@ -971,6 +982,17 @@ struct ProtoX {
 	bool IsInRestingPos(const AABB& bounds) const {
 		return pos.y + aabb.b <= bounds.b + ground_level;
 	}
+
+	auto GenBBoxEdgesCCW() {
+		std::vector<glm::vec3> res;
+		auto m = GetModel();
+		AABBToBBoxEdgesCCW(layer.aabb, m, res);
+		AABBToBBoxEdgesCCW(turret.layer.aabb, turret.GetModel(m), res);
+		m = GetPrevModel();
+		AABBToBBoxEdgesCCW(layer.aabb, m, res);
+		AABBToBBoxEdgesCCW(turret.layer.aabb, turret.GetPrevModel(m), res);
+		return res;
+	}
 	void Update(const Time& t, const AABB& bounds, std::list<Particles>& particles, bool player_self) {
 		msg.clear();
 		if (invincible > 0.f) {
@@ -1050,7 +1072,7 @@ struct ProtoX {
 				--score;
 				Kill(id, id, score, hit_pos, vec);
 			} else {
-				rot = 0.f;
+				SetRot(0.f);
 				if (std::abs(vel.y) < 0.001f)
 					vel.y = 0.f;
 				else
@@ -1062,7 +1084,7 @@ struct ProtoX {
 			vel.y = 0.f;
 		}
 		if (!IsInRestingPos(bounds))
-			rot += rot_speed * (float)t.frame;
+			SetRot(rot + rot_speed * (float)t.frame);
 
 		std::stringstream ss;
 		ss << IsInRestingPos(aabb) << " " << rot_speed ;
@@ -1117,7 +1139,8 @@ struct Renderer {
 		VBO_RADAR = 10,
 		VBO_MOUSE = 11,
 		VBO_WSAD = 12,
-		VBO_COUNT = 13;
+		VBO_EDGES = 13,
+		VBO_COUNT = 14;
 	GLuint vbo[VBO_COUNT];
 	std::vector<GLuint> tex;
 	glm::vec4 clearColor;
@@ -1467,6 +1490,25 @@ struct Renderer {
 		glDrawArrays(GL_LINE_STRIP, 0, 5);
 		glDisableVertexAttribArray(0);
 	}
+
+	void Draw(const Camera& cam, const std::vector<glm::vec3>& edges) {
+		glEnableVertexAttribArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_EDGES]);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * edges.size(), edges.data(), GL_STATIC_DRAW);
+		glVertexAttribPointer(0,
+			3,
+			GL_FLOAT,
+			GL_FALSE,
+			0,
+			(void*)0);
+		const auto& shader = colorShader;
+		glUseProgram(shader.id);
+		const glm::mat4& mvp = cam.vp;
+		glUniform4f(shader.uCol, 1.f, 1.f, 1.f, 1.f);
+		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+		glDrawArrays(GL_LINES, 0, edges.size());
+		glDisableVertexAttribArray(0);
+	}
 	void Draw(const Camera& cam, const ProtoX& proto, const ProtoX::Propulsion& prop, const glm::mat4& parent_model) {
 		auto& shader = colorShader;
 		glUseProgram(shader.id);
@@ -1780,6 +1822,35 @@ struct InputHandler {
 	static bool lb, rb, mb;
 	static bool update;
 	static std::queue<ButtonClick> event_queue;
+#ifdef __EMSCRIPTEN__
+	// TODO:: static constexpr
+	#define NUMTOUCHES 4u
+	struct TouchEvent{
+		int eventType;
+		size_t n;
+		EmscriptenTouchPoint touchPoints[NUMTOUCHES];
+	};
+	static std::queue<TouchEvent> touch_event_queue;
+	static EM_BOOL touchstart_callback(int eventType, const EmscriptenTouchEvent *e, void *userData)
+	{
+		touch_event_queue.push({ eventType, std::min((size_t)e->numTouches, NUMTOUCHES)});
+		auto& front = touch_event_queue.front();
+		memcpy(front.touchPoints, e->touches, sizeof(EmscriptenTouchPoint) * front.n);
+		return 0;
+	}
+	static EM_BOOL touchend_callback(int eventType, const EmscriptenTouchEvent *e, void *userData)
+	{
+		return touchstart_callback(eventType, e, userData);
+	}
+	static EM_BOOL touchmove_callback(int eventType, const EmscriptenTouchEvent *e, void *userData)
+	{
+		return touchstart_callback(eventType, e, userData);
+	}
+	static EM_BOOL touchcancel_callback(int eventType, const EmscriptenTouchEvent *e, void *userData)
+	{
+		return touchstart_callback(eventType, e, userData);
+	}
+#endif
 	static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 	{
 		switch (key) {
@@ -1851,6 +1922,9 @@ double InputHandler::x, InputHandler::y, InputHandler::px, InputHandler::py;
 bool InputHandler::update = false;
 std::queue<InputHandler::ButtonClick> InputHandler::event_queue;
 std::function<void(int key, int scancode, int action, int mods)> InputHandler::keyCb;
+#ifdef __EMSCRIPTEN__
+std::queue<InputHandler::TouchEvent> InputHandler::touch_event_queue;
+#endif
 
 class Scene {
 public:
@@ -1923,7 +1997,7 @@ public:
 		static size_t i = 0;
 		auto p = std::make_unique<ProtoX>((size_t)0xbeef, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb));
 		std::uniform_real_distribution<> rot_dist(0., glm::degrees(glm::two_pi<float>()));
-		p->rot = rot_dist(mt);
+		p->SetRot(rot_dist(mt));
 		players[++i] = std::move(p);
 	}
 	void GenerateNPCs() {
@@ -1971,8 +2045,10 @@ public:
 			renderer.Draw(camera, *p.second.get());
 		//	renderer.Draw(camera, p.second->aabb.Translate(p.second->pos));
 		}
-		if (player)
+		if (player) {
 			renderer.Draw(camera, *player.get(), true);
+			renderer.Draw(camera, player->GenBBoxEdgesCCW());
+		}
 		renderer.Draw(camera, particles);
 
 		if (player) {
@@ -2031,17 +2107,35 @@ public:
 			texts.push_back({ {0.f,  -(assets.text.aabb.t - assets.text.aabb.b), 0.f}, .8f, Text::Align::Center, ss.str() });
 		}
 		if (player) {
-			if (inputHandler.update) player->TurretControl(inputHandler.x, inputHandler.px);
-			player->Move(t, inputHandler.keys[(size_t)InputHandler::Keys::A],
-				inputHandler.keys[(size_t)InputHandler::Keys::D],
-				inputHandler.keys[(size_t)InputHandler::Keys::W]);
-			while (!inputHandler.event_queue.empty()) {
-				auto e = inputHandler.event_queue.back();
-				inputHandler.event_queue.pop();
-				switch (e) {
-				case InputHandler::ButtonClick::LB:
+			bool touch = false;
+#ifdef __EMSCRIPTEN__
+			while (!inputHandler.touch_event_queue.empty()) {
+				auto e = inputHandler.touch_event_queue.back();
+				inputHandler.touch_event_queue.pop();
+				bool d = e.touchPoints[0].clientX < (globals.width / 3),
+					w = e.touchPoints[0].clientX >= (globals.width / 4) && e.touchPoints[0].clientX <= (globals.width * 4 / 5),
+					a = e.touchPoints[0].canvasX > (globals.width * 2 / 3),
+					shoot = e.touchPoints[0].clientY < (globals.height / 2);
+				//LOG_INFO("%d %d %d %d %d %d\n", e.touchPoints[0].clientX, e.touchPoints[0].clientY, globals.width, globals.width / 4, globals.width * 4 / 5, w);
+				player->Move(t, a, d, w);
+				if (shoot)
 					player->Shoot(missiles);
-					break;
+				touch = true;
+			}
+#endif
+			if (!touch) {
+				if (inputHandler.update) player->TurretControl(inputHandler.x, inputHandler.px);
+				player->Move(t, inputHandler.keys[(size_t)InputHandler::Keys::A],
+					inputHandler.keys[(size_t)InputHandler::Keys::D],
+					inputHandler.keys[(size_t)InputHandler::Keys::W]);
+				while (!inputHandler.event_queue.empty()) {
+					auto e = inputHandler.event_queue.back();
+					inputHandler.event_queue.pop();
+					switch (e) {
+					case InputHandler::ButtonClick::LB:
+						player->Shoot(missiles);
+						break;
+					}
 				}
 			}
 			player->Update(t, bounds, particles, true);
@@ -2188,11 +2282,11 @@ public:
 	void OnPlyr(const std::vector<unsigned char>& msg) {
 		const Plyr* player = reinterpret_cast<const Plyr*>(&msg.front());
 		if (this->player->id == player->id) {
-			if (this->player->ctrl == ProtoX::Ctrl::Prop) this->player->turret.rot = player->turret_rot;
+			if (this->player->ctrl == ProtoX::Ctrl::Prop) this->player->turret.SetRot(player->turret_rot);
 			else if (this->player->ctrl == ProtoX::Ctrl::Turret) {
 				this->player->pos_invalidated = true;
 				this->player->SetPos(player->x, player->y);
-				this->player->rot = player->rot;
+				this->player->SetRot(player->rot);
 				this->player->vel.x = player->vx; this->player->vel.y = player->vy;
 				this->player->left.on = player->prop_left; this->player->right.on = player->prop_right;  this->player->bottom.on = player->prop_bottom;
 			}
@@ -2209,8 +2303,8 @@ public:
 			proto = it->second.get();
 			proto->SetPos(player->x, player->y);
 		}
-		proto->rot = player->rot;
-		proto->turret.rot = player->turret_rot; proto->invincible = player->invincible;
+		proto->SetRot(player->rot);
+		proto->turret.SetRot(player->turret_rot); proto->invincible = player->invincible;
 		proto->vel.x = player->vx; proto->vel.y = player->vy;
 		proto->left.on = player->prop_left; proto->right.on = player->prop_right;  proto->bottom.on = player->prop_bottom;
 		proto->pos_invalidated = true;
@@ -2367,6 +2461,19 @@ int main(int argc, char** argv) {
 		throw;
 	}
 #ifdef __EMSCRIPTEN__
+	auto ret = emscripten_set_touchstart_callback(0, 0, 1, InputHandler::touchstart_callback);
+	if (ret < 0)
+		LOG_ERR(ret, "emscripten_set_touchstart_callback failed");
+	ret = emscripten_set_touchend_callback(0, 0, 1, InputHandler::touchend_callback);
+	if (ret < 0)
+		LOG_ERR(ret, "emscripten_set_touchend_callback failed");
+	ret = emscripten_set_touchmove_callback(0, 0, 1, InputHandler::touchmove_callback);
+	if (ret < 0)
+		LOG_ERR(ret, "emscripten_set_touchmove_callback failed");
+	ret = emscripten_set_touchcancel_callback(0, 0, 1, InputHandler::touchcancel_callback);
+	if (ret < 0)
+		LOG_ERR(ret, "emscripten_set_touchcancel_callback failed");
+
 	Session session = { std::bind(&Scene::OnOpen, globals.scene.get()),
 		std::bind(&Scene::OnClose, globals.scene.get()),
 		std::bind(&Scene::OnError, globals.scene.get(),std::placeholders::_1, std::placeholders::_2),
@@ -2394,6 +2501,7 @@ void main_loop() {
 		globals.scene->Update({ globals.timer.TotalMs(), globals.timer.ElapsedMs() });
 		globals.scene->Render();
 		InputHandler::Reset();
+		//::Sleep(100);
 //	}
 //	catch (...) {
 //	LOG_INFO("exception has been thrown\n");

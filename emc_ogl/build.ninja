@@ -4,7 +4,7 @@ EMCC_PATH=f:\Programs\Emscripten\emscripten\1.35.0\
 
 debug = -s DEMANGLE_SUPPORT=1 -s ALLOW_MEMORY_GROWTH=1
 release = -O3 -s NO_EXIT_RUNTIME=1 -s ALLOW_MEMORY_GROWTH=1
-build_config = $debug
+build_config = $release
 cppflags = -v -s USE_GLFW=3 -s NO_EXIT_RUNTIME=1 -DGLM $build_config -std=c++14 -I..\..\..\3rdparty\glm -I..\..\..\3rdparty\GSL\include -i${MeshLoaderPath} -i${MeshExportPath}MeshCommon -i${MeshExportPath}MeshView2005\Img
 linkflags = -v -s USE_GLFW=3 -s NO_EXIT_RUNTIME=1 $build_config --embed-file asset
 rule cpp

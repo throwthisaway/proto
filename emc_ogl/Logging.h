@@ -1,6 +1,7 @@
 #include "Globals.h"
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+//#include <emscripten/html5.h>
 #include <html5.h>
 #define LOG_ERR(error, msg) emscripten_log(EM_LOG_ERROR, "ERROR: %d : %s\n", error, msg)
 #ifdef EMSCRIPTEN_LOG_CONSOLE

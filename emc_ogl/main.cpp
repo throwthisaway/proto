@@ -561,10 +561,14 @@ struct Camera {
 		SetProj(w, h);
 	}
 	void Update(const Time&) {}
-	void Tracking(const glm::vec3& tracking_pos, const AABB& scene_aabb, const AABB& player_aabb) {
+	void Tracking(const glm::vec3& tracking_pos, const AABB& scene_aabb, AABB player_aabb) {
+		// TODO:: either make proto::aabb local, or refactor this
+		player_aabb.l -= tracking_pos.x;
+		player_aabb.t -= tracking_pos.y;
+		player_aabb.r -= tracking_pos.x;
+		player_aabb.b -= tracking_pos.y;
 		const glm::vec4 player_tl = vp * (glm::vec4(player_aabb.l, player_aabb.t, 0.f, 0.f)),
 			player_br = vp * (glm::vec4(player_aabb.r, player_aabb.b, 0.f, 0.f));
-
 		const auto tracking_screen_pos = vp * glm::vec4(tracking_pos, 1.f);
 		glm::vec4 d;
 		if (tracking_screen_pos.x + player_tl.x < -globals.tracking_width_ratio)
@@ -794,17 +798,30 @@ struct ProtoX {
 	float invincible, fade_out, visible = 1.f, blink = 1.f;
 	double hit_time;
 	bool hit, killed;
-	const glm::vec3 pos;
-	glm::vec3 prev_pos, vel, f, hit_pos;
-	const Asset::Layer& layer;
+	glm::vec3 vel, f, hit_pos;
 	int score = 0;
 	size_t missile_id = 0;
 	enum class Ctrl { Full, Prop, Turret };
 	Ctrl ctrl = Ctrl::Full;
 	bool pos_invalidated = false; // from web-message
 	float clear_color_blink;
-	float rot_speed = 0.f, prev_rot = 0.f;
-	const float rot = 0.f;
+	float rot_speed = 0.f;
+	struct Body {
+		glm::vec3 pos;
+		float rot;
+		const Asset::Layer& layer;
+		Val<AABB> aabb;
+		Val<BBox> bbox;
+		Body(const glm::vec3& pos, float rot, const Asset::Layer& layer) : pos(pos), rot(rot), layer(layer), aabb(TransformAABB(layer.aabb, GetModel())),
+			bbox(TransformBBox(layer.aabb, GetModel())) {}
+		void Update(const Time& t) {
+			aabb = TransformAABB(layer.aabb, GetModel());
+			bbox = TransformBBox(layer.aabb, GetModel());
+		}
+		glm::mat4 GetModel() const {
+			return ::GetModel({}, pos, rot, layer.pivot);
+		}
+	}body;
 	std::vector<Text> msg;
 	struct Propulsion {
 		const glm::vec3 pos;
@@ -838,57 +855,51 @@ struct ProtoX {
 		}
 	}left, bottom, right;
 	struct Turret {
-		float prev_rot = 0.f;
 		const float rot = 0.f;
 		const float rest_pos = glm::half_pi<float>(),
 			min_rot = -glm::radians(45.f) - rest_pos,
 			max_rot = glm::radians(225.f) - rest_pos;
 		const Asset::Layer& layer;
 		const glm::vec3 missile_start_offset;
-		Turret(const Asset::Layer& layer) : layer(layer),
-			missile_start_offset(layer.pivot) {}
+		Val<AABB> aabb;
+		Val<BBox> bbox;
+		Turret(const Asset::Layer& layer, const glm::mat4& m) : layer(layer),
+			missile_start_offset(layer.pivot), aabb(TransformAABB(layer.aabb, GetModel(m))),
+			bbox(TransformBBox(layer.aabb, GetModel(m))) {}
 		void SetRot(const float rot) {
 			prev_rot = this->rot;
 			const_cast<float&>(this->rot) = std::min(max_rot, std::max(min_rot, rot));
 		}
-		auto GetModel(const glm::mat4& m) const {
+		void Update(const Time& t, const glm::mat4& m) {
+			aabb = TransformAABB(layer.aabb, GetModel(m));
+			bbox = TransformBBox(layer.aabb, GetModel(m));
+		}
+		glm::mat4 GetModel(const glm::mat4& m) const {
 			return ::GetModel(m, {}, rot, layer.pivot);
 		}
-		auto GetPrevModel(const glm::mat4& m) const {
+	private:
+		float prev_rot = 0.f;
+		/*auto GetPrevModel(const glm::mat4& m) const {
 			return ::GetModel(m, {}, prev_rot, layer.pivot);
-		}
+		}*/
 	}turret;
 	ProtoX(const size_t id, const Asset::Model& model, const Asset::Model& debris, size_t frame_count, const glm::vec3& pos, Client* ws = nullptr) : id(id),
 		aabb(model.aabb),
 		ws(ws),
 		debris_ref(debris),
-		layer(model.layers.front()),
 		left({ 88.f, 3.f, 0.f }, glm::radians(55.f), 1.f, frame_count),
 		right({ -88.f, 3.f, 0.f }, -glm::radians(55.f), 1.f, frame_count),
 		bottom({ 0.f, -20.f, 0.f }, 0.f, 2.f, frame_count),
-		turret(model.layers.back()),
-		clear_color_blink(globals.clear_color_blink_rate),
-		pos(pos),
-		prev_pos(pos) {
+		body(pos, 0.f, model.layers.front()),
+		turret(model.layers.back(), body.GetModel()),
+		clear_color_blink(globals.clear_color_blink_rate) {
 		debris_centrifugal_speed.resize(debris.vertices.size() / 6);
 		debris_speed.resize(debris.vertices.size() / 6);
 		Init();
 	}
-	void SetPos(float x, float y) { SetPos({ x, y, 0.f }); }
-	void SetPos(const glm::vec3 pos) {
-		prev_pos = this->pos;
-		const_cast<glm::vec3&>(this->pos) = pos;
-	}
-	void SetRot(float rot) {
-		prev_rot = this->rot;
-		const_cast<float&>(this->rot) = rot;
-	}
-	auto GetModel() const {
-		return ::GetModel({}, pos, rot, layer.pivot);
-	}
-	auto GetPrevModel() const {
+	/*auto GetPrevModel() const {
 		return ::GetModel({}, prev_pos, prev_rot, layer.pivot);
-	}
+	}*/
 	void Kill(size_t id, size_t missile_id, int score, const glm::vec3& hit_pos, const glm::vec3& missile_vec) {
 		if (!ws) return;
 		Scor msg{ Tag("SCOR"), this->id, id, missile_id, score, hit_pos.x, hit_pos.y, missile_vec.x, missile_vec.y };
@@ -898,11 +909,11 @@ struct ProtoX {
 		if (ctrl != Ctrl::Turret && ctrl != Ctrl::Full) return;
 		if (killed) return;
 		const float missile_vel = 1.f;
-		auto rot = turret.rest_pos + turret.rot + this->rot;
+		auto rot = turret.rest_pos + turret.rot + body.rot;
 		glm::vec3 missile_vec{ std::cos(rot) * missile_vel, std::sin(rot) * missile_vel,.0f};
 
-		auto start_pos = RotateZ(turret.missile_start_offset, layer.pivot, this->rot) + layer.pivot;
-		missiles.emplace_back(pos + start_pos, rot, glm::length(missile_vec), this, ++missile_id );
+		auto start_pos = RotateZ(turret.missile_start_offset, body.layer.pivot, body.rot) + body.layer.pivot;
+		missiles.emplace_back(body.pos + start_pos, rot, glm::length(missile_vec), this, ++missile_id );
 		if (ws) {
 			auto& m = missiles.back();
 			Misl misl{ Tag("MISL"), id, m.id, m.pos.x, m.pos.y, m.rot, m.vel, m.life};
@@ -947,7 +958,7 @@ struct ProtoX {
 		if (lt) val += force_l;
 		if (rt) val += force_r;
 		if (bt) val += force_b;
-		f = glm::rotateZ(val, rot);
+		f = glm::rotateZ(val, body.rot);
 	}
 	void SetInvincibility() {
 		invincible = globals.invincibility;
@@ -969,7 +980,7 @@ struct ProtoX {
 	void Die(const glm::vec3& hit_pos, std::list<Particles>& particles, const glm::vec3& missile_vec, double hit_time) {
 		if (invincible > 0.f || hit || killed) return;
 		hit = true;
-		this->hit_pos = RotateZ(hit_pos, pos, -rot);
+		this->hit_pos = RotateZ(hit_pos, body.pos, -body.rot);
 		this->hit_time = hit_time;
 		debris = debris_ref;
 		static std::uniform_real_distribution<float> dist_cfs(-debris_max_centrifugal_speed, debris_max_centrifugal_speed),
@@ -980,20 +991,58 @@ struct ProtoX {
 		particles.push_back({ hit_pos,  missile_vec, hit_time });
 	}
 	bool IsInRestingPos(const AABB& bounds) const {
-		return pos.y + aabb.b <= bounds.b + ground_level;
+		return body.pos.y + aabb.b <= bounds.b + ground_level;
 	}
 
 	auto GenBBoxEdgesCCW() {
+		//// TODO:: bbox not aabb
+		//std::vector<glm::vec3> res;
+		//AABBToBBoxEdgesCCW(body.aabb, res);
+		//AABBToBBoxEdgesCCW(turret.aabb, res);
+		//AABBToBBoxEdgesCCW(body.aabb.prev, res);
+		//AABBToBBoxEdgesCCW(turret.aabb.prev, res);
 		std::vector<glm::vec3> res;
-		auto m = GetModel();
-		AABBToBBoxEdgesCCW(layer.aabb, m, res);
-		AABBToBBoxEdgesCCW(turret.layer.aabb, turret.GetModel(m), res);
-		m = GetPrevModel();
-		AABBToBBoxEdgesCCW(layer.aabb, m, res);
-		AABBToBBoxEdgesCCW(turret.layer.aabb, turret.GetPrevModel(m), res);
+		
+		res.push_back(body.bbox.operator const BBox &()[0]);
+		res.push_back(body.bbox.operator const BBox &()[1]);
+		res.push_back(body.bbox.operator const BBox &()[1]);
+		res.push_back(body.bbox.operator const BBox &()[2]);
+		res.push_back(body.bbox.operator const BBox &()[2]);
+		res.push_back(body.bbox.operator const BBox &()[3]);
+		res.push_back(body.bbox.operator const BBox &()[3]);
+		res.push_back(body.bbox.operator const BBox &()[0]);
+		
+		res.push_back(body.bbox.prev[0]);
+		res.push_back(body.bbox.prev[1]);
+		res.push_back(body.bbox.prev[1]);
+		res.push_back(body.bbox.prev[2]);
+		res.push_back(body.bbox.prev[2]);
+		res.push_back(body.bbox.prev[3]);
+		res.push_back(body.bbox.prev[3]);
+		res.push_back(body.bbox.prev[0]);
+
+		res.push_back(turret.bbox.operator const BBox &()[0]);
+		res.push_back(turret.bbox.operator const BBox &()[1]);
+		res.push_back(turret.bbox.operator const BBox &()[1]);
+		res.push_back(turret.bbox.operator const BBox &()[2]);
+		res.push_back(turret.bbox.operator const BBox &()[2]);
+		res.push_back(turret.bbox.operator const BBox &()[3]);
+		res.push_back(turret.bbox.operator const BBox &()[3]);
+		res.push_back(turret.bbox.operator const BBox &()[0]);
+
+		res.push_back(turret.bbox.prev[0]);
+		res.push_back(turret.bbox.prev[1]);
+		res.push_back(turret.bbox.prev[1]);
+		res.push_back(turret.bbox.prev[2]);
+		res.push_back(turret.bbox.prev[2]);
+		res.push_back(turret.bbox.prev[3]);
+		res.push_back(turret.bbox.prev[3]);
+		res.push_back(turret.bbox.prev[0]);
+
 		return res;
 	}
 	void Update(const Time& t, const AABB& bounds, std::list<Particles>& particles, bool player_self) {
+		
 		msg.clear();
 		if (invincible > 0.f) {
 			invincible -= (float)t.frame;
@@ -1044,7 +1093,7 @@ struct ProtoX {
 			vel += ((f + g) / m) * (float)t.frame;
 			vel.x = std::max(-max_vel, std::min(max_vel, vel.x));
 			vel.y = std::max(-max_vel, std::min(max_vel, vel.y));
-			SetPos(pos + vel * (float)t.frame);
+			body.pos += vel * (float)t.frame;
 			//std::string str;
 			//str += std::to_string(vel.x);
 			//str += " ";
@@ -1064,46 +1113,52 @@ struct ProtoX {
 
 		// ground constraint
 		if (IsInRestingPos(bounds)) {
-			SetPos(pos.x, bounds.b + ground_level - aabb.b);
-			if (std::abs(rot) > safe_rot && invincible <= 0.f) {
-				glm::vec3 hit_pos = pos + glm::vec3{ 0.f, aabb.b, 0.f },
+			body.pos.y = bounds.b + ground_level - aabb.b;
+			if (std::abs(body.rot) > safe_rot && invincible <= 0.f) {
+				glm::vec3 hit_pos = body.pos + glm::vec3{ 0.f, aabb.b, 0.f },
 					vec{ 0.f, 1.f, 0.f };
 				Die(hit_pos, particles, vec, t.total);
 				--score;
 				Kill(id, id, score, hit_pos, vec);
 			} else {
-				SetRot(0.f);
+				body.rot = 0.f;
 				if (std::abs(vel.y) < 0.001f)
 					vel.y = 0.f;
 				else
 					vel = { 0.f, -vel.y / 2.f, 0.f };
 			}
 		}
-		else if (pos.y + aabb.t >= bounds.t) {
-			SetPos(pos.x, bounds.t - aabb.t);
+		else if (body.pos.y + aabb.t >= bounds.t) {
+			body.pos.y = bounds.t - aabb.t;
 			vel.y = 0.f;
 		}
 		if (!IsInRestingPos(bounds))
-			SetRot(rot + rot_speed * (float)t.frame);
+			body.rot += rot_speed * (float)t.frame;
 
 		std::stringstream ss;
 		ss << IsInRestingPos(aabb) << " " << rot_speed ;
-		msg.push_back({ pos + glm::vec3{ 100.f, 0.f, 0.f }, 1.f, Text::Align::Left, ss.str() });
+		msg.push_back({ body.pos + glm::vec3{ 100.f, 0.f, 0.f }, 1.f, Text::Align::Left, ss.str() });
 
+		{
+			body.Update(t);
+			turret.Update(t, body.GetModel());
+			aabb = Union(Union(body.aabb, turret.aabb),
+				Union(body.aabb.prev, turret.aabb.prev));
+		}
 		if (ws) {
-			Plyr player{ Tag("PLYR"), id, pos.x, pos.y, turret.rot, invincible, vel.x, vel.y, rot, left.on, right.on, bottom.on };
+			Plyr player{ Tag("PLYR"), id, body.pos.x, body.pos.y, turret.rot, invincible, vel.x, vel.y, body.rot, left.on, right.on, bottom.on };
 			globals.ws->Send((char*)&player, sizeof(Plyr));
 		}
 	}
 	float WrapAround(float min, float max) {
-		float dif = pos.x - max;
+		float dif = body.pos.x - max;
 		if (dif >= 0) {
-			SetPos(min + dif, pos.y);
+			body.pos.x = min + dif;
 			return dif;
 		}
-		dif = pos.x - min;
+		dif = body.pos.x - min;
 		if (dif < 0) {
-			SetPos(max + dif, pos.y);
+			body.pos.x = max + dif;
 			return dif;
 		}
 		return 0.f;
@@ -1124,7 +1179,7 @@ struct Renderer {
 	RT rt;
 	Shader::Color colorShader;
 	Shader::ColorPosAttrib colorPosAttribShader;
-//	Shader::Texture textureShader;
+	//	Shader::Texture textureShader;
 	Shader::TextureColorMod textureColorModShader;
 	static const size_t VBO_PROTOX = 0,
 		VBO_MISSILE_UV = 1,
@@ -1147,7 +1202,7 @@ struct Renderer {
 #ifdef VAO_SUPPORT
 	GLuint vao;
 #endif
-	struct Missile{
+	struct Missile {
 		GLuint texID;
 		~Missile() {
 			glDeleteTextures(1, &texID);
@@ -1210,7 +1265,7 @@ struct Renderer {
 			glBindTexture(GL_TEXTURE_2D, 0);
 		}
 		rt.GenRenderTargets();
-		
+
 
 		glGenBuffers(sizeof(vbo) / sizeof(vbo[0]), vbo);
 		// ProtoX
@@ -1339,7 +1394,7 @@ struct Renderer {
 				std::uniform_real_distribution<> dist_x(scene_bounds.l * mul,
 					scene_bounds.r * mul),
 					dist_y(0.f/*scene_bounds.b * mul*/, scene_bounds.t * mul);
-				mul -=.5f;
+				mul -= .5f;
 				for (size_t i = 0; i < count_per_layer; ++i) {
 					GenerateSquare((float)dist_x(mt), (float)dist_y(mt), star_size, data);
 				}
@@ -1354,7 +1409,7 @@ struct Renderer {
 			globals.envelopes.push_back(std::unique_ptr<Envelope>(new SequenceAsc(starField.layer3.color_idx, 0., globals.timer.ElapsedMs(),
 				globals.starfield_layer3_blink_rate, starField.layer3.color_idx, globals.grey_palette.size(), 1, 1)));
 		}
-		
+
 		{
 			// particle
 			glBindBuffer(GL_ARRAY_BUFFER, Particles::vbo = vbo[VBO_PARTICLE]);
@@ -1491,7 +1546,7 @@ struct Renderer {
 		glDisableVertexAttribArray(0);
 	}
 
-	void Draw(const Camera& cam, const std::vector<glm::vec3>& edges) {
+	void Draw(const Camera& cam, const std::vector<glm::vec3>& edges, const glm::vec4& col = {1.f, 1.f, 1.f, 1.f}) {
 		glEnableVertexAttribArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_EDGES]);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * edges.size(), edges.data(), GL_STATIC_DRAW);
@@ -1504,7 +1559,7 @@ struct Renderer {
 		const auto& shader = colorShader;
 		glUseProgram(shader.id);
 		const glm::mat4& mvp = cam.vp;
-		glUniform4f(shader.uCol, 1.f, 1.f, 1.f, 1.f);
+		glUniform4f(shader.uCol, col.r, col.g, col.b, col.a);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 		glDrawArrays(GL_LINES, 0, edges.size());
 		glDisableVertexAttribArray(0);
@@ -1580,7 +1635,7 @@ struct Renderer {
 	void Draw(const Camera& cam, const ProtoX& proto, bool player = false) {
 		if (!proto.visible)
 			return;
-		const auto m = proto.GetModel();
+		const auto m = proto.body.GetModel();
 		if (proto.hit) {
 			glEnable(GL_BLEND);
 			glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
@@ -1628,8 +1683,8 @@ struct Renderer {
 			if (proto.ctrl == ProtoX::Ctrl::Full || proto.ctrl == ProtoX::Ctrl::Turret)
 				turret_blink = proto.blink;
 		}
-		Draw<GL_TRIANGLES>(shader.uCol, proto.layer.parts, prop_blink);
-		Draw<GL_LINES>(shader.uCol, proto.layer.line_parts, prop_blink);
+		Draw<GL_TRIANGLES>(shader.uCol, proto.body.layer.parts, prop_blink);
+		Draw<GL_LINES>(shader.uCol, proto.body.layer.line_parts, prop_blink);
 		{ 
 			const glm::mat4 mvp = cam.vp * proto.turret.GetModel(m);
 			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
@@ -1692,7 +1747,7 @@ struct Renderer {
 		const auto rw = aabb.r - aabb.l, rh = aabb.t - aabb.b, sw = bounds.r - bounds.l, sh = bounds.t - bounds.b,
 			rx = rw / sw, ry = rh / sh;
 
-		const glm::vec3 pos(player->pos.x * rx, (player->pos.y - bounds.b) * ry + aabb.b, 0.f);
+		const glm::vec3 pos(player->body.pos.x * rx, (player->body.pos.y - bounds.b) * ry + aabb.b, 0.f);
 		glVertexAttrib3fv(shader.aVertex, &(pos)[0]);
 		glDrawArrays(GL_TRIANGLES, 0, Particles::vertex_count);
 
@@ -1700,7 +1755,7 @@ struct Renderer {
 		int max = 0;
 		for (const auto& p : players) {
 			max = std::max(max, p.second->score);
-			const glm::vec3 pos(p.second->pos.x * rx, (p.second->pos.y - bounds.b) * ry + aabb.b, 0.f);
+			const glm::vec3 pos(p.second->body.pos.x * rx, (p.second->body.pos.y - bounds.b) * ry + aabb.b, 0.f);
 			glVertexAttrib3fv(shader.aVertex, &(pos)[0]);
 			glDrawArrays(GL_TRIANGLES, 0, Particles::vertex_count);
 		}
@@ -1997,7 +2052,8 @@ public:
 		static size_t i = 0;
 		auto p = std::make_unique<ProtoX>((size_t)0xbeef, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb));
 		std::uniform_real_distribution<> rot_dist(0., glm::degrees(glm::two_pi<float>()));
-		p->SetRot(rot_dist(mt));
+		p->body.rot = rot_dist(mt);
+		p->turret.SetRot(rot_dist(mt));
 		players[++i] = std::move(p);
 	}
 	void GenerateNPCs() {
@@ -2043,11 +2099,14 @@ public:
 		renderer.Draw(camera, missiles);
 		for (const auto& p : players) {
 			renderer.Draw(camera, *p.second.get());
+			renderer.Draw(camera, p.second->GenBBoxEdgesCCW());
+			renderer.Draw(camera, p.second->aabb);
 		//	renderer.Draw(camera, p.second->aabb.Translate(p.second->pos));
 		}
 		if (player) {
 			renderer.Draw(camera, *player.get(), true);
-			renderer.Draw(camera, player->GenBBoxEdgesCCW());
+			renderer.Draw(camera, player->GenBBoxEdgesCCW(), { .3f, 1.f, .3f, 1.f });
+			renderer.Draw(camera, player->aabb);
 		}
 		renderer.Draw(camera, particles);
 
@@ -2173,10 +2232,10 @@ public:
 			std::begin(globals.envelopes), std::end(globals.envelopes), [](const auto& e) { return e->Finished(); }), globals.envelopes.end());
 
 		if (player) {
-			auto d = camera.pos.x + player->pos.x;
+			auto d = camera.pos.x + player->body.pos.x;
 			auto res = player->WrapAround(assets.land.layers[0].aabb.l, assets.land.layers[0].aabb.r);
 			camera.Update(t);
-			camera.Tracking(player->pos, bounds, player->aabb);
+			camera.Tracking(player->body.pos, bounds, player->aabb);
 			// wraparound camera hack
 			// wrap around from left
 			if (res < 0)
@@ -2207,7 +2266,7 @@ public:
 					for (const auto& p : players) {
 						// if (m.owner != p.second.get()) continue;
 						glm::vec3 hit_pos;
-						if (!p.second->hit && !p.second->killed && p.second->invincible == 0.f && m.HitTest(p.second->aabb.Translate(p.second->pos), hit_pos)) {
+						if (!p.second->hit && !p.second->killed && p.second->invincible == 0.f && m.HitTest(p.second->aabb/*.Translate(p.second->body.pos)*/, hit_pos)) {
 							glm::vec3 vec{ std::cos(m.rot), std::sin(m.rot), 0.f };
 							p.second->Die(hit_pos, particles, vec, (double)t.total);
 							++player->score;
@@ -2285,8 +2344,8 @@ public:
 			if (this->player->ctrl == ProtoX::Ctrl::Prop) this->player->turret.SetRot(player->turret_rot);
 			else if (this->player->ctrl == ProtoX::Ctrl::Turret) {
 				this->player->pos_invalidated = true;
-				this->player->SetPos(player->x, player->y);
-				this->player->SetRot(player->rot);
+				this->player->body.pos.x = player->x; this->player->body.pos.y = player->y;
+				this->player->body.rot = player->rot;
 				this->player->vel.x = player->vx; this->player->vel.y = player->vy;
 				this->player->left.on = player->prop_left; this->player->right.on = player->prop_right;  this->player->bottom.on = player->prop_bottom;
 			}
@@ -2301,9 +2360,9 @@ public:
 		}
 		else {
 			proto = it->second.get();
-			proto->SetPos(player->x, player->y);
+			proto->body.pos.x = player->x; proto->body.pos.y = player->y;
 		}
-		proto->SetRot(player->rot);
+		proto->body.rot = player->rot;
 		proto->turret.SetRot(player->turret_rot); proto->invincible = player->invincible;
 		proto->vel.x = player->vx; proto->vel.y = player->vy;
 		proto->left.on = player->prop_left; proto->right.on = player->prop_right;  proto->bottom.on = player->prop_bottom;
@@ -2349,7 +2408,7 @@ public:
 		});
 		if (it == std::end(players)) return;
 		auto& p = it->second;
-		auto hit_pos = p->pos + glm::vec3{ p->aabb.r - p->aabb.l, p->aabb.t - p->aabb.b, 0.f };
+		auto hit_pos = p->body.pos + glm::vec3{ p->aabb.r - p->aabb.l, p->aabb.t - p->aabb.b, 0.f };
 		p->Die(hit_pos, particles, {}, t.total);
 	}
 	void OnCtrl(const std::vector<unsigned char>& msg) {
@@ -2501,7 +2560,7 @@ void main_loop() {
 		globals.scene->Update({ globals.timer.TotalMs(), globals.timer.ElapsedMs() });
 		globals.scene->Render();
 		InputHandler::Reset();
-		//::Sleep(100);
+//		::Sleep(100);
 //	}
 //	catch (...) {
 //	LOG_INFO("exception has been thrown\n");

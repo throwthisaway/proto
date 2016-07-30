@@ -811,7 +811,7 @@ struct ProtoX {
 		float rot;
 		const Asset::Layer& layer;
 		Val<AABB> aabb;
-		Val<BBox> bbox;
+		Val<OBB> bbox;
 		Body(const glm::vec3& pos, float rot, const Asset::Layer& layer) : pos(pos), rot(rot), layer(layer), aabb(TransformAABB(layer.aabb, GetModel())),
 			bbox(TransformBBox(layer.aabb, GetModel())) {}
 		void Update(const Time& t) {
@@ -862,7 +862,7 @@ struct ProtoX {
 		const Asset::Layer& layer;
 		const glm::vec3 missile_start_offset;
 		Val<AABB> aabb;
-		Val<BBox> bbox;
+		Val<OBB> bbox;
 		Turret(const Asset::Layer& layer, const glm::mat4& m) : layer(layer),
 			missile_start_offset(layer.pivot), aabb(TransformAABB(layer.aabb, GetModel(m))),
 			bbox(TransformBBox(layer.aabb, GetModel(m))) {}
@@ -908,12 +908,13 @@ struct ProtoX {
 	void Shoot(std::vector<Missile>& missiles) {
 		if (ctrl != Ctrl::Turret && ctrl != Ctrl::Full) return;
 		if (killed) return;
-		const float missile_vel = 1.f;
+		const float missile_vel = .1f;
 		auto rot = turret.rest_pos + turret.rot + body.rot;
 		glm::vec3 missile_vec{ std::cos(rot) * missile_vel, std::sin(rot) * missile_vel,.0f};
 
-		auto start_pos = RotateZ(turret.missile_start_offset, body.layer.pivot, body.rot) + body.layer.pivot;
-		missiles.emplace_back(body.pos + start_pos, rot, glm::length(missile_vec), this, ++missile_id );
+		auto m = turret.GetModel(body.GetModel());
+		auto start_pos = m * glm::vec4{ turret.missile_start_offset , 1.f};//RotateZ(turret.missile_start_offset, body.layer.pivot, body.rot) + body.layer.pivot;
+		missiles.emplace_back(glm::vec3(start_pos)/*body.pos + start_pos*/, rot, glm::length(missile_vec), this, ++missile_id );
 		if (ws) {
 			auto& m = missiles.back();
 			Misl misl{ Tag("MISL"), id, m.id, m.pos.x, m.pos.y, m.rot, m.vel, m.life};
@@ -991,55 +992,58 @@ struct ProtoX {
 		particles.push_back({ hit_pos,  missile_vec, hit_time });
 	}
 	bool IsInRestingPos(const AABB& bounds) const {
-		return body.pos.y + aabb.b <= bounds.b + ground_level;
+		return body.pos.y + body.layer.aabb.b <= bounds.b + ground_level;
 	}
 
-	auto GenBBoxEdgesCCW() {
-		//// TODO:: bbox not aabb
-		//std::vector<glm::vec3> res;
-		//AABBToBBoxEdgesCCW(body.aabb, res);
-		//AABBToBBoxEdgesCCW(turret.aabb, res);
-		//AABBToBBoxEdgesCCW(body.aabb.prev, res);
-		//AABBToBBoxEdgesCCW(turret.aabb.prev, res);
-		std::vector<glm::vec3> res;
-		
-		res.push_back(body.bbox.operator const BBox &()[0]);
-		res.push_back(body.bbox.operator const BBox &()[1]);
-		res.push_back(body.bbox.operator const BBox &()[1]);
-		res.push_back(body.bbox.operator const BBox &()[2]);
-		res.push_back(body.bbox.operator const BBox &()[2]);
-		res.push_back(body.bbox.operator const BBox &()[3]);
-		res.push_back(body.bbox.operator const BBox &()[3]);
-		res.push_back(body.bbox.operator const BBox &()[0]);
-		
-		res.push_back(body.bbox.prev[0]);
-		res.push_back(body.bbox.prev[1]);
-		res.push_back(body.bbox.prev[1]);
-		res.push_back(body.bbox.prev[2]);
-		res.push_back(body.bbox.prev[2]);
-		res.push_back(body.bbox.prev[3]);
-		res.push_back(body.bbox.prev[3]);
-		res.push_back(body.bbox.prev[0]);
+	//auto GenBBoxEdgesCCW() {
+	//	//// TODO:: bbox not aabb
+	//	//std::vector<glm::vec3> res;
+	//	//AABBToBBoxEdgesCCW(body.aabb, res);
+	//	//AABBToBBoxEdgesCCW(turret.aabb, res);
+	//	//AABBToBBoxEdgesCCW(body.aabb.prev, res);
+	//	//AABBToBBoxEdgesCCW(turret.aabb.prev, res);
+	//	std::vector<glm::vec3> res;
+	//	
+	//	res.push_back(body.bbox.operator const OBB &()[0]);
+	//	res.push_back(body.bbox.operator const OBB &()[1]);
+	//	res.push_back(body.bbox.operator const OBB &()[1]);
+	//	res.push_back(body.bbox.operator const OBB &()[2]);
+	//	res.push_back(body.bbox.operator const OBB &()[2]);
+	//	res.push_back(body.bbox.operator const OBB &()[3]);
+	//	res.push_back(body.bbox.operator const OBB &()[3]);
+	//	res.push_back(body.bbox.operator const OBB &()[0]);
+	//	
+	//	res.push_back(body.bbox.prev[0]);
+	//	res.push_back(body.bbox.prev[1]);
+	//	res.push_back(body.bbox.prev[1]);
+	//	res.push_back(body.bbox.prev[2]);
+	//	res.push_back(body.bbox.prev[2]);
+	//	res.push_back(body.bbox.prev[3]);
+	//	res.push_back(body.bbox.prev[3]);
+	//	res.push_back(body.bbox.prev[0]);
 
-		res.push_back(turret.bbox.operator const BBox &()[0]);
-		res.push_back(turret.bbox.operator const BBox &()[1]);
-		res.push_back(turret.bbox.operator const BBox &()[1]);
-		res.push_back(turret.bbox.operator const BBox &()[2]);
-		res.push_back(turret.bbox.operator const BBox &()[2]);
-		res.push_back(turret.bbox.operator const BBox &()[3]);
-		res.push_back(turret.bbox.operator const BBox &()[3]);
-		res.push_back(turret.bbox.operator const BBox &()[0]);
+	//	res.push_back(turret.bbox.operator const OBB &()[0]);
+	//	res.push_back(turret.bbox.operator const OBB &()[1]);
+	//	res.push_back(turret.bbox.operator const OBB &()[1]);
+	//	res.push_back(turret.bbox.operator const OBB &()[2]);
+	//	res.push_back(turret.bbox.operator const OBB &()[2]);
+	//	res.push_back(turret.bbox.operator const OBB &()[3]);
+	//	res.push_back(turret.bbox.operator const OBB &()[3]);
+	//	res.push_back(turret.bbox.operator const OBB &()[0]);
 
-		res.push_back(turret.bbox.prev[0]);
-		res.push_back(turret.bbox.prev[1]);
-		res.push_back(turret.bbox.prev[1]);
-		res.push_back(turret.bbox.prev[2]);
-		res.push_back(turret.bbox.prev[2]);
-		res.push_back(turret.bbox.prev[3]);
-		res.push_back(turret.bbox.prev[3]);
-		res.push_back(turret.bbox.prev[0]);
+	//	res.push_back(turret.bbox.prev[0]);
+	//	res.push_back(turret.bbox.prev[1]);
+	//	res.push_back(turret.bbox.prev[1]);
+	//	res.push_back(turret.bbox.prev[2]);
+	//	res.push_back(turret.bbox.prev[2]);
+	//	res.push_back(turret.bbox.prev[3]);
+	//	res.push_back(turret.bbox.prev[3]);
+	//	res.push_back(turret.bbox.prev[0]);
+	//	return res;
+	//}
 
-		return res;
+	static auto GetConvexHullOfOBBSweep(const OBB& obb, const OBB& prev_obb) {
+		return ::ConvexHullCCW(MergeOBBs(obb, prev_obb));
 	}
 	void Update(const Time& t, const AABB& bounds, std::list<Particles>& particles, bool player_self) {
 		
@@ -1113,9 +1117,9 @@ struct ProtoX {
 
 		// ground constraint
 		if (IsInRestingPos(bounds)) {
-			body.pos.y = bounds.b + ground_level - aabb.b;
+			body.pos.y = bounds.b + ground_level - body.layer.aabb.b;
 			if (std::abs(body.rot) > safe_rot && invincible <= 0.f) {
-				glm::vec3 hit_pos = body.pos + glm::vec3{ 0.f, aabb.b, 0.f },
+				glm::vec3 hit_pos = body.pos + glm::vec3{ 0.f, body.layer.aabb.b, 0.f },
 					vec{ 0.f, 1.f, 0.f };
 				Die(hit_pos, particles, vec, t.total);
 				--score;
@@ -1128,23 +1132,25 @@ struct ProtoX {
 					vel = { 0.f, -vel.y / 2.f, 0.f };
 			}
 		}
-		else if (body.pos.y + aabb.t >= bounds.t) {
-			body.pos.y = bounds.t - aabb.t;
+		else if (turret.layer.aabb.t + body.pos.y >= bounds.t) {
+			body.pos.y = bounds.t - turret.layer.aabb.t;
 			vel.y = 0.f;
 		}
-		if (!IsInRestingPos(bounds))
-			body.rot += rot_speed * (float)t.frame;
-
-		std::stringstream ss;
-		ss << IsInRestingPos(aabb) << " " << rot_speed ;
-		msg.push_back({ body.pos + glm::vec3{ 100.f, 0.f, 0.f }, 1.f, Text::Align::Left, ss.str() });
-
+		if (!IsInRestingPos(bounds)) {
+			// wrap around -PI..PI
+			float pi = (body.rot < 0.f) ? -glm::pi<float>() : glm::pi<float>();
+			body.rot = std::fmod(body.rot + rot_speed * (float)t.frame + pi, pi * 2.f) - pi;
+		}
 		{
 			body.Update(t);
 			turret.Update(t, body.GetModel());
 			aabb = Union(Union(body.aabb, turret.aabb),
 				Union(body.aabb.prev, turret.aabb.prev));
 		}
+		std::stringstream ss;
+		ss << IsInRestingPos(bounds) << " " << body.rot<< " " << vel.y;
+		msg.push_back({ body.pos + glm::vec3{ 100.f, 0.f, 0.f }, 1.f, Text::Align::Left, ss.str() });
+
 		if (ws) {
 			Plyr player{ Tag("PLYR"), id, body.pos.x, body.pos.y, turret.rot, invincible, vel.x, vel.y, body.rot, left.on, right.on, bottom.on };
 			globals.ws->Send((char*)&player, sizeof(Plyr));
@@ -1545,8 +1551,8 @@ struct Renderer {
 		glDrawArrays(GL_LINE_STRIP, 0, 5);
 		glDisableVertexAttribArray(0);
 	}
-
-	void Draw(const Camera& cam, const std::vector<glm::vec3>& edges, const glm::vec4& col = {1.f, 1.f, 1.f, 1.f}) {
+	template<GLenum mode>
+	void DrawLines(const Camera& cam, const std::vector<glm::vec3>& edges, const glm::vec4& col = {1.f, 1.f, 1.f, 1.f}) {
 		glEnableVertexAttribArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_EDGES]);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * edges.size(), edges.data(), GL_STATIC_DRAW);
@@ -1561,7 +1567,7 @@ struct Renderer {
 		const glm::mat4& mvp = cam.vp;
 		glUniform4f(shader.uCol, col.r, col.g, col.b, col.a);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-		glDrawArrays(GL_LINES, 0, edges.size());
+		glDrawArrays(mode, 0, edges.size());
 		glDisableVertexAttribArray(0);
 	}
 	void Draw(const Camera& cam, const ProtoX& proto, const ProtoX::Propulsion& prop, const glm::mat4& parent_model) {
@@ -2099,14 +2105,17 @@ public:
 		renderer.Draw(camera, missiles);
 		for (const auto& p : players) {
 			renderer.Draw(camera, *p.second.get());
-			renderer.Draw(camera, p.second->GenBBoxEdgesCCW());
 			renderer.Draw(camera, p.second->aabb);
+			//renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::GetConvexHullOfOBBSweep(p.second->body.bbox, p.second->body.bbox.prev), { .3f, 1.f, .3f, 1.f });
+			//renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::GetConvexHullOfOBBSweep(p.second->turret.bbox, p.second->turret.bbox.prev), { 1.f, .3f, .3f, 1.f });
+
 		//	renderer.Draw(camera, p.second->aabb.Translate(p.second->pos));
 		}
 		if (player) {
 			renderer.Draw(camera, *player.get(), true);
-			renderer.Draw(camera, player->GenBBoxEdgesCCW(), { .3f, 1.f, .3f, 1.f });
 			renderer.Draw(camera, player->aabb);
+			renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::GetConvexHullOfOBBSweep(player->body.bbox, player->body.bbox.prev), { .3f, 1.f, .3f, 1.f });
+			renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::GetConvexHullOfOBBSweep(player->turret.bbox, player->turret.bbox.prev), { 1.f, .3f, .3f, 1.f });
 		}
 		renderer.Draw(camera, particles);
 
@@ -2560,7 +2569,7 @@ void main_loop() {
 		globals.scene->Update({ globals.timer.TotalMs(), globals.timer.ElapsedMs() });
 		globals.scene->Render();
 		InputHandler::Reset();
-//		::Sleep(100);
+		//::Sleep(100);
 //	}
 //	catch (...) {
 //	LOG_INFO("exception has been thrown\n");

@@ -1,5 +1,6 @@
 #include "Helpers.h"
 #include <glm/gtc/matrix_transform.hpp>
+#include <algorithm>
 
 glm::mat4 GetModel(const glm::mat4& m, const glm::vec3& pos, float rot, const glm::vec3& pivot, float scale) {
 	return glm::translate(
@@ -47,11 +48,56 @@ AABB TransformAABB(const AABB& aabb, const glm::mat4& m) {
 		std::min(v1.y, std::min(v2.y, std::min(v3.y, v4.y))) };
 }
 
-BBox TransformBBox(const AABB& aabb, const glm::mat4& m) {
-	BBox res;
+OBB TransformBBox(const AABB& aabb, const glm::mat4& m) {
+	OBB res;
 	res[0] = Transf2D(aabb.l, aabb.b, m);
 	res[1] = Transf2D(aabb.r, aabb.b, m);
 	res[2] = Transf2D(aabb.r, aabb.t, m);
 	res[3] = Transf2D(aabb.l, aabb.t, m);
+	return res;
+}
+
+std::vector<glm::vec3> MergeOBBs(const OBB& obb1, const OBB& obb2) {
+	std::vector<glm::vec3> res(obb1.size() + obb2.size());
+	auto out = std::copy(std::begin(obb1), std::end(obb1), std::begin(res));
+	std::copy(std::begin(obb2), std::end(obb2), out);
+	return res;
+}
+namespace {
+	// Lexicographical less-than
+	inline bool lessVec3(const glm::vec3& lhs, const glm::vec3& rhs) {
+		if (lhs.x < rhs.x)
+			return true;
+		if (lhs.x == rhs.x && lhs.y < rhs.y)
+			return true;
+		if (lhs.x == rhs.x && lhs.y == rhs.y && lhs.z < rhs.z)
+			return true;
+		return false;
+	}
+	// CCW - < 0, CW - > 0
+	inline float cross2D(const glm::vec3& p, const glm::vec3& q) {
+		return p.x*q.y - p.y*q.x;
+	}
+	inline float dir(const glm::vec3& p, const glm::vec3& q, const glm::vec3& r) {
+		return cross2D(p - q, r - q);
+	}
+}
+
+std::vector<glm::vec3> ConvexHullCCW(std::vector<glm::vec3> points) {
+	std::vector<glm::vec3> res;
+	std::sort(std::begin(points), std::end(points), lessVec3);
+	for (const auto& p : points) {
+		while (res.size() >= 2 && dir(res[res.size() - 2], res[res.size() - 1], p) >= 0)  res.pop_back();
+		res.push_back(p);
+	}
+	//auto start = res.size();
+	//for (const auto& p : points) {
+	//	while (res.size() >= start && dir(res[res.size() - 2], res[res.size() - 1], p) <= 0)  res.pop_back();
+	//	res.push_back(p);
+	//}
+	for (size_t i = points.size() - 2, start = res.size() + 1; i< points.size(); --i) {
+		while (res.size() >= start && dir(res[res.size() - 2], res[res.size() - 1], points[i]) >= 0)  res.pop_back();
+		res.push_back(points[i]);
+	}
 	return res;
 }

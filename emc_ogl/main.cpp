@@ -99,7 +99,9 @@ struct {
 		starfield_layer3_blink_rate = 243.f, // ms
 		missile_life = 500., // ms
 		dot_size = 6.f, // px
-		clear_color_blink_rate = 16.f; //ms
+		clear_color_blink_rate = 16.f, //ms
+		look_ahead_ratio = .1f,
+		camera_z = -10.f;
 	int ab = a;
 	const glm::vec4 radar_player_color{ 1.f, 1.f, 1.f, 1.f }, radar_enemy_color{ 1.f, .5f, .5f, 1.f };
 	const gsl::span<const glm::vec4, gsl::dynamic_range>& palette = pal, &grey_palette = grey_pal;
@@ -543,7 +545,9 @@ struct Camera {
 	//	int x, y, w, h;
 	//}viewport;
 	glm::mat4 view, proj, vp;
+	glm::vec4 d;
 	void SetPos(float x, float y, float z) {
+		d = {};
 		pos = { x, y, z };
 		view = glm::translate({}, pos);
 		vp = proj * view;
@@ -560,44 +564,75 @@ struct Camera {
 	Camera(int w, int h) : view(glm::translate(glm::mat4{}, pos)) {
 		SetProj(w, h);
 	}
-	void Update(const Time&) {}
-	void Tracking(const glm::vec3& tracking_pos, const AABB& scene_aabb, AABB player_aabb) {
-		// TODO:: either make proto::aabb local, or refactor this
-		player_aabb.l -= tracking_pos.x;
-		player_aabb.t -= tracking_pos.y;
-		player_aabb.r -= tracking_pos.x;
-		player_aabb.b -= tracking_pos.y;
-		const glm::vec4 player_tl = vp * (glm::vec4(player_aabb.l, player_aabb.t, 0.f, 0.f)),
-			player_br = vp * (glm::vec4(player_aabb.r, player_aabb.b, 0.f, 0.f));
-		const auto tracking_screen_pos = vp * glm::vec4(tracking_pos, 1.f);
-		glm::vec4 d;
-		if (tracking_screen_pos.x + player_tl.x < -globals.tracking_width_ratio)
-			d.x = tracking_screen_pos.x + globals.tracking_width_ratio + player_tl.x;
-		else if (tracking_screen_pos.x + player_br.x > globals.tracking_width_ratio)
-			d.x = tracking_screen_pos.x - globals.tracking_width_ratio + player_br.x;
-		if (tracking_screen_pos.y + player_br.y < -globals.tracking_height_ratio)
-			d.y = tracking_screen_pos.y + globals.tracking_height_ratio + player_br.y;
-		else if (tracking_screen_pos.y + player_tl.y > globals.tracking_height_ratio)
-			d.y = tracking_screen_pos.y - globals.tracking_height_ratio + player_tl.y;
+	void Update(const Time& t, const glm::vec3& tracking_pos, const AABB& scene_aabb, AABB player_aabb, const glm::vec3& vel) {
+		d -= glm::vec4(glm::normalize(vel) * (float)t.frame * globals.look_ahead_ratio, 0.f);
+		// TODO:: make them const
+		glm::vec4 bl(-globals.tracking_width_ratio, -globals.tracking_width_ratio, 0.f, 0.f),
+			tr(globals.tracking_width_ratio, globals.tracking_width_ratio, 0.f, 0.f);
+		auto ip = glm::inverse(proj);
+		bl = ip * bl; 
+		tr = ip * tr;
+		d = glm::clamp(d, bl, tr);
+		d.z = 0.f;
 
-		pos -= glm::vec3(glm::inverse(vp) * d);
+		pos = glm::vec3(-(player_aabb.r + player_aabb.l) / 2.f,
+			-(player_aabb.t + player_aabb.b) / 2.f, globals.camera_z) + glm::vec3(d);
+
+		//// scene bound constraints
+		//// TODO:: make these const
+		//view = glm::translate({}, pos);
+		//vp = proj * view;
+		//const glm::vec4 scene_tl = vp * (glm::vec4(scene_aabb.l, scene_aabb.t, 0.f, 1.f)),
+		//	scene_br = vp * (glm::vec4(scene_aabb.r, scene_aabb.b, 0.f, 1.f));
+		//if (scene_br.y > -1.f)
+		//	pos.y = scene_br.y + 1.f;
+		//else if (scene_tl.y < 1.f)
+		//	pos.y = scene_tl.y - 1.f;
+		//if (scene_tl.x > -1.f)
+		//	pos.x = scene_tl.x + 1.f;
+		//else if (scene_br.x < 1.f)
+		//	pos.x = scene_br.x - 1.f;
+
 		view = glm::translate({}, pos);
 		vp = proj * view;
+		
+		return;
+		//// TODO:: either make proto::aabb local, or refactor this
+		//player_aabb.l -= tracking_pos.x;
+		//player_aabb.t -= tracking_pos.y;
+		//player_aabb.r -= tracking_pos.x;
+		//player_aabb.b -= tracking_pos.y;
+		//const glm::vec4 player_tl = vp * (glm::vec4(player_aabb.l, player_aabb.t, 0.f, 0.f)),
+		//	player_br = vp * (glm::vec4(player_aabb.r, player_aabb.b, 0.f, 0.f));
+		//const auto tracking_screen_pos = vp * glm::vec4(tracking_pos, 1.f);
+		//glm::vec4 d;
+		//if (tracking_screen_pos.x + player_tl.x < -globals.tracking_width_ratio)
+		//	d.x = tracking_screen_pos.x + globals.tracking_width_ratio + player_tl.x;
+		//else if (tracking_screen_pos.x + player_br.x > globals.tracking_width_ratio)
+		//	d.x = tracking_screen_pos.x - globals.tracking_width_ratio + player_br.x;
+		//if (tracking_screen_pos.y + player_br.y < -globals.tracking_height_ratio)
+		//	d.y = tracking_screen_pos.y + globals.tracking_height_ratio + player_br.y;
+		//else if (tracking_screen_pos.y + player_tl.y > globals.tracking_height_ratio)
+		//	d.y = tracking_screen_pos.y - globals.tracking_height_ratio + player_tl.y;
 
-		const glm::vec4 scene_tl = vp * (glm::vec4(scene_aabb.l, scene_aabb.t, 0.f, 1.f)),
-			scene_br = vp * (glm::vec4(scene_aabb.r, scene_aabb.b, 0.f, 1.f));
-		d = {};
-		if (scene_br.y > -1.f)
-			d.y = scene_br.y + 1.f;
-		else if (scene_tl.y < 1.f)
-			d.y = scene_tl.y - 1.f;
-		if (scene_tl.x > -1.f)
-			d.x = scene_tl.x + 1.f;
-		else if (scene_br.x < 1.f)
-			d.x = scene_br.x - 1.f;
-		pos -= glm::vec3(glm::inverse(vp) * d);
-		view = glm::translate({}, pos);
-		vp = proj * view;
+		//pos -= glm::vec3(glm::inverse(vp) * d);
+		//view = glm::translate({}, pos);
+		//vp = proj * view;
+
+		//const glm::vec4 scene_tl = vp * (glm::vec4(scene_aabb.l, scene_aabb.t, 0.f, 1.f)),
+		//	scene_br = vp * (glm::vec4(scene_aabb.r, scene_aabb.b, 0.f, 1.f));
+		//d = {};
+		//if (scene_br.y > -1.f)
+		//	d.y = scene_br.y + 1.f;
+		//else if (scene_tl.y < 1.f)
+		//	d.y = scene_tl.y - 1.f;
+		//if (scene_tl.x > -1.f)
+		//	d.x = scene_tl.x + 1.f;
+		//else if (scene_br.x < 1.f)
+		//	d.x = scene_br.x - 1.f;
+		//pos -= glm::vec3(glm::inverse(vp) * d);
+		//view = glm::translate({}, pos);
+		//vp = proj * view;
 	}
 };
 
@@ -1462,6 +1497,7 @@ struct Renderer {
 		rt.Set();
 		glClearColor(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
 		glClear(GL_COLOR_BUFFER_BIT);
+		//glLineWidth(LINE_WIDTH * 2.f);
 		//glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 		//glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
@@ -2226,6 +2262,7 @@ public:
 			auto ctrl = player->ctrl;
 			auto score = player->score;
 			player = std::make_unique<ProtoX>(player->id, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(player->aabb), globals.ws.get());
+			camera.SetPos(player->body.pos.x, player->body.pos.y, globals.camera_z);
 			renderer.clearColor = { 0.f, 0.f, 0.f, 1.f };
 			SetCtrl(ctrl);
 			player->score = score;
@@ -2241,16 +2278,16 @@ public:
 			std::begin(globals.envelopes), std::end(globals.envelopes), [](const auto& e) { return e->Finished(); }), globals.envelopes.end());
 
 		if (player) {
-			auto d = camera.pos.x + player->body.pos.x;
+			// TODO:: is this needed? auto d = camera.pos.x + player->body.pos.x;
 			auto res = player->WrapAround(assets.land.layers[0].aabb.l, assets.land.layers[0].aabb.r);
-			camera.Update(t);
-			camera.Tracking(player->body.pos, bounds, player->aabb);
+			camera.Update(t, player->body.pos, bounds, player->aabb, player->vel);
 			// wraparound camera hack
 			// wrap around from left
-			if (res < 0)
-				camera.Translate(std::max(d, -float(globals.width >> 2)) - (globals.width >> 2), 0.f, 0.f);
-			else if (res > 0)
-				camera.Translate(std::min(d, float(globals.width >> 2)) + (globals.width >> 2), 0.f, 0.f);
+			// TODO:: is this needed?
+			//if (res < 0)
+			//	camera.Translate(std::max(d, -float(globals.width >> 2)) - (globals.width >> 2), 0.f, 0.f);
+			//else if (res > 0)
+			//	camera.Translate(std::min(d, float(globals.width >> 2)) + (globals.width >> 2), 0.f, 0.f);
 
 			auto it = missiles.begin();
 			while (it != missiles.end()) {
@@ -2569,7 +2606,7 @@ void main_loop() {
 		globals.scene->Update({ globals.timer.TotalMs(), globals.timer.ElapsedMs() });
 		globals.scene->Render();
 		InputHandler::Reset();
-		//::Sleep(100);
+		//::Sleep(150);
 //	}
 //	catch (...) {
 //	LOG_INFO("exception has been thrown\n");

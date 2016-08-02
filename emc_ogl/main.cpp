@@ -40,6 +40,8 @@
 #include "Envelope.h"
 #include "Palette.h"
 // TODO::
+// - culling particles, debris, players, missiles
+// - WrapAround flicker fix
 // - investigate random crashes on network play (message delete for example)
 // - add sound
 // - finish network game mechanics
@@ -565,37 +567,34 @@ struct Camera {
 		SetProj(w, h);
 	}
 	void Update(const Time& t, const glm::vec3& tracking_pos, const AABB& scene_aabb, AABB player_aabb, const glm::vec3& vel) {
-		d -= glm::vec4(glm::normalize(vel) * (float)t.frame * globals.look_ahead_ratio, 0.f);
-		// TODO:: make them const
-		glm::vec4 bl(-globals.tracking_width_ratio, -globals.tracking_width_ratio, 0.f, 0.f),
-			tr(globals.tracking_width_ratio, globals.tracking_width_ratio, 0.f, 0.f);
-		auto ip = glm::inverse(proj);
-		bl = ip * bl; 
-		tr = ip * tr;
-		d = glm::clamp(d, bl, tr);
-		d.z = 0.f;
-
+		const auto ip = glm::inverse(proj);
+		const auto len = glm::length(vel);
+		if (len > 0.f) {
+			d -= glm::vec4(vel / len * (float)t.frame * globals.look_ahead_ratio, 0.f);
+			// TODO:: make them const
+			glm::vec4 bl(-globals.tracking_width_ratio, -globals.tracking_width_ratio, 0.f, 0.f),
+				tr(globals.tracking_width_ratio, globals.tracking_width_ratio, 0.f, 0.f);
+			bl = ip * bl;
+			tr = ip * tr;
+			d = glm::clamp(d, bl, tr);
+			d.z = 0.f;
+		}
 		pos = glm::vec3(-(player_aabb.r + player_aabb.l) / 2.f,
 			-(player_aabb.t + player_aabb.b) / 2.f, globals.camera_z) + glm::vec3(d);
 
-		//// scene bound constraints
-		//// TODO:: make these const
-		//view = glm::translate({}, pos);
-		//vp = proj * view;
-		//const glm::vec4 scene_tl = vp * (glm::vec4(scene_aabb.l, scene_aabb.t, 0.f, 1.f)),
-		//	scene_br = vp * (glm::vec4(scene_aabb.r, scene_aabb.b, 0.f, 1.f));
-		//if (scene_br.y > -1.f)
-		//	pos.y = scene_br.y + 1.f;
-		//else if (scene_tl.y < 1.f)
-		//	pos.y = scene_tl.y - 1.f;
-		//if (scene_tl.x > -1.f)
-		//	pos.x = scene_tl.x + 1.f;
-		//else if (scene_br.x < 1.f)
-		//	pos.x = scene_br.x - 1.f;
+		// scene bound constraints
+		// TODO:: make them const
+		glm::vec4 bl = { -1.f, -1.f, 0.f, 0.f },
+			tr = { 1.f, 1.f, 0.f, 0.f };
+		bl = ip * bl;
+		tr = ip * tr;
+		const auto snap_bl = glm::vec3(scene_aabb.l, scene_aabb.b, 0.f) - glm::vec3(bl),
+			snap_tr = glm::vec3(scene_aabb.r, scene_aabb.t, 0.f) - glm::vec3(tr);
 
+		pos = glm::clamp(pos, -snap_tr, -snap_bl);
+		pos.z = globals.camera_z;
 		view = glm::translate({}, pos);
 		vp = proj * view;
-		
 		return;
 		//// TODO:: either make proto::aabb local, or refactor this
 		//player_aabb.l -= tracking_pos.x;
@@ -2281,6 +2280,13 @@ public:
 			// TODO:: is this needed? auto d = camera.pos.x + player->body.pos.x;
 			auto res = player->WrapAround(assets.land.layers[0].aabb.l, assets.land.layers[0].aabb.r);
 			camera.Update(t, player->body.pos, bounds, player->aabb, player->vel);
+			std::stringstream ss;
+			ss << camera.pos.x << " "<<camera.pos.y;
+			
+			texts.push_back({ {}, 1.f, Text::Align::Left,  ss.str() });
+			ss.str("");
+			ss << camera.d.x << " " << camera.d.y;
+			texts.push_back({ {0.f, -40.f, 0.f}, 1.f, Text::Align::Left,  ss.str() });
 			// wraparound camera hack
 			// wrap around from left
 			// TODO:: is this needed?

@@ -102,7 +102,7 @@ struct {
 		missile_life = 500., // ms
 		dot_size = 6.f, // px
 		clear_color_blink_rate = 16.f, //ms
-		look_ahead_ratio = .1f,
+		look_ahead_ratio = .3f,
 		camera_z = -10.f;
 	int ab = a;
 	const glm::vec4 radar_player_color{ 1.f, 1.f, 1.f, 1.f }, radar_enemy_color{ 1.f, .5f, .5f, 1.f };
@@ -566,21 +566,36 @@ struct Camera {
 	Camera(int w, int h) : view(glm::translate(glm::mat4{}, pos)) {
 		SetProj(w, h);
 	}
-	void Update(const Time& t, const glm::vec3& tracking_pos, const AABB& scene_aabb, AABB player_aabb, const glm::vec3& vel) {
+	std::string text;
+	glm::vec4 EaseOut(const glm::vec4& d, const glm::vec4& current, const glm::vec4& limit) {
+		const auto ratio = glm::vec4(1.f, 1.f, 0.f, 0.f) - glm::abs(current / limit);
+		const auto r = ratio * ratio * ratio * ratio;
+		std::stringstream ss;
+		ss << r.x << " " << r.y;
+		text = ss.str();
+		return d;// *r;
+	}
+	void Update(const Time& t, const glm::vec3& tracking_pos, const AABB& scene_aabb, const glm::vec3& player_pos, const glm::vec3& vel) {
 		const auto ip = glm::inverse(proj);
 		const auto len = glm::length(vel);
 		if (len > 0.f) {
-			d -= glm::vec4(vel / len * (float)t.frame * globals.look_ahead_ratio, 0.f);
 			// TODO:: make them const
 			glm::vec4 bl(-globals.tracking_width_ratio, -globals.tracking_width_ratio, 0.f, 0.f),
 				tr(globals.tracking_width_ratio, globals.tracking_width_ratio, 0.f, 0.f);
 			bl = ip * bl;
 			tr = ip * tr;
+			const auto vel_n = vel / len;
+			auto dist = glm::vec4(pos + player_pos, 0.f);
+			dist.z = 0.f;
+			auto ratio = dist / (tr - bl) * 2.f;
+			ratio = 1.f - glm::abs((ratio + glm::vec4(vel_n, 0.f)) / 2.f);
+			text = std::to_string(ratio.x);
+			d -= glm::vec4(vel_n * (float)t.frame * globals.look_ahead_ratio, 0.f) * (1.f - ratio * ratio * ratio);
 			d = glm::clamp(d, bl, tr);
 			d.z = 0.f;
 		}
-		pos = glm::vec3(-(player_aabb.r + player_aabb.l) / 2.f,
-			-(player_aabb.t + player_aabb.b) / 2.f, globals.camera_z) + glm::vec3(d);
+		pos = glm::vec3(-player_pos.x,
+			-player_pos.y, globals.camera_z) + glm::vec3(d);
 
 		// scene bound constraints
 		// TODO:: make them const
@@ -591,6 +606,7 @@ struct Camera {
 		const auto snap_bl = glm::vec3(scene_aabb.l, scene_aabb.b, 0.f) - glm::vec3(bl),
 			snap_tr = glm::vec3(scene_aabb.r, scene_aabb.t, 0.f) - glm::vec3(tr);
 
+		const auto temp = pos;
 		pos = glm::clamp(pos, -snap_tr, -snap_bl);
 		pos.z = globals.camera_z;
 		view = glm::translate({}, pos);
@@ -2279,14 +2295,16 @@ public:
 		if (player) {
 			// TODO:: is this needed? auto d = camera.pos.x + player->body.pos.x;
 			auto res = player->WrapAround(assets.land.layers[0].aabb.l, assets.land.layers[0].aabb.r);
-			camera.Update(t, player->body.pos, bounds, player->aabb, player->vel);
-			std::stringstream ss;
-			ss << camera.pos.x << " "<<camera.pos.y;
-			
-			texts.push_back({ {}, 1.f, Text::Align::Left,  ss.str() });
-			ss.str("");
-			ss << camera.d.x << " " << camera.d.y;
-			texts.push_back({ {0.f, -40.f, 0.f}, 1.f, Text::Align::Left,  ss.str() });
+			camera.Update(t, player->body.pos, bounds, player->body.pos, player->vel);
+			texts.push_back({ { 0.f, 40.f, 0.f }, 1.f, Text::Align::Left, camera.text });
+			//std::stringstream ss;
+			//ss << camera.pos.x << " "<<camera.pos.y;
+			//
+			//texts.push_back({ {}, 1.f, Text::Align::Left,  ss.str() });
+			//ss.str("");
+			//ss << camera.d.x << " " << camera.d.y;
+			//texts.push_back({ {0.f, -40.f, 0.f}, 1.f, Text::Align::Left,  ss.str() });
+
 			// wraparound camera hack
 			// wrap around from left
 			// TODO:: is this needed?

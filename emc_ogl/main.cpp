@@ -551,19 +551,19 @@ struct Camera {
 	void SetPos(float x, float y, float z) {
 		d = {};
 		pos = { x, y, z };
-		view = glm::translate({}, pos);
+		view = glm::translate(pos);
 		vp = proj * view;
 	}
 	void Translate(float x, float y, float z) {
 		pos.x += x; pos.y += y; pos.z += z;
-		view = glm::translate({}, pos);
+		view = glm::translate(pos);
 		vp = proj * view;
 	}
 	void SetProj(int w, int h) {
 		proj = glm::ortho((float)(-(w >> 1)), (float)(w >> 1), (float)(-(h >> 1)), (float)(h >> 1), 0.1f, 100.f);
 		vp = proj * view;
 	}
-	Camera(int w, int h) : view(glm::translate(glm::mat4{}, pos)) {
+	Camera(int w, int h) : view(glm::translate(pos)) {
 		SetProj(w, h);
 	}
 	std::string text;
@@ -575,7 +575,7 @@ struct Camera {
 		text = ss.str();
 		return d;// *r;
 	}
-	void Update(const Time& t, const glm::vec3& tracking_pos, const AABB& scene_aabb, const glm::vec3& player_pos, const glm::vec3& vel) {
+	void Update(const Time& t, const AABB& scene_aabb, const glm::vec3& player_pos, const glm::vec3& vel) {
 		const auto ip = glm::inverse(proj);
 		const auto len = glm::length(vel);
 		if (len > 0.f) {
@@ -609,7 +609,7 @@ struct Camera {
 		const auto temp = pos;
 		pos = glm::clamp(pos, -snap_tr, -snap_bl);
 		pos.z = globals.camera_z;
-		view = glm::translate({}, pos);
+		view = glm::translate(pos);
 		vp = proj * view;
 		return;
 		//// TODO:: either make proto::aabb local, or refactor this
@@ -631,7 +631,7 @@ struct Camera {
 		//	d.y = tracking_screen_pos.y - globals.tracking_height_ratio + player_tl.y;
 
 		//pos -= glm::vec3(glm::inverse(vp) * d);
-		//view = glm::translate({}, pos);
+		//view = glm::translate(pos);
 		//vp = proj * view;
 
 		//const glm::vec4 scene_tl = vp * (glm::vec4(scene_aabb.l, scene_aabb.t, 0.f, 1.f)),
@@ -646,7 +646,7 @@ struct Camera {
 		//else if (scene_br.x < 1.f)
 		//	d.x = scene_br.x - 1.f;
 		//pos -= glm::vec3(glm::inverse(vp) * d);
-		//view = glm::translate({}, pos);
+		//view = glm::translate(pos);
 		//vp = proj * view;
 	}
 };
@@ -1754,7 +1754,7 @@ struct Renderer {
 		Draw(cam, proto.msg);
 		//if (proto.state.rthruster) {
 		//	mvp = cam.vp;
-		//	m = glm::translate({}, proto.pos) * glm::scale({}, proto.scale) * proto.rthruster_model;
+		//	m = glm::translate(proto.pos) * glm::scale({}, proto.scale) * proto.rthruster_model;
 		//	mvp *= m;
 		//	glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 		//	auto frame = (proto.state.rt_frame % thruster_frame_count) ? model.parts[(size_t)Asset::Parts::Thruster1]
@@ -1763,14 +1763,14 @@ struct Renderer {
 		//}
 		//if (proto.state.bthruster) {
 		//	mvp = cam.vp;
-		//	m = glm::translate({}, proto.pos) * glm::scale({}, proto.scale) * proto.bthruster1_model;
+		//	m = glm::translate( proto.pos) * glm::scale({}, proto.scale) * proto.bthruster1_model;
 		//	mvp *= m;
 		//	glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 		//	auto frame = (proto.state.bt_frame % thruster_frame_count) ? model.parts[(size_t)Asset::Parts::Thruster1]
 		//		: model.parts[(size_t)Asset::Parts::Thruster2];
 		//	glDrawArrays(GL_LINE_STRIP, frame.first, frame.count);
 		//	mvp = cam.vp;
-		//	m = glm::translate({}, proto.pos) * glm::scale({}, proto.scale) * proto.bthruster2_model;
+		//	m = glm::translate(proto.pos) * glm::scale({}, proto.scale) * proto.bthruster2_model;
 		//	mvp *= m;
 		//	glUniformMatrix4fv(colorShader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 		//	glDrawArrays(GL_LINE_STRIP, frame.first, frame.count);
@@ -2295,7 +2295,7 @@ public:
 		if (player) {
 			// TODO:: is this needed? auto d = camera.pos.x + player->body.pos.x;
 			auto res = player->WrapAround(assets.land.layers[0].aabb.l, assets.land.layers[0].aabb.r);
-			camera.Update(t, player->body.pos, bounds, player->body.pos, player->vel);
+			camera.Update(t, bounds, player->body.pos, player->vel);
 			texts.push_back({ { 0.f, 40.f, 0.f }, 1.f, Text::Align::Left, camera.text });
 			//std::stringstream ss;
 			//ss << camera.pos.x << " "<<camera.pos.y;

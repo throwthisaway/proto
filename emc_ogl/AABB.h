@@ -15,6 +15,9 @@ struct AABB {
 inline AABB Union(const AABB& l, const AABB& r) {
 	return{ std::min(l.l, r.l), std::max(l.t, r.t), std::max(l.r, r.r), std::min(l.b, r.b) };
 }
+inline AABB Intersect(const AABB& l, const AABB& r) {
+	return{ std::max(l.l, r.l), std::min(l.t, r.t), std::min(l.r, r.r), std::max(l.b, r.b) };
+}
 inline glm::vec3 Center(const AABB& aabb) {
 	return{ (aabb.l - aabb.r) * .5f, (aabb.t - aabb.b) * .5f, 0.f };
 }

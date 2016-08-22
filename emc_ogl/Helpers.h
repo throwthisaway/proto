@@ -23,11 +23,10 @@ OBB TransformBBox(const AABB& aabb, const glm::mat4& m);
 
 template<typename T>
 class Val {
-	T val;
 public:
-	const T prev;
+	const T val, prev;
 	Val(T& val) : val(val), prev(val) {}
-	Val& operator=(const T& val) { const_cast<T&>(prev) = this->val; this->val = val; return *this; }
+	Val& operator=(const T& val) { const_cast<T&>(prev) = this->val;  const_cast<T&>(this->val) = val; return *this; }
 	operator const T&() { return val; }
 };
 std::vector<glm::vec3> MergeOBBs(const OBB& obb1, const OBB& obb2);

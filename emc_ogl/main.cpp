@@ -18,7 +18,7 @@
 #include <random>
 #include <string>
 #include <memory>
-#include <mutex>
+//#include <mutex>
 //#include <thread>
 #include "Globals.h"
 #include "Helpers.h"
@@ -103,7 +103,9 @@ struct {
 		dot_size = 6.f, // px
 		clear_color_blink_rate = 16.f, //ms
 		look_ahead_ratio = .3f,
-		camera_z = -10.f;
+		camera_z = -10.f,
+		missile_start_offset_y = 1.f * scale,
+		foreground_pos_x_ratio = 1.f;
 	int ab = a;
 	const glm::vec4 radar_player_color{ 1.f, 1.f, 1.f, 1.f }, radar_enemy_color{ 1.f, .5f, .5f, 1.f };
 	const gsl::span<const glm::vec4, gsl::dynamic_range>& palette = pal, &grey_palette = grey_pal;
@@ -114,7 +116,7 @@ struct {
 	std::string sessionID;
 	std::unique_ptr<Scene> scene;
 	std::unique_ptr<Client> ws;
-	std::vector<std::unique_ptr<Envelope>> envelopes;
+	std::vector<std::weak_ptr<Envelope>> envelopes;
 }globals;
 
 static void ReadMeshFile(const char* fname, MeshLoader::Mesh& mesh) {
@@ -373,7 +375,7 @@ namespace Asset {
 		std::vector<Img::ImgData> images;
 		size_t masks_image_index;
 		std::vector<Model*> models;
-		Model probe, propulsion, land, missile, debris, text, debug, radar, mouse, wsad;
+		Model probe, propulsion, land, missile, debris, text, debug, radar, mouse, wsad, foreground;
 		Assets() {
 #ifdef __EMSCRIPTEN__
 #define PATH_PREFIX ""
@@ -479,6 +481,13 @@ namespace Asset {
 				wsad = Reconstruct(mesh, globals.scale);
 				models.push_back(&wsad);
 			}
+			{
+				MeshLoader::Mesh mesh;
+				ReadMeshFile(PATH_PREFIX"asset//foreground.mesh", mesh);
+				foreground = Reconstruct(mesh, globals.scale);
+				models.push_back(&foreground);
+			}
+			
 			{
 				const std::vector<glm::vec3> vertices{ { 0.f, 0.f, 0.f },
 				{  0.5f, 0.f, 0.f },
@@ -653,7 +662,8 @@ struct Camera {
 
 struct ProtoX;
 struct Missile {
-	glm::vec3 pos, prev;
+	// TODO:: Val<glm::vec3> pos
+	glm::vec3 pos, prev, vec;
 	float rot;
 	float vel;
 	ProtoX* owner;
@@ -661,7 +671,7 @@ struct Missile {
 	float life, blink;
 	bool first = true;
 	Missile& operator=(const Missile&) = default;
-	Missile(const glm::vec3 pos, float rot, float vel, ProtoX* owner, size_t id) : pos(pos), prev(pos),
+	Missile(const glm::vec3 pos, float rot, float vel, ProtoX* owner, size_t id, const glm::vec3& vec) : pos(pos), prev(pos), vec(vec),
 		rot(rot), vel(vel), owner(owner), id(id), life(globals.missile_life), blink(globals.missile_blink_rate) {
 		GenColIdx();
 	}
@@ -673,7 +683,7 @@ struct Missile {
 		if (first) { first = false; return; }	// draw at least once, and exist at initial position
 		life -= (float)t.frame;
 		prev = pos;
-		pos += glm::vec3{ std::cos(rot), std::sin(rot), 0.f } * vel * (float)t.frame;
+		pos += ((glm::vec3{ std::cos(rot), std::sin(rot), 0.f } )* vel) * (float)t.frame + vec;
 		blink -= (float)t.frame;
 		if (blink < 0.f) {
 			blink += globals.missile_blink_rate;
@@ -730,7 +740,7 @@ struct Plyr {
 };
 struct Misl {
 	const size_t tag, player_id, missile_id;
-	const float x, y, rot, vel, life;
+	const float x, y, rot, vel, life, vx, vy;
 };
 struct Scor {
 	const size_t tag, owner_id, target_id, missile_id;
@@ -763,7 +773,7 @@ struct Particles {
 	static const size_t count = 200;
 	static constexpr float slowdown = .02f, g = -.001f, init_mul = 1.f, min_fade = 750.f, max_fade = 1500.f,
 		v_min = .05f, v_max = .55f, blink_rate = 16.f;
-	const float vec_ratio = .7f; // static constexpr makes emscripten complain about unresolved symbol...
+	const float vec_ratio = .1f; // static constexpr makes emscripten complain about unresolved symbol...
 	glm::vec3 pos;
 	bool kill = false;
 	float time;
@@ -829,18 +839,68 @@ struct ProtoX {
 	const size_t id;
 	AABB aabb;
 	Client *ws;
-	const Asset::Model& debris_ref;
-	Asset::Model debris;
-	std::vector<float> debris_centrifugal_speed, debris_speed;
+	struct Debris{
+		const float max_centrifugal_speed = .02f, // rad/ms
+			max_speed = .3f, //px/ ms
+			min_speed = .05f, //px/ ms
+			min_scale = 1.f, // 1/ms
+			max_scale = 1.1f; // 1/ms
+		const size_t min_scale_occurence = 5u, max_scale_occurence = 10u;
+		const Asset::Model& ref;
+		Asset::Model model;
+		std::vector<float> centrifugal_speed, speed, scale;
+		Debris(const Asset::Model& model) :
+			ref(model),
+			centrifugal_speed(model.vertices.size() / 6),
+			speed(model.vertices.size() / 6),
+			scale(model.vertices.size() / 6) {}
+		void Setup() {
+			model = ref;
+			static std::uniform_real_distribution<float> dist_cfs(-max_centrifugal_speed, max_centrifugal_speed),
+				dist_sp(min_speed, max_speed),
+				dist_scale(min_scale, max_scale);
+			static std::uniform_int_distribution<size_t> dist_scale_occurence(std::min(min_scale_occurence, scale.size() - 1),
+				std::min(max_scale_occurence, scale.size() - 1)),
+				dist_scale_count(0, scale.size() - 1);
+			for (auto& cfs : centrifugal_speed) cfs = dist_cfs(mt);
+			for (auto& sp : speed) sp = dist_sp(mt);
+			std::fill(std::begin(scale), std::end(scale), 1.f);
+			for (size_t i = 0, count = dist_scale_occurence(mt); i < count; ++i) scale[dist_scale_count(mt)] = dist_scale(mt);
+		}
+		void Update(const Time& t, const glm::vec3& hit_pos) {
+			// TODO:: refactor to continuous fx instead of incremental
+			for (size_t i = 0, cfs = 0; i < model.vertices.size(); i += 6, ++cfs) {
+				// TODO:: only enough to have the average of the furthest vertices
+				auto center = (model.vertices[i] + model.vertices[i + 1] + model.vertices[i + 2] +
+					model.vertices[i + 3] + model.vertices[i + 4] + model.vertices[i + 5]) / 6.f;
+				auto v = center - hit_pos;
+				float len = glm::length(v);
+				v /= len;
+				v *= speed[cfs] * (float)t.frame;
+				//v.y += g * (float)t.frame;
+				auto incr = centrifugal_speed[cfs] * (float)t.frame;
+				//				auto r = RotateZ(debris.vertices[i], center, incr);
+				model.vertices[i] += v;
+				model.vertices[i] = center + RotateZ(model.vertices[i], center, incr) * scale[cfs];
+				model.vertices[i + 1] += v;
+				model.vertices[i + 1] = center + RotateZ(model.vertices[i + 1], center, incr) * scale[cfs];
+				model.vertices[i + 2] += v;
+				model.vertices[i + 2] = center + RotateZ(model.vertices[i + 2], center, incr) * scale[cfs];
+				model.vertices[i + 3] += v;
+				model.vertices[i + 3] = center + RotateZ(model.vertices[i + 3], center, incr) * scale[cfs];
+				model.vertices[i + 4] += v;
+				model.vertices[i + 4] = center + RotateZ(model.vertices[i + 4], center, incr) * scale[cfs];
+				model.vertices[i + 5] += v;
+				model.vertices[i + 5] = center + RotateZ(model.vertices[i + 5], center, incr) * scale[cfs];
+			}
+		}
+	}debris;
 	const float max_vel = .3f,
 		m = 500.f,
 		force = .2f,
 		slowdown = .0003f,
 		ground_level = 20.f,
 		fade_out_time = 1500.f, // ms
-		max_debris_speed = .3f, //px/ ms
-		min_debris_speed = .05f, //px/ ms
-		debris_max_centrifugal_speed = .02f, // rad/ms
 		rot_max_speed = .003f, //rad/ms
 		rot_inc = .000005f, // rad/ms*ms
 		safe_rot = glm::radians(35.f);
@@ -856,6 +916,7 @@ struct ProtoX {
 	bool pos_invalidated = false; // from web-message
 	float clear_color_blink;
 	float rot_speed = 0.f;
+	std::shared_ptr<Envelope> e_invinciblity, e_blink;
 	struct Body {
 		glm::vec3 pos;
 		float rot;
@@ -880,7 +941,7 @@ struct ProtoX {
 		bool on = false;
 		const double frame_time = 100.; //ms
 		double elapsed = 0.;
-		size_t frame;
+		size_t frame = 0;
 		void Update(const Time& t) {
 			elapsed += t.frame;
 			if (elapsed >= frame_time) {
@@ -906,23 +967,28 @@ struct ProtoX {
 	}left, bottom, right;
 	struct Turret {
 		const float rot = 0.f;
-		const float rest_pos = glm::half_pi<float>(),
-			min_rot = -glm::radians(45.f) - rest_pos,
-			max_rot = glm::radians(225.f) - rest_pos;
+		const float rest_rot = glm::half_pi<float>(),
+			min_rot = -glm::radians(45.f) - rest_rot,
+			max_rot = glm::radians(225.f) - rest_rot;
 		const Asset::Layer& layer;
 		const glm::vec3 missile_start_offset;
+		Val<glm::vec4> missile_start_pos;
 		Val<AABB> aabb;
 		Val<OBB> bbox;
 		Turret(const Asset::Layer& layer, const glm::mat4& m) : layer(layer),
-			missile_start_offset(layer.pivot), aabb(TransformAABB(layer.aabb, GetModel(m))),
-			bbox(TransformBBox(layer.aabb, GetModel(m))) {}
+			missile_start_offset(layer.pivot + glm::vec3(0.f, globals.missile_start_offset_y, 0.)),
+			missile_start_pos(glm::vec4{ 0.f, 0.f, 0.f, 1.f }),
+			aabb(TransformAABB(layer.aabb, GetModel(m))),
+			bbox(TransformBBox(layer.aabb, GetModel(m))){}
 		void SetRot(const float rot) {
 			prev_rot = this->rot;
 			const_cast<float&>(this->rot) = std::min(max_rot, std::max(min_rot, rot));
 		}
-		void Update(const Time& t, const glm::mat4& m) {
-			aabb = TransformAABB(layer.aabb, GetModel(m));
-			bbox = TransformBBox(layer.aabb, GetModel(m));
+		void Update(const Time& t, const glm::mat4& parent) {
+			const auto m = GetModel(parent);
+			aabb = TransformAABB(layer.aabb, m);
+			bbox = TransformBBox(layer.aabb, m);
+			missile_start_pos = m * glm::vec4{ missile_start_offset, 1.f };
 		}
 		glm::mat4 GetModel(const glm::mat4& m) const {
 			return ::GetModel(m, {}, rot, layer.pivot);
@@ -936,15 +1002,13 @@ struct ProtoX {
 	ProtoX(const size_t id, const Asset::Model& model, const Asset::Model& debris, size_t frame_count, const glm::vec3& pos, Client* ws = nullptr) : id(id),
 		aabb(model.aabb),
 		ws(ws),
-		debris_ref(debris),
+		debris(debris),
 		left({ 88.f, 3.f, 0.f }, glm::radians(55.f), 1.f, frame_count),
 		right({ -88.f, 3.f, 0.f }, -glm::radians(55.f), 1.f, frame_count),
 		bottom({ 0.f, -20.f, 0.f }, 0.f, 2.f, frame_count),
 		body(pos, 0.f, model.layers.front()),
 		turret(model.layers.back(), body.GetModel()),
 		clear_color_blink(globals.clear_color_blink_rate) {
-		debris_centrifugal_speed.resize(debris.vertices.size() / 6);
-		debris_speed.resize(debris.vertices.size() / 6);
 		Init();
 	}
 	/*auto GetPrevModel() const {
@@ -955,19 +1019,24 @@ struct ProtoX {
 		Scor msg{ Tag("SCOR"), this->id, id, missile_id, score, hit_pos.x, hit_pos.y, missile_vec.x, missile_vec.y };
 		ws->Send((const char*)&msg, sizeof(msg));
 	}
-	void Shoot(std::vector<Missile>& missiles) {
+	bool CollisionTest(const ProtoX& other) {
+		const AABB intersection = Intersect(aabb, other.aabb);
+		if (intersection.r < intersection.l && intersection.t < intersection.b) return false;
+		if (::HitTest(::MergeOBBs(body.bbox, body.bbox.prev), ::MergeOBBs(other.body.bbox.val, other.body.bbox.prev))) return true;
+		return ::HitTest(::MergeOBBs(body.bbox, body.bbox.prev), ::MergeOBBs(other.body.bbox.val, other.body.bbox.prev));
+	}
+
+	void Shoot(std::vector<Missile>& missiles, double frame_time) {
 		if (ctrl != Ctrl::Turret && ctrl != Ctrl::Full) return;
 		if (killed) return;
-		const float missile_vel = .1f;
-		auto rot = turret.rest_pos + turret.rot + body.rot;
+		const float missile_vel = .0f;
+		auto rot = turret.rest_rot + turret.rot + body.rot;
 		glm::vec3 missile_vec{ std::cos(rot) * missile_vel, std::sin(rot) * missile_vel,.0f};
-
-		auto m = turret.GetModel(body.GetModel());
-		auto start_pos = m * glm::vec4{ turret.missile_start_offset , 1.f};//RotateZ(turret.missile_start_offset, body.layer.pivot, body.rot) + body.layer.pivot;
-		missiles.emplace_back(glm::vec3(start_pos)/*body.pos + start_pos*/, rot, glm::length(missile_vec), this, ++missile_id );
+		auto vec = (turret.missile_start_pos.operator const glm::vec4 &() - turret.missile_start_pos.prev)/* / (float)frame_time*/;
+		missiles.emplace_back(glm::vec3(turret.missile_start_pos.operator const glm::vec4 &())/*body.pos + start_pos*/, rot, glm::length(missile_vec), this, ++missile_id, glm::vec3(vec));
 		if (ws) {
 			auto& m = missiles.back();
-			Misl misl{ Tag("MISL"), id, m.id, m.pos.x, m.pos.y, m.rot, m.vel, m.life};
+			Misl misl{ Tag("MISL"), id, m.id, m.pos.x, m.pos.y, m.rot, m.vel, m.life, m.vec.x, m.vec.y};
 			globals.ws->Send((char*)&misl, sizeof(misl));
 		}
 	}
@@ -1013,8 +1082,9 @@ struct ProtoX {
 	}
 	void SetInvincibility() {
 		invincible = globals.invincibility;
-		globals.envelopes.push_back(std::unique_ptr<Envelope>(
-			new Blink(visible, invincible, globals.timer.TotalMs(), globals.invincibility_blink_rate, 0.f)));
+		e_invinciblity = std::shared_ptr<Envelope>(
+			new Blink(visible, invincible, globals.timer.TotalMs(), globals.invincibility_blink_rate, 0.f));
+		globals.envelopes.push_back(e_invinciblity);
 	}
 	void SetCtrl(Ctrl ctrl) {
 		SetInvincibility();
@@ -1024,21 +1094,18 @@ struct ProtoX {
 	void Init() {
 		SetInvincibility();
 		fade_out = fade_out_time;
-		globals.envelopes.push_back(std::unique_ptr<Envelope>(
-			new Blink(blink, 0., globals.timer.TotalMs(), globals.blink_rate, globals.blink_ratio)));
+		e_blink = std::shared_ptr<Envelope>(
+			new Blink(blink, 0., globals.timer.TotalMs(), globals.blink_rate, globals.blink_ratio));
+		globals.envelopes.push_back(e_blink);
 		hit = killed = false;
 	}
+	bool SkipDeathCheck() const { return invincible > 0.f || hit || killed; }
 	void Die(const glm::vec3& hit_pos, std::list<Particles>& particles, const glm::vec3& missile_vec, double hit_time) {
-		if (invincible > 0.f || hit || killed) return;
+		if (SkipDeathCheck()) return;
 		hit = true;
 		this->hit_pos = RotateZ(hit_pos, body.pos, -body.rot);
 		this->hit_time = hit_time;
-		debris = debris_ref;
-		static std::uniform_real_distribution<float> dist_cfs(-debris_max_centrifugal_speed, debris_max_centrifugal_speed),
-			dist_sp(min_debris_speed, max_debris_speed);
-		for (auto& cfs : debris_centrifugal_speed) cfs = dist_cfs(mt);
-		for (auto& sp : debris_speed) sp = dist_sp(mt);
-
+		debris.Setup();
 		particles.push_back({ hit_pos,  missile_vec, hit_time });
 	}
 	bool IsInRestingPos(const AABB& bounds) const {
@@ -1113,31 +1180,8 @@ struct ProtoX {
 				clear_color_blink += globals.clear_color_blink_rate;
 			else
 				clear_color_blink -= (float)t.frame;
-			// TODO:: refactor to continuous fx instead of incremental
-			for (size_t i = 0, cfs = 0; i < debris.vertices.size(); i += 6, ++cfs) {
-				// TODO:: only enough to have the average of the furthest vertices
-				auto center = (debris.vertices[i] + debris.vertices[i + 1] + debris.vertices[i + 2] +
-					debris.vertices[i + 3] + debris.vertices[i + 4] + debris.vertices[i + 5]) / 6.f;
-				auto v = center - hit_pos;
-				float len = glm::length(v);
-				v /= len;
-				v *= debris_speed[cfs] * (float)t.frame;
-				//v.y += g * (float)t.frame;
-				auto incr = debris_centrifugal_speed[cfs] * (float)t.frame;
-//				auto r = RotateZ(debris.vertices[i], center, incr);
-				debris.vertices[i] += v;
-				debris.vertices[i] = center + RotateZ(debris.vertices[i], center, incr);
-				debris.vertices[i + 1] += v;
-				debris.vertices[i + 1] = center + RotateZ(debris.vertices[i + 1], center, incr);
-				debris.vertices[i + 2] += v;
-				debris.vertices[i + 2] = center + RotateZ(debris.vertices[i + 2], center, incr);
-				debris.vertices[i + 3] += v;
-				debris.vertices[i + 3] = center + RotateZ(debris.vertices[i + 3], center, incr);
-				debris.vertices[i + 4] += v;
-				debris.vertices[i + 4] = center + RotateZ(debris.vertices[i + 4], center, incr);
-				debris.vertices[i + 5] += v;
-				debris.vertices[i + 5] = center + RotateZ(debris.vertices[i + 5], center, incr);
-			}
+
+			debris.Update(t, hit_pos);
 			return;
 		}
 		left.Update(t);
@@ -1197,9 +1241,9 @@ struct ProtoX {
 			aabb = Union(Union(body.aabb, turret.aabb),
 				Union(body.aabb.prev, turret.aabb.prev));
 		}
-		std::stringstream ss;
+		/*std::stringstream ss;
 		ss << IsInRestingPos(bounds) << " " << body.rot<< " " << vel.y;
-		msg.push_back({ body.pos + glm::vec3{ 100.f, 0.f, 0.f }, 1.f, Text::Align::Left, ss.str() });
+		msg.push_back({ body.pos + glm::vec3{ 100.f, 0.f, 0.f }, 1.f, Text::Align::Left, ss.str() });*/
 
 		if (ws) {
 			Plyr player{ Tag("PLYR"), id, body.pos.x, body.pos.y, turret.rot, invincible, vel.x, vel.y, body.rot, left.on, right.on, bottom.on };
@@ -1217,6 +1261,9 @@ struct ProtoX {
 			body.pos.x = max + dif;
 			return dif;
 		}
+		// TODO:: reset preview values
+		body.bbox = body.bbox.val;
+		turret.bbox = turret.bbox.val;
 		return 0.f;
 	}
 };
@@ -1251,7 +1298,8 @@ struct Renderer {
 		VBO_MOUSE = 11,
 		VBO_WSAD = 12,
 		VBO_EDGES = 13,
-		VBO_COUNT = 14;
+		VBO_FOREGROUND = 14,
+		VBO_COUNT = 15;
 	GLuint vbo[VBO_COUNT];
 	std::vector<GLuint> tex;
 	glm::vec4 clearColor;
@@ -1277,6 +1325,7 @@ struct Renderer {
 		struct Layer {
 			float z;
 			size_t color_idx;
+			std::shared_ptr<Envelope> e_sequence;
 		}layer1, layer2, layer3;
 	}starField;
 	static void DumpCircle(const size_t steps = 16) {
@@ -1389,6 +1438,12 @@ struct Renderer {
 			glBufferData(GL_ARRAY_BUFFER, assets.land.vertices.size() * sizeof(assets.land.vertices[0]), &assets.land.vertices.front(), GL_STATIC_DRAW);
 		}
 
+		// Foreground
+		{
+			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_FOREGROUND]);
+			glBufferData(GL_ARRAY_BUFFER, assets.foreground.vertices.size() * sizeof(assets.foreground.vertices[0]), &assets.foreground.vertices.front(), GL_STATIC_DRAW);
+		}
+
 		// Missile
 		{
 			{
@@ -1457,13 +1512,16 @@ struct Renderer {
 			}
 			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_STARFIELD]);
 			glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * data.size(), &data.front(), GL_STATIC_DRAW);
-			starField = { count_per_layer, scene_bounds, vbo[VBO_STARFIELD], count_per_layer * layer_count, {1.f, 0}, {.5f, 0}, {.25f, 0 } };
-			globals.envelopes.push_back(std::unique_ptr<Envelope>(new SequenceAsc(starField.layer1.color_idx, 0., globals.timer.ElapsedMs(),
-				globals.starfield_layer1_blink_rate, starField.layer1.color_idx, globals.grey_palette.size(), 1, 1)));
-			globals.envelopes.push_back(std::unique_ptr<Envelope>(new SequenceAsc(starField.layer2.color_idx, 0., globals.timer.ElapsedMs(),
-				globals.starfield_layer2_blink_rate, starField.layer2.color_idx, globals.grey_palette.size(), 1, 1)));
-			globals.envelopes.push_back(std::unique_ptr<Envelope>(new SequenceAsc(starField.layer3.color_idx, 0., globals.timer.ElapsedMs(),
-				globals.starfield_layer3_blink_rate, starField.layer3.color_idx, globals.grey_palette.size(), 1, 1)));
+			starField = { count_per_layer, scene_bounds, vbo[VBO_STARFIELD], count_per_layer * layer_count, {-.75f, 0}, {-.5f, 0}, {-.25f, 0 } };
+			starField.layer1.e_sequence = std::shared_ptr<Envelope>(new SequenceAsc(starField.layer1.color_idx, 0., globals.timer.ElapsedMs(),
+				globals.starfield_layer1_blink_rate, starField.layer1.color_idx, globals.grey_palette.size(), 1, 1));
+			globals.envelopes.push_back(starField.layer1.e_sequence);
+			starField.layer2.e_sequence = std::unique_ptr<Envelope>(new SequenceAsc(starField.layer2.color_idx, 0., globals.timer.ElapsedMs(),
+				globals.starfield_layer2_blink_rate, starField.layer2.color_idx, globals.grey_palette.size(), 1, 1));
+			globals.envelopes.push_back(starField.layer2.e_sequence);
+			starField.layer3.e_sequence = std::unique_ptr<Envelope>(new SequenceAsc(starField.layer3.color_idx, 0., globals.timer.ElapsedMs(),
+				globals.starfield_layer3_blink_rate, starField.layer3.color_idx, globals.grey_palette.size(), 1, 1));
+			globals.envelopes.push_back(starField.layer3.e_sequence);
 		}
 
 		{
@@ -1699,7 +1757,7 @@ struct Renderer {
 			glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
 			glEnableVertexAttribArray(0);
 			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_DEBRIS]);
-			glBufferData(GL_ARRAY_BUFFER, proto.debris.vertices.size() * sizeof(proto.debris.vertices[0]), &proto.debris.vertices.front(), GL_DYNAMIC_DRAW);
+			glBufferData(GL_ARRAY_BUFFER, proto.debris.model.vertices.size() * sizeof(proto.debris.model.vertices[0]), &proto.debris.model.vertices.front(), GL_DYNAMIC_DRAW);
 			glVertexAttribPointer(0,
 				3,
 				GL_FLOAT,
@@ -1826,7 +1884,10 @@ struct Renderer {
 	}
 
 	void DrawLandscape(const Camera& cam) {
-		Draw(cam, vbo[VBO_LANDSCAPE], {}, assets.land );
+		Draw(cam, vbo[VBO_LANDSCAPE], {} , assets.land);
+	}
+	void DrawForeground(const Camera& cam) {
+		Draw(cam, vbo[VBO_FOREGROUND], { cam.pos.x * globals.foreground_pos_x_ratio, 0.f, 0.f }, assets.foreground);
 	}
 	void Draw(const Camera& cam, const std::vector<::Missile>& missiles) {
 		glEnable(GL_BLEND);
@@ -2053,7 +2114,7 @@ public:
 	Camera camera{ (int)globals.width, (int)globals.height }, hud{ (int)globals.width, (int)globals.height },
 		overlay;
 	InputHandler inputHandler;
-	std::mutex msgMutex;
+	//std::mutex msgMutex;
 	//GLuint VertexArrayID;
 	//GLuint vertexbuffer;
 	//GLuint uvbuffer;
@@ -2061,16 +2122,17 @@ public:
 	//GLuint uTexSize;
 	std::queue<std::vector<unsigned char>> messages;
 	int wait = 0;
-#ifndef __EMSCRIPTEN__
-	void* operator new(size_t i)
-	{
-		return _mm_malloc(i,16);
-	}
-	void operator delete(void* p)
-	{
-		_mm_free(p);
-	}
-#endif
+//#ifndef __EMSCRIPTEN__
+//	void* operator new(size_t i)
+//	{
+//		return _mm_malloc(i,16);
+//	}
+//	void operator delete(void* p)
+//	{
+//		_mm_free(p);
+//	}
+//#endif
+
 	//GLuint GenTexture(size_t w, size_t h) {
 	//	GLuint textureID;
 	//	glGenTextures(1, &textureID);
@@ -2118,13 +2180,20 @@ public:
 			GenerateNPC();
 		}
 	}
+	std::shared_ptr<Envelope> e_wsad_blink, e_mouse_blink;
 	void SetCtrl(ProtoX::Ctrl ctrl) {
 		if (!player) return;
 		player->SetCtrl(ctrl);
-		if (ctrl == ProtoX::Ctrl::Full || ctrl == ProtoX::Ctrl::Prop)
-			globals.envelopes.push_back(std::unique_ptr<Envelope>(new Blink(renderer.wsad_decal.factor, globals.blink_duration, globals.timer.ElapsedMs(), globals.blink_rate, globals.blink_ratio)));
-		if (ctrl == ProtoX::Ctrl::Full || ctrl == ProtoX::Ctrl::Turret)
-			globals.envelopes.push_back(std::unique_ptr<Envelope>(new Blink(renderer.mouse_decal.factor, globals.blink_duration, globals.timer.ElapsedMs(), globals.blink_rate, globals.blink_ratio)));
+		if (ctrl == ProtoX::Ctrl::Full || ctrl == ProtoX::Ctrl::Prop) {
+			e_wsad_blink = std::shared_ptr<Envelope>(new Blink(renderer.wsad_decal.factor, globals.blink_duration, globals.timer.ElapsedMs(), globals.blink_rate, globals.blink_ratio));
+			// TODO:: replace/remove
+			globals.envelopes.push_back(e_wsad_blink);
+		}
+		if (ctrl == ProtoX::Ctrl::Full || ctrl == ProtoX::Ctrl::Turret) {
+			e_mouse_blink = std::unique_ptr<Envelope>(new Blink(renderer.mouse_decal.factor, globals.blink_duration, globals.timer.ElapsedMs(), globals.blink_rate, globals.blink_ratio));
+			// TODO:: replace/remove
+			globals.envelopes.push_back(e_mouse_blink);
+		}
 	}
 	Scene() : bounds(assets.land.aabb),
 //#ifndef __EMSCRIPTEN__
@@ -2176,6 +2245,7 @@ public:
 			if (player->ctrl == ProtoX::Ctrl::Full || player->ctrl == ProtoX::Ctrl::Turret)
 				renderer.Draw(overlay, renderer.mouse_decal.id, { globals.width / 2.f, -globals.height / 2.f, 0.f }, *renderer.mouse_decal.model, renderer.mouse_decal.factor);
 		}
+		renderer.DrawForeground(camera);
 		renderer.Draw(overlay, texts);
 		glViewport(0, 0, res.x, HUD_RATIO(res.y));
 		renderer.RenderHUD(hud, bounds, player.get(), players);
@@ -2238,7 +2308,7 @@ public:
 				//LOG_INFO("%d %d %d %d %d %d\n", e.touchPoints[0].clientX, e.touchPoints[0].clientY, globals.width, globals.width / 4, globals.width * 4 / 5, w);
 				player->Move(t, a, d, w);
 				if (shoot)
-					player->Shoot(missiles);
+					player->Shoot(missiles, t.frame);
 				touch = true;
 			}
 #endif
@@ -2252,7 +2322,7 @@ public:
 					inputHandler.event_queue.pop();
 					switch (e) {
 					case InputHandler::ButtonClick::LB:
-						player->Shoot(missiles);
+						player->Shoot(missiles, t.frame);
 						break;
 					}
 				}
@@ -2276,7 +2346,7 @@ public:
 		if (player && player->killed) {
 			auto ctrl = player->ctrl;
 			auto score = player->score;
-			player = std::make_unique<ProtoX>(player->id, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(player->aabb), globals.ws.get());
+			player = std::make_unique<ProtoX>(player->id, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), globals.ws.get());
 			camera.SetPos(player->body.pos.x, player->body.pos.y, globals.camera_z);
 			renderer.clearColor = { 0.f, 0.f, 0.f, 1.f };
 			SetCtrl(ctrl);
@@ -2286,11 +2356,15 @@ public:
 			m.Update(t);
 		}
 		for (const auto& e : globals.envelopes) {
-			e->Update(t);
+			if (auto spt = e.lock())
+				spt->Update(t);
 		}
 		// TODO:: is resize more efficient
 		globals.envelopes.erase(std::remove_if(
-			std::begin(globals.envelopes), std::end(globals.envelopes), [](const auto& e) { return e->Finished(); }), globals.envelopes.end());
+			std::begin(globals.envelopes), std::end(globals.envelopes), [](const auto& e) { 
+			auto spt = e.lock();
+			if (!spt) return true;
+			return spt->Finished(); }), globals.envelopes.end());
 
 		if (player) {
 			// TODO:: is this needed? auto d = camera.pos.x + player->body.pos.x;
@@ -2352,6 +2426,17 @@ public:
 					++it;
 			}
 		}
+		if (!player->SkipDeathCheck()) {
+			
+			for (const auto& p : players) {
+				if (p.second->SkipDeathCheck() || !player->CollisionTest(*p.second)) continue;
+				// TODO:: not too accurate...
+				const auto d = Center(player->aabb) - Center(p.second->aabb);
+				glm::vec3 hit_pos((player->body.pos.x + p.second->body.pos.x) / 2.f, (player->body.pos.y + p.second->body.pos.y) / 2.f, 0.f);
+				player->Die(hit_pos, particles, d * glm::length(player->vel), (double)t.total);
+				//p.second->Die(hit_pos, particles, -d * glm::length(p.second->vel), (double)t.total);
+			}
+		}
 		for (auto it = particles.begin(); it != particles.end();) {
 			it->Update(t);
 			if (it->kill) {
@@ -2394,7 +2479,7 @@ public:
 	}
 	void OnMessage(const char* msg, int len) {
 		//LOG_INFO("OnMessage thread id: %d", std::hash<std::thread::id>()(std::this_thread::get_id()));
-		std::lock_guard<std::mutex> lock(msgMutex);
+		//std::lock_guard<std::mutex> lock(msgMutex);
 		messages.push(std::vector<unsigned char>{ msg, msg + (size_t)len });
 	}
 	void OnConn(const std::vector<unsigned char>& msg) {
@@ -2447,7 +2532,7 @@ public:
 			if (it != players.end()) proto = it->second.get();
 		}
 		if (!proto) return;
-		missiles.push_back({ { misl->x, misl->y, 0.f }, misl->rot, misl->vel, proto, misl->missile_id });
+		missiles.emplace_back(glm::vec3(misl->x, misl->y, 0.f ), misl->rot, misl->vel, proto, misl->missile_id, glm::vec3(misl->vx, misl->vy, 0.f));
 		missiles.back().life = misl->life;
 	}
 	void OnScor(const std::vector<unsigned char>& msg, const Time& t) {
@@ -2525,7 +2610,7 @@ public:
 	}
 	void ProcessMessages(const Time& t) {
 		//LOG_INFO("ProcessMessage thread id: %d", std::hash<std::thread::id>()(std::this_thread::get_id()));
-		std::lock_guard<std::mutex> lock(msgMutex);
+		//std::lock_guard<std::mutex> lock(msgMutex);
 		while (messages.size()) {
 			auto& msg = messages.front();
 			Dispatch(msg, t);

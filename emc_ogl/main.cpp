@@ -88,7 +88,7 @@ struct {
 		propulsion_scale = 80.f,
 		text_spacing = 10.f,
 		text_scale = 120.f,
-		missile_size = 120.f,
+		missile_size = 240.f,
 		missile_blink_rate = 33.f, //ms
 		blink_rate = 500., // ms
 		blink_ratio = .5f,
@@ -1017,11 +1017,40 @@ struct ProtoX {
 		Scor msg{ Tag("SCOR"), this->id, id, missile_id, score, hit_pos.x, hit_pos.y, missile_vec.x, missile_vec.y };
 		ws->Send((const char*)&msg, sizeof(msg));
 	}
+
+	static auto GetConvexHullOfOBBSweep(const OBB& obb, const OBB& prev_obb) {
+		return ::ConvexHullCCW(MergeOBBs(obb, prev_obb));
+	}
+	static std::vector<glm::vec3> obb1, obb2;
 	bool CollisionTest(const ProtoX& other) {
 		const AABB intersection = Intersect(aabb, other.aabb);
 		if (intersection.r < intersection.l && intersection.t < intersection.b) return false;
-		if (::HitTest(::MergeOBBs(body.bbox, body.bbox.prev), ::MergeOBBs(other.body.bbox.val, other.body.bbox.prev))) return true;
-		return ::HitTest(::MergeOBBs(body.bbox, body.bbox.prev), ::MergeOBBs(other.body.bbox.val, other.body.bbox.prev));
+
+		const auto player_body_obb = ProtoX::GetConvexHullOfOBBSweep(body.bbox, body.bbox.prev),
+			other_body_obb = ProtoX::GetConvexHullOfOBBSweep(other.body.bbox.val, other.body.bbox.prev);
+		auto res = ::HitTest(player_body_obb, other_body_obb);
+		if (res) {
+			obb1 = player_body_obb; obb2 = other_body_obb;
+			return true;
+		}
+		const auto player_turret_obb = ProtoX::GetConvexHullOfOBBSweep(turret.bbox, turret.bbox.prev),
+			other_turret_obb = ProtoX::GetConvexHullOfOBBSweep(other.turret.bbox.val, other.turret.bbox.prev);
+		res = ::HitTest(player_turret_obb, other_turret_obb);
+		if (res) {
+			obb1 = player_turret_obb; obb2 = other_turret_obb;
+			return true;
+		}
+		res = ::HitTest(player_body_obb, other_turret_obb);
+		if (res) {
+			obb1 = player_body_obb; obb2 = other_turret_obb;
+			return true;
+		}
+		res = ::HitTest(player_turret_obb, other_body_obb);
+		if (res) {
+			obb1 = player_turret_obb; obb2 = other_body_obb;
+			return true;
+		}
+		return false;
 	}
 
 	void Shoot(std::vector<Missile>& missiles, double frame_time) {
@@ -1157,9 +1186,6 @@ struct ProtoX {
 	//	return res;
 	//}
 
-	static auto GetConvexHullOfOBBSweep(const OBB& obb, const OBB& prev_obb) {
-		return ::ConvexHullCCW(MergeOBBs(obb, prev_obb));
-	}
 	void Update(const Time& t, const AABB& bounds, std::list<Particles>& particles, bool player_self) {
 		
 		msg.clear();
@@ -1263,9 +1289,13 @@ struct ProtoX {
 		// TODO:: reset preview values
 		body.bbox = body.bbox.val;
 		turret.bbox = turret.bbox.val;
+		body.aabb = body.aabb.val;
+		turret.aabb = turret.aabb.val;
+		aabb = Union(body.aabb, turret.aabb);
 		return 0.f;
 	}
 };
+std::vector<glm::vec3> ProtoX::obb1, ProtoX::obb2;
 void GenerateSquare(float x, float y, float s, std::vector<glm::vec3>& data) {
 	s *=.5f;
 	data.emplace_back(x - s, y - s, 0.f);
@@ -2221,7 +2251,7 @@ public:
 		renderer.Draw(camera, missiles);
 		for (const auto& p : players) {
 			renderer.Draw(camera, *p.second.get());
-			renderer.Draw(camera, p.second->aabb);
+			//renderer.Draw(camera, p.second->aabb);
 			//renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::GetConvexHullOfOBBSweep(p.second->body.bbox, p.second->body.bbox.prev), { .3f, 1.f, .3f, 1.f });
 			//renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::GetConvexHullOfOBBSweep(p.second->turret.bbox, p.second->turret.bbox.prev), { 1.f, .3f, .3f, 1.f });
 
@@ -2229,9 +2259,11 @@ public:
 		}
 		if (player) {
 			renderer.Draw(camera, *player.get(), true);
-			//renderer.Draw(camera, player->aabb);
+			renderer.Draw(camera, player->aabb);
 			//renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::GetConvexHullOfOBBSweep(player->body.bbox, player->body.bbox.prev), { .3f, 1.f, .3f, 1.f });
 			//renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::GetConvexHullOfOBBSweep(player->turret.bbox, player->turret.bbox.prev), { 1.f, .3f, .3f, 1.f });
+			renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::obb1, { .3f, 1.f, .3f, 1.f });
+			renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::obb2, { 1.f, .3f, .3f, 1.f });
 		}
 		renderer.Draw(camera, particles);
 
@@ -2642,6 +2674,7 @@ static void init(int width, int height) {
 	REPORT_RESULT();
 #endif
 }
+
 void main_loop();
 int main(int argc, char** argv) {
 	//TestHitTest();

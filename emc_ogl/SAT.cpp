@@ -14,7 +14,7 @@ namespace {
 		return res;
 	}
 	float Check(const std::vector<glm::vec3>& src, const std::vector<glm::vec3>& dst) {
-		for (size_t s = 0; s < src.size() - 1; s+=2) {
+		for (size_t s = 0; s < src.size() - 1; ++s) {
 			const auto n = glm::normalize(NormalCW(src[s+1] - src[s]));
 			const auto resSrc = ProjectMinMax(n, src), resDst = ProjectMinMax(n, dst);
 			const auto d = (std::max(resSrc.second, resDst.second) - std::min(resSrc.first, resDst.first))

@@ -79,7 +79,7 @@ class Envelope;
 static const glm::vec3 g(0.f, -.1f, 0.f);/* m/ms2 */
 struct {
 #ifdef DEBUG_REL
-	const float invincibility = 5000.f;
+	const float invincibility = 1.f;
 #else
 	const float invincibility = 5000.f;
 #endif
@@ -575,13 +575,9 @@ struct Camera {
 	Camera(int w, int h) : view(glm::translate(pos)) {
 		SetProj(w, h);
 	}
-	std::string text;
 	glm::vec4 EaseOut(const glm::vec4& d, const glm::vec4& current, const glm::vec4& limit) {
 		const auto ratio = glm::vec4(1.f, 1.f, 0.f, 0.f) - glm::abs(current / limit);
 		const auto r = ratio * ratio * ratio * ratio;
-		std::stringstream ss;
-		ss << r.x << " " << r.y;
-		text = ss.str();
 		return d;// *r;
 	}
 	void Update(const Time& t, const AABB& scene_aabb, const glm::vec3& player_pos, const glm::vec3& vel) {
@@ -598,7 +594,6 @@ struct Camera {
 			dist.z = 0.f;
 			auto ratio = dist / (tr - bl) * 2.f;
 			ratio = 1.f - glm::abs((ratio + glm::vec4(vel_n, 0.f)) / 2.f);
-			text = std::to_string(ratio.x);
 			d -= glm::vec4(vel_n * (float)t.frame * globals.look_ahead_ratio, 0.f) * (1.f - ratio * ratio * ratio);
 			d = glm::clamp(d, bl, tr);
 			d.z = 0.f;
@@ -770,10 +765,10 @@ struct Text {
 struct Particles {
 	static GLuint vbo;
 	static GLsizei vertex_count;
-	static const size_t count = 200;
-	static constexpr float slowdown = .02f, g = -.001f, init_mul = 1.f, min_fade = 750.f, max_fade = 1500.f,
-		v_min = .05f, v_max = .55f, blink_rate = 16.f;
-	const float vec_ratio = .1f; // static constexpr makes emscripten complain about unresolved symbol...
+	static const size_t count = 400;
+	static constexpr float slowdown = .02f, g = -.001f, init_mul = 1.f, min_fade = 750.f, max_fade = 2500.f,
+		v_min = .05f, v_max = .35f, blink_rate = 16.f;
+	const float vec_ratio = .75f; // static constexpr makes emscripten complain about unresolved symbol...
 	glm::vec3 pos;
 	bool kill = false;
 	float time;
@@ -844,17 +839,20 @@ struct ProtoX {
 			max_speed = .3f, //px/ ms
 			min_speed = .05f, //px/ ms
 			min_scale = 1.f, // 1/ms
-			max_scale = 1.1f; // 1/ms
-		const size_t min_scale_occurence = 5u, max_scale_occurence = 10u;
+			max_scale = 1.035f, // 1/ms
+			missile_vec_ratio = .35f;
+		const size_t min_scale_occurence = 3u, max_scale_occurence = 6u;
 		const Asset::Model& ref;
 		Asset::Model model;
 		std::vector<float> centrifugal_speed, speed, scale;
+		glm::vec3 missile_vec;
 		Debris(const Asset::Model& model) :
 			ref(model),
 			centrifugal_speed(model.vertices.size() / 6),
 			speed(model.vertices.size() / 6),
 			scale(model.vertices.size() / 6) {}
-		void Setup() {
+		void Setup(const glm::vec3& missile_vec) {
+			this->missile_vec = missile_vec;
 			model = ref;
 			static std::uniform_real_distribution<float> dist_cfs(-max_centrifugal_speed, max_centrifugal_speed),
 				dist_sp(min_speed, max_speed),
@@ -876,7 +874,7 @@ struct ProtoX {
 				auto v = center - hit_pos;
 				float len = glm::length(v);
 				v /= len;
-				v *= speed[cfs] * (float)t.frame;
+				v *= (speed[cfs] /*+ missile_vec * missile_vec_ratio*/) * (float)t.frame;
 				//v.y += g * (float)t.frame;
 				auto incr = centrifugal_speed[cfs] * (float)t.frame;
 				//				auto r = RotateZ(debris.vertices[i], center, incr);
@@ -900,7 +898,7 @@ struct ProtoX {
 		force = .2f,
 		slowdown = .0003f,
 		ground_level = 20.f,
-		fade_out_time = 1500.f, // ms
+		fade_out_time = 3500.f, // ms
 		rot_max_speed = .003f, //rad/ms
 		rot_inc = .000005f, // rad/ms*ms
 		safe_rot = glm::radians(35.f);
@@ -1105,7 +1103,7 @@ struct ProtoX {
 		hit = true;
 		this->hit_pos = RotateZ(hit_pos, body.pos, -body.rot);
 		this->hit_time = hit_time;
-		debris.Setup();
+		debris.Setup(missile_vec);
 		particles.push_back({ hit_pos,  missile_vec, hit_time });
 	}
 	bool IsInRestingPos(const AABB& bounds) const {
@@ -1214,7 +1212,8 @@ struct ProtoX {
 			body.pos.y = bounds.b + ground_level - body.layer.aabb.b;
 			if (std::abs(body.rot) > safe_rot && invincible <= 0.f) {
 				glm::vec3 hit_pos = body.pos + glm::vec3{ 0.f, body.layer.aabb.b, 0.f },
-					vec{ 0.f, 1.f, 0.f };
+					n{ 0.f, 1.f, 0.f };
+				const auto& vec = glm::reflect(glm::normalize(vel), n);
 				Die(hit_pos, particles, vec, t.total);
 				--score;
 				Kill(id, id, score, hit_pos, vec);
@@ -2110,7 +2109,6 @@ public:
 	std::map<size_t, std::unique_ptr<ProtoX>> players;
 	std::list<Particles> particles;
 	std::vector<Text> texts;
-	Object mesh{ { 5.f, 0.f, 0.f } };
 	Camera camera{ (int)globals.width, (int)globals.height }, hud{ (int)globals.width, (int)globals.height },
 		overlay;
 	InputHandler inputHandler;
@@ -2213,8 +2211,6 @@ public:
 		GenerateNPCs();
 #endif
 		inputHandler.keyCb = std::bind(&Scene::KeyCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
-
-		mesh.model = glm::translate(mesh.model, mesh.pos);
 	}
 	void Render() {
 		renderer.PreRender();
@@ -2233,9 +2229,9 @@ public:
 		}
 		if (player) {
 			renderer.Draw(camera, *player.get(), true);
-			renderer.Draw(camera, player->aabb);
-			renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::GetConvexHullOfOBBSweep(player->body.bbox, player->body.bbox.prev), { .3f, 1.f, .3f, 1.f });
-			renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::GetConvexHullOfOBBSweep(player->turret.bbox, player->turret.bbox.prev), { 1.f, .3f, .3f, 1.f });
+			//renderer.Draw(camera, player->aabb);
+			//renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::GetConvexHullOfOBBSweep(player->body.bbox, player->body.bbox.prev), { .3f, 1.f, .3f, 1.f });
+			//renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::GetConvexHullOfOBBSweep(player->turret.bbox, player->turret.bbox.prev), { 1.f, .3f, .3f, 1.f });
 		}
 		renderer.Draw(camera, particles);
 
@@ -2370,7 +2366,6 @@ public:
 			// TODO:: is this needed? auto d = camera.pos.x + player->body.pos.x;
 			auto res = player->WrapAround(assets.land.layers[0].aabb.l, assets.land.layers[0].aabb.r);
 			camera.Update(t, bounds, player->body.pos, player->vel);
-			texts.push_back({ { 0.f, 40.f, 0.f }, 1.f, Text::Align::Left, camera.text });
 			//std::stringstream ss;
 			//ss << camera.pos.x << " "<<camera.pos.y;
 			//
@@ -2434,7 +2429,7 @@ public:
 				const auto d = Center(player->aabb) - Center(p.second->aabb);
 				glm::vec3 hit_pos((player->body.pos.x + p.second->body.pos.x) / 2.f, (player->body.pos.y + p.second->body.pos.y) / 2.f, 0.f);
 				player->Die(hit_pos, particles, d * glm::length(player->vel), (double)t.total);
-				//p.second->Die(hit_pos, particles, -d * glm::length(p.second->vel), (double)t.total);
+				p.second->Die(hit_pos, particles, -d * glm::length(p.second->vel), (double)t.total);
 			}
 		}
 		for (auto it = particles.begin(); it != particles.end();) {

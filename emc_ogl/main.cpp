@@ -1018,23 +1018,22 @@ struct ProtoX {
 		ws->Send((const char*)&msg, sizeof(msg));
 	}
 
-	static auto GetConvexHullOfOBBSweep(const OBB& obb, const OBB& prev_obb) {
-		return ::ConvexHullCCW(MergeOBBs(obb, prev_obb));
-	}
-	static std::vector<glm::vec3> obb1, obb2;
-	bool CollisionTest(const ProtoX& other) {
-		const AABB intersection = Intersect(aabb, other.aabb);
-		if (intersection.r < intersection.l && intersection.t < intersection.b) return false;
 
-		const auto player_body_obb = ProtoX::GetConvexHullOfOBBSweep(body.bbox, body.bbox.prev),
-			other_body_obb = ProtoX::GetConvexHullOfOBBSweep(other.body.bbox.val, other.body.bbox.prev);
+	static std::vector<glm::vec3> obb1, obb2;
+	bool CollisionTest(const ProtoX& other) const {
+		const AABB intersection = Intersect(aabb, other.aabb);
+		// TODO:: fix intersection test
+		//if (intersection.r < intersection.l || intersection.t < intersection.b) return false;
+
+		const auto player_body_obb = ::GetConvexHullOfOBBSweep(body.bbox.val, body.bbox.prev),
+			other_body_obb = ::GetConvexHullOfOBBSweep(other.body.bbox.val, other.body.bbox.prev);
 		auto res = ::HitTest(player_body_obb, other_body_obb);
 		if (res) {
 			obb1 = player_body_obb; obb2 = other_body_obb;
 			return true;
 		}
-		const auto player_turret_obb = ProtoX::GetConvexHullOfOBBSweep(turret.bbox, turret.bbox.prev),
-			other_turret_obb = ProtoX::GetConvexHullOfOBBSweep(other.turret.bbox.val, other.turret.bbox.prev);
+		const auto player_turret_obb = ::GetConvexHullOfOBBSweep(turret.bbox.val, turret.bbox.prev),
+			other_turret_obb = ::GetConvexHullOfOBBSweep(other.turret.bbox.val, other.turret.bbox.prev);
 		res = ::HitTest(player_turret_obb, other_turret_obb);
 		if (res) {
 			obb1 = player_turret_obb; obb2 = other_turret_obb;
@@ -1211,68 +1210,70 @@ struct ProtoX {
 		left.Update(t);
 		right.Update(t);
 		bottom.Update(t);
-		if (player_self && (ctrl == Ctrl::Full || ctrl == Ctrl::Prop)) {
-			vel += ((f + g) / m) * (float)t.frame;
-			vel.x = std::max(-max_vel, std::min(max_vel, vel.x));
-			vel.y = std::max(-max_vel, std::min(max_vel, vel.y));
-			body.pos += vel * (float)t.frame;
-			//std::string str;
-			//str += std::to_string(vel.x);
-			//str += " ";
-			//str += std::to_string(vel.y);
-			//str += "\n";
-			//LOG_INFO(str.c_str());
-		}
-		else if (!pos_invalidated) {
-			////std::string str("!pos_invalidated ");
-			////str += std::to_string(vel.x);
-			////str += " ";
-			////str += std::to_string(vel.y);
-			////str += "\n";
-			////LOG_INFO(str.c_str());
-			//SetPos(pos + vel * (float)t.frame);
-		}
-
-		// ground constraint
-		if (IsInRestingPos(bounds)) {
-			body.pos.y = bounds.b + ground_level - body.layer.aabb.b;
-			if (std::abs(body.rot) > safe_rot && invincible <= 0.f) {
-				glm::vec3 hit_pos = body.pos + glm::vec3{ 0.f, body.layer.aabb.b, 0.f },
-					n{ 0.f, 1.f, 0.f };
-				const auto& vec = glm::reflect(glm::normalize(vel), n);
-				Die(hit_pos, particles, vec, t.total);
-				--score;
-				Kill(id, id, score, hit_pos, vec);
-			} else {
-				body.rot = 0.f;
-				if (std::abs(vel.y) < 0.001f)
-					vel.y = 0.f;
-				else
-					vel = { 0.f, -vel.y / 2.f, 0.f };
+		if (player_self) {
+			if (ctrl == Ctrl::Full || ctrl == Ctrl::Prop) {
+				vel += ((f + g) / m) * (float)t.frame;
+				vel.x = std::max(-max_vel, std::min(max_vel, vel.x));
+				vel.y = std::max(-max_vel, std::min(max_vel, vel.y));
+				body.pos += vel * (float)t.frame;
+				//std::string str;
+				//str += std::to_string(vel.x);
+				//str += " ";
+				//str += std::to_string(vel.y);
+				//str += "\n";
+				//LOG_INFO(str.c_str());
+			}	else if (!pos_invalidated) {
+				////std::string str("!pos_invalidated ");
+				////str += std::to_string(vel.x);
+				////str += " ";
+				////str += std::to_string(vel.y);
+				////str += "\n";
+				////LOG_INFO(str.c_str());
+				//SetPos(pos + vel * (float)t.frame);
 			}
-		}
-		else if (turret.layer.aabb.t + body.pos.y >= bounds.t) {
-			body.pos.y = bounds.t - turret.layer.aabb.t;
-			vel.y = 0.f;
-		}
-		if (!IsInRestingPos(bounds)) {
-			// wrap around -PI..PI
-			float pi = (body.rot < 0.f) ? -glm::pi<float>() : glm::pi<float>();
-			body.rot = std::fmod(body.rot + rot_speed * (float)t.frame + pi, pi * 2.f) - pi;
-		}
-		{
-			body.Update(t);
-			turret.Update(t, body.GetModel());
-			aabb = Union(Union(body.aabb, turret.aabb),
-				Union(body.aabb.prev, turret.aabb.prev));
-		}
-		/*std::stringstream ss;
-		ss << IsInRestingPos(bounds) << " " << body.rot<< " " << vel.y;
-		msg.push_back({ body.pos + glm::vec3{ 100.f, 0.f, 0.f }, 1.f, Text::Align::Left, ss.str() });*/
 
-		if (ws) {
-			Plyr player{ Tag("PLYR"), id, body.pos.x, body.pos.y, turret.rot, invincible, vel.x, vel.y, body.rot, left.on, right.on, bottom.on };
-			globals.ws->Send((char*)&player, sizeof(Plyr));
+			// ground constraint
+			if (IsInRestingPos(bounds)) {
+				body.pos.y = bounds.b + ground_level - body.layer.aabb.b;
+				if (std::abs(body.rot) > safe_rot && invincible <= 0.f) {
+					glm::vec3 hit_pos = body.pos + glm::vec3{ 0.f, body.layer.aabb.b, 0.f },
+						n{ 0.f, 1.f, 0.f };
+					const auto& vec = glm::reflect(glm::normalize(vel), n);
+					Die(hit_pos, particles, vec, t.total);
+					--score;
+					Kill(id, id, score, hit_pos, vec);
+				}
+				else {
+					body.rot = 0.f;
+					if (std::abs(vel.y) < 0.001f)
+						vel.y = 0.f;
+					else
+						vel = { 0.f, -vel.y / 2.f, 0.f };
+				}
+			}
+			else if (turret.layer.aabb.t + body.pos.y >= bounds.t) {
+				body.pos.y = bounds.t - turret.layer.aabb.t;
+				vel.y = 0.f;
+			}
+			if (!IsInRestingPos(bounds)) {
+				// wrap around -PI..PI
+				float pi = (body.rot < 0.f) ? -glm::pi<float>() : glm::pi<float>();
+				body.rot = std::fmod(body.rot + rot_speed * (float)t.frame + pi, pi * 2.f) - pi;
+			}
+			{
+				body.Update(t);
+				turret.Update(t, body.GetModel());
+				aabb = Union(Union(body.aabb, turret.aabb),
+					Union(body.aabb.prev, turret.aabb.prev));
+			}
+			/*std::stringstream ss;
+			ss << IsInRestingPos(bounds) << " " << body.rot<< " " << vel.y;
+			msg.push_back({ body.pos + glm::vec3{ 100.f, 0.f, 0.f }, 1.f, Text::Align::Left, ss.str() });*/
+
+			if (ws) {
+				Plyr player{ Tag("PLYR"), id, body.pos.x, body.pos.y, turret.rot, invincible, vel.x, vel.y, body.rot, left.on, right.on, bottom.on };
+				globals.ws->Send((char*)&player, sizeof(Plyr));
+			}
 		}
 	}
 	float WrapAround(float min, float max) {
@@ -1870,6 +1871,8 @@ struct Renderer {
 	}
 
 	void RenderHUD(const Camera& cam, const AABB& bounds, const ProtoX* player, const std::map<size_t, std::unique_ptr<ProtoX>>& players) {
+		if (!player)
+			return;
 		const float score_scale = 2.f, 
 			border = 12.f, 
 			text_y = -assets.text.aabb.t - assets.text.aabb.b;
@@ -2223,10 +2226,27 @@ public:
 			globals.envelopes.push_back(e_mouse_blink);
 		}
 	}
+#ifdef OBB_TEST
+	void AddNPC(size_t id, const glm::vec3& pos, float rot) {
+		auto p = std::make_unique<ProtoX>(id, assets.probe, assets.debris, assets.propulsion.layers.size(), pos);
+		std::uniform_real_distribution<> rot_dist(0., glm::degrees(glm::two_pi<float>()));
+		p->body.rot = rot;
+		//p->right.on = true;
+		p->bottom.on = true;
+		p->turret.SetRot(rot_dist(mt));
+		players[id] = std::move(p);
+	}
+	void AddOBBTestEntities() {
+		AddNPC(0xdead, { -340.f, 200.f, 0.f }, -1.4f);
+		AddNPC(0xbeef, { 340.f, 200.f, 0.f }, 1.4f);
+	}
+#endif
 	Scene() : bounds(assets.land.aabb),
 //#ifndef __EMSCRIPTEN__
 #ifdef DEBUG_REL
+#ifndef OBB_TEST
 	player(std::make_unique<ProtoX>(0xdeadbeef, assets.probe, assets.debris, assets.propulsion.layers.size(), glm::vec3{})),
+#endif
 #endif
 //#endif
 		renderer(assets, bounds),
@@ -2239,6 +2259,9 @@ public:
 #ifdef DEBUG_REL
 		SetCtrl(ProtoX::Ctrl::Full);
 		GenerateNPCs();
+#ifdef OBB_TEST
+		AddOBBTestEntities();
+#endif
 #endif
 		inputHandler.keyCb = std::bind(&Scene::KeyCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
 	}
@@ -2308,6 +2331,14 @@ public:
 		}
 
 	}
+	void HitTest(ProtoX& p1, ProtoX& p2, double total) {
+		if (!p1.SkipDeathCheck() && !p2.SkipDeathCheck() && p1.CollisionTest(p2)) {
+			const auto d = glm::normalize(Center(p1.aabb) - Center(p2.aabb));
+			glm::vec3 hit_pos((p1.body.pos.x + p2.body.pos.x) / 2.f, (p1.body.pos.y + p2.body.pos.y) / 2.f, 0.f);
+			p1.Die(hit_pos, particles, d * glm::length(p1.vel), total);
+			p2.Die(hit_pos, particles, -d * glm::length(p2.vel), total);
+		}
+	}
 	void Update(const Time& t) {
 		const double scroll_speed = .5; // px/s
 		if (inputHandler.keys[(size_t)InputHandler::Keys::Left])
@@ -2317,7 +2348,7 @@ public:
 		texts.clear();
 		if (wait > 0) {
 			std::stringstream ss;
-			ss << "WAITING FOR " << wait << " MORE PLAYER" << ((wait == 1) ? "":"S");
+			ss << "WAITING FOR " << wait << " MORE PLAYER" << ((wait == 1) ? "" : "S");
 			texts.push_back({ {}, .8f, Text::Align::Center, ss.str() });
 			ss.str("");
 			ss << "SHARE THE URL IN THE ADDRESS BAR";
@@ -2331,7 +2362,7 @@ public:
 				inputHandler.touch_event_queue.pop();
 				bool d = e.touchPoints[0].clientX < (globals.width / 3),
 					w = e.touchPoints[0].clientX >= (globals.width / 4) && e.touchPoints[0].clientX <= (globals.width * 4 / 5),
-					a = e.touchPoints[0].canvasX > (globals.width * 2 / 3),
+					a = e.touchPoints[0].canvasX >(globals.width * 2 / 3),
 					shoot = e.touchPoints[0].clientY < (globals.height / 2);
 				//LOG_INFO("%d %d %d %d %d %d\n", e.touchPoints[0].clientX, e.touchPoints[0].clientY, globals.width, globals.width / 4, globals.width * 4 / 5, w);
 				player->Move(t, a, d, w);
@@ -2367,18 +2398,20 @@ public:
 			}
 			else ++p;
 		}
-		if (player->hit && player->clear_color_blink < 0.f) {
-			std::uniform_int_distribution<> col_idx_dist(0, globals.palette.size() - 1);
-			renderer.clearColor = globals.palette[col_idx_dist(mt)];
-		}
-		if (player && player->killed) {
-			auto ctrl = player->ctrl;
-			auto score = player->score;
-			player = std::make_unique<ProtoX>(player->id, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), globals.ws.get());
-			camera.SetPos(player->body.pos.x, player->body.pos.y, globals.camera_z);
-			renderer.clearColor = { 0.f, 0.f, 0.f, 1.f };
-			SetCtrl(ctrl);
-			player->score = score;
+		if (player) {
+			if (player->hit && player->clear_color_blink < 0.f) {
+				std::uniform_int_distribution<> col_idx_dist(0, globals.palette.size() - 1);
+				renderer.clearColor = globals.palette[col_idx_dist(mt)];
+			}
+			if (player->killed) {
+				auto ctrl = player->ctrl;
+				auto score = player->score;
+				player = std::make_unique<ProtoX>(player->id, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), globals.ws.get());
+				camera.SetPos(player->body.pos.x, player->body.pos.y, globals.camera_z);
+				renderer.clearColor = { 0.f, 0.f, 0.f, 1.f };
+				SetCtrl(ctrl);
+				player->score = score;
+			}
 		}
 		for (auto& m : missiles) {
 			m.Update(t);
@@ -2452,16 +2485,9 @@ public:
 				if (!missile_removed)
 					++it;
 			}
-		}
-		if (!player->SkipDeathCheck()) {
-			
-			for (const auto& p : players) {
-				if (p.second->SkipDeathCheck() || !player->CollisionTest(*p.second)) continue;
-				// TODO:: not too accurate...
-				const auto d = Center(player->aabb) - Center(p.second->aabb);
-				glm::vec3 hit_pos((player->body.pos.x + p.second->body.pos.x) / 2.f, (player->body.pos.y + p.second->body.pos.y) / 2.f, 0.f);
-				player->Die(hit_pos, particles, d * glm::length(player->vel), (double)t.total);
-				p.second->Die(hit_pos, particles, -d * glm::length(p.second->vel), (double)t.total);
+			if (!player->SkipDeathCheck()) {
+				for (const auto& p : players)
+					HitTest(*player, *p.second, t.total);
 			}
 		}
 		for (auto it = particles.begin(); it != particles.end();) {
@@ -2487,6 +2513,22 @@ public:
 			//auto& p = players[0xbeef];
 			//p->pos.x = 50.f;
 		}
+#ifdef OBB_TEST
+		for (const auto& p : players) {
+			auto a = p.second->left.on,
+				w = p.second->bottom.on,
+				d = p.second->right.on;
+			p.second->Move(t, a, d, w);
+			p.second->Update(t, bounds, particles, true);
+		}
+		auto it1 = players.find(0xdead), it2 = players.find(0xbeef);
+		if (it1 != players.end() && it2 != players.end()) {
+			auto& p1 = *it1->second, &p2 = *it2->second;
+			HitTest(p1, p2, t.total);
+		}
+		if (players.empty())
+			AddOBBTestEntities();
+#endif
 #endif
 	}
 	~Scene() {

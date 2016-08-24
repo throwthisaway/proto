@@ -101,3 +101,7 @@ std::vector<glm::vec3> ConvexHullCCW(std::vector<glm::vec3> points) {
 	}
 	return res;
 }
+
+std::vector<glm::vec3> GetConvexHullOfOBBSweep(const OBB& obb, const OBB& prev_obb) {
+	return ConvexHullCCW(MergeOBBs(obb, prev_obb));
+}

@@ -15,8 +15,8 @@ inline auto RoundToPowerOf2(unsigned int v) {
 }
 
 glm::mat4 GetModel(const glm::mat4& m, const glm::vec3& pos, float rot, const glm::vec3& pivot, float scale = 1.f);
-void AABBToBBoxEdgesCCW(const AABB& aabb, const glm::mat4& m, std::vector<glm::vec3>& res);
-void AABBToBBoxEdgesCCW(const AABB& aabb, std::vector<glm::vec3>& res);
+//void AABBToBBoxEdgesCCW(const AABB& aabb, const glm::mat4& m, std::vector<glm::vec3>& res);
+//void AABBToBBoxEdgesCCW(const AABB& aabb, std::vector<glm::vec3>& res);
 AABB TransformAABB(const AABB& aabb, const glm::mat4& m);
 using OBB = std::array<glm::vec3, 4>;
 OBB TransformBBox(const AABB& aabb, const glm::mat4& m);
@@ -27,10 +27,11 @@ public:
 	const T val, prev;
 	Val(T& val) : val(val), prev(val) {}
 	Val& operator=(const T& val) { const_cast<T&>(prev) = this->val;  const_cast<T&>(this->val) = val; return *this; }
-	operator const T&() { return val; }
+	operator const T&() const { return val; }
 };
-std::vector<glm::vec3> MergeOBBs(const OBB& obb1, const OBB& obb2);
-std::vector<glm::vec3> ConvexHullCCW(std::vector<glm::vec3> p);
+std::vector<glm::vec3> GetConvexHullOfOBBSweep(const OBB& obb, const OBB& prev_obb);
+//std::vector<glm::vec3> MergeOBBs(const OBB& obb1, const OBB& obb2);
+//std::vector<glm::vec3> ConvexHullCCW(std::vector<glm::vec3> p);
 //template<typename T>
 //void EraseAll(const std::vector<T>& v, ) {
 //	std::remove_if()

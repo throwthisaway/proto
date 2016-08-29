@@ -10,3 +10,4 @@ node_modules/
 .ninja_log
 *.bc
 *.VC.db
+/emc_openal

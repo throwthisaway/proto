@@ -24,6 +24,7 @@
     <ClCompile Include="..\..\..\MeshLoader\Img.cpp" />
     <ClCompile Include="..\..\..\MeshLoader\Log.cpp" />
     <ClCompile Include="..\..\..\MeshLoader\Tga.cpp" />
+    <ClCompile Include="..\..\emc_ogl\audio.cpp" />
     <ClCompile Include="..\..\emc_ogl\Exception.cpp" />
     <ClCompile Include="..\..\emc_ogl\Globals.cpp" />
     <ClCompile Include="..\..\emc_ogl\Helpers.cpp" />
@@ -67,6 +68,7 @@
     <ClInclude Include="..\..\..\MeshLoader\Tga.h" />
     <ClInclude Include="..\..\..\MeshLoader\types.h" />
     <ClInclude Include="..\..\emc_ogl\AABB.h" />
+    <ClInclude Include="..\..\emc_ogl\audio.h" />
     <ClInclude Include="..\..\emc_ogl\Envelope.h" />
     <ClInclude Include="..\..\emc_ogl\Exception.h" />
     <ClInclude Include="..\..\emc_ogl\Globals.h" />
@@ -166,17 +168,17 @@
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>_WINSOCK_DEPRECATED_NO_WARNINGS;GLM;GLEW_STATIC;WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;..\..\..\..\3rdparty\GSL\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;..\..\..\..\3rdparty\GSL\include;F:\Programs\OpenAL 1.1 SDK\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
-      <MinimalRebuild>false</MinimalRebuild>
+      <MinimalRebuild>true</MinimalRebuild>
       <FunctionLevelLinking>false</FunctionLevelLinking>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>..\..\..\..\3rdparty\glew-1.13.0\lib\Release\Win32;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\lib-vc2013</AdditionalLibraryDirectories>
-      <AdditionalDependencies>opengl32.lib;glu32.lib;legacy_stdio_definitions.lib;glfw3.lib;glew32s.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>F:\Programs\OpenAL 1.1 SDK\libs\Win32\;..\..\..\..\3rdparty\glew-1.13.0\lib\Release\Win32;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\lib-vc2013</AdditionalLibraryDirectories>
+      <AdditionalDependencies>OpenAL32.lib;opengl32.lib;glu32.lib;legacy_stdio_definitions.lib;glfw3.lib;glew32s.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -187,17 +189,17 @@
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>_WINSOCK_DEPRECATED_NO_WARNINGS;GLM;GLEW_STATIC;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;..\..\..\..\3rdparty\GSL\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;..\..\..\..\3rdparty\GSL\include;F:\Programs\OpenAL 1.1 SDK\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
-      <MinimalRebuild>false</MinimalRebuild>
+      <MinimalRebuild>true</MinimalRebuild>
       <FunctionLevelLinking>false</FunctionLevelLinking>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>..\..\..\..\3rdparty\glew-1.13.0\lib\Release\x64;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN64\lib-vc2013</AdditionalLibraryDirectories>
-      <AdditionalDependencies>opengl32.lib;glu32.lib;legacy_stdio_definitions.lib;glfw3.lib;glew32s.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>F:\Programs\OpenAL 1.1 SDK\libs\Win64\;..\..\..\..\3rdparty\glew-1.13.0\lib\Release\x64;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN64\lib-vc2013</AdditionalLibraryDirectories>
+      <AdditionalDependencies>OpenAL32.lib;opengl32.lib;glu32.lib;legacy_stdio_definitions.lib;glfw3.lib;glew32s.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -210,7 +212,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>_WINSOCK_DEPRECATED_NO_WARNINGS;GLM;GLEW_STATIC;WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;..\..\..\..\3rdparty\GSL\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;..\..\..\..\3rdparty\GSL\include;F:\Programs\OpenAL 1.1 SDK\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
@@ -218,8 +220,8 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>..\..\..\..\3rdparty\glew-1.13.0\lib\Release\Win32;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\lib-vc2013</AdditionalLibraryDirectories>
-      <AdditionalDependencies>opengl32.lib;glu32.lib;legacy_stdio_definitions.lib;glfw3.lib;glew32s.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>F:\Programs\OpenAL 1.1 SDK\libs\Win32\;..\..\..\..\3rdparty\glew-1.13.0\lib\Release\Win32;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\lib-vc2013</AdditionalLibraryDirectories>
+      <AdditionalDependencies>OpenAL32.lib;opengl32.lib;glu32.lib;legacy_stdio_definitions.lib;glfw3.lib;glew32s.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -232,7 +234,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>_WINSOCK_DEPRECATED_NO_WARNINGS;GLM;GLEW_STATIC;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;..\..\..\..\3rdparty\GSL\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\..\..\3rdparty\glm;..\..\..\..\3rdparty\glew-1.13.0\include;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN32\include;..\..\..\..\3rdparty\GSL\include;F:\Programs\OpenAL 1.1 SDK\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
@@ -240,8 +242,8 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>..\..\..\..\3rdparty\glew-1.13.0\lib\Release\x64;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN64\lib-vc2013</AdditionalLibraryDirectories>
-      <AdditionalDependencies>opengl32.lib;glu32.lib;legacy_stdio_definitions.lib;glfw3.lib;glew32s.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>F:\Programs\OpenAL 1.1 SDK\libs\Win64\;..\..\..\..\3rdparty\glew-1.13.0\lib\Release\x64;..\..\..\..\3rdparty\glfw-3.1.2.bin.WIN64\lib-vc2013</AdditionalLibraryDirectories>
+      <AdditionalDependencies>OpenAL32.lib;opengl32.lib;glu32.lib;legacy_stdio_definitions.lib;glfw3.lib;glew32s.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

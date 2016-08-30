@@ -39,6 +39,7 @@
 #include "SAT.h"
 #include "Envelope.h"
 #include "Palette.h"
+#include "audio.h"
 // TODO::
 // - culling particles, debris, players, missiles
 // - WrapAround flicker fix
@@ -69,6 +70,11 @@ inline glm::vec3 RotateZ(const glm::vec3& v, const glm::vec3& c, float r) {
 	//return{std::cos(r) * (v.x - c.x), std::sin(r) * (v.y - c.y), 0.f };
 	return glm::rotateZ(v - c, r);
 }
+
+static float NDCToGain(float x) {
+	x = std::abs(x);
+	return 1.f - glm::smoothstep(1.f, 3.f, x);
+}
 static const size_t texw = 256, texh = 256;
 static GLFWwindow * window;
 static std::random_device rd;
@@ -76,6 +82,7 @@ static std::mt19937 mt(rd());
 
 class Scene;
 class Envelope;
+
 static const glm::vec3 g(0.f, -.1f, 0.f);/* m/ms2 */
 struct {
 #ifdef DEBUG_REL
@@ -99,7 +106,7 @@ struct {
 		starfield_layer1_blink_rate = 133.f, // ms
 		starfield_layer2_blink_rate = 99.f, // ms
 		starfield_layer3_blink_rate = 243.f, // ms
-		missile_life = 500., // ms
+		missile_life = 1000., // ms
 		dot_size = 6.f, // px
 		clear_color_blink_rate = 16.f, //ms
 		look_ahead_ratio = .3f,
@@ -117,6 +124,8 @@ struct {
 	std::unique_ptr<Scene> scene;
 	std::unique_ptr<Client> ws;
 	std::vector<std::weak_ptr<Envelope>> envelopes;
+	std::unique_ptr<Audio> audio;
+
 }globals;
 
 static void ReadMeshFile(const char* fname, MeshLoader::Mesh& mesh) {
@@ -555,25 +564,31 @@ struct Camera {
 	//struct {
 	//	int x, y, w, h;
 	//}viewport;
-	glm::mat4 view, proj, vp;
+	glm::mat4 view, proj, vp, ivp;
 	glm::vec4 d;
 	void SetPos(float x, float y, float z) {
 		d = {};
 		pos = { x, y, z };
 		view = glm::translate(pos);
 		vp = proj * view;
+		ivp = glm::inverse(vp);
 	}
 	void Translate(float x, float y, float z) {
 		pos.x += x; pos.y += y; pos.z += z;
 		view = glm::translate(pos);
 		vp = proj * view;
+		ivp = glm::inverse(vp);
 	}
 	void SetProj(int w, int h) {
 		proj = glm::ortho((float)(-(w >> 1)), (float)(w >> 1), (float)(-(h >> 1)), (float)(h >> 1), 0.1f, 100.f);
 		vp = proj * view;
+		ivp = glm::inverse(vp);
 	}
 	Camera(int w, int h) : view(glm::translate(pos)) {
 		SetProj(w, h);
+	}
+	glm::vec4 NDC(const glm::vec3& pos) const {
+		return vp * glm::vec4(pos, 1.f);
 	}
 	glm::vec4 EaseOut(const glm::vec4& d, const glm::vec4& current, const glm::vec4& limit) {
 		const auto ratio = glm::vec4(1.f, 1.f, 0.f, 0.f) - glm::abs(current / limit);
@@ -615,6 +630,7 @@ struct Camera {
 		pos.z = globals.camera_z;
 		view = glm::translate(pos);
 		vp = proj * view;
+		ivp = glm::inverse(vp);
 		return;
 		//// TODO:: either make proto::aabb local, or refactor this
 		//player_aabb.l -= tracking_pos.x;
@@ -665,16 +681,21 @@ struct Missile {
 	size_t id, col_idx;
 	float life, blink;
 	bool first = true;
+	ALuint pew;
 	Missile& operator=(const Missile&) = default;
 	Missile(const glm::vec3 pos, float rot, float vel, ProtoX* owner, size_t id, const glm::vec3& vec) : pos(pos), prev(pos), vec(vec),
-		rot(rot), vel(vel), owner(owner), id(id), life(globals.missile_life), blink(globals.missile_blink_rate) {
+		rot(rot), vel(vel), owner(owner), id(id), life(globals.missile_life), blink(globals.missile_blink_rate),
+		pew(globals.audio->GenSource(globals.audio->pew)) {
 		GenColIdx();
+	}
+	~Missile() {
+		::alSourceStop(pew);
 	}
 	void GenColIdx() {
 		std::uniform_int_distribution<> col_idx_dist(0, globals.palette.size() - 1);
 		col_idx = col_idx_dist(mt);
 	}
-	void Update(const Time& t) {
+	void Update(const Time& t, const Camera& cam) {
 		if (first) { first = false; return; }	// draw at least once, and exist at initial position
 		life -= (float)t.frame;
 		prev = pos;
@@ -684,6 +705,8 @@ struct Missile {
 			blink += globals.missile_blink_rate;
 			GenColIdx();
 		}
+		const auto& ndc = cam.NDC(pos);
+		::Play(pew, glm::clamp(ndc.x, -1.f, 1.f), ::NDCToGain(ndc.x));
 	}
 	bool HitTest(const AABB& bounds, glm::vec3& hit_pos) {
 		if (pos == prev) return false;
@@ -915,6 +938,9 @@ struct ProtoX {
 	float clear_color_blink;
 	float rot_speed = 0.f;
 	std::shared_ptr<Envelope> e_invinciblity, e_blink;
+	ALuint die;
+	// TODO:: hack for missle owner cleanup in ProtoX dtor
+	std::vector<Missile>& missiles;
 	struct Body {
 		glm::vec3 pos;
 		float rot;
@@ -940,6 +966,8 @@ struct ProtoX {
 		const double frame_time = 100.; //ms
 		double elapsed = 0.;
 		size_t frame = 0;
+		ALuint source;
+		float pan, gain;
 		void Update(const Time& t) {
 			elapsed += t.frame;
 			if (elapsed >= frame_time) {
@@ -956,11 +984,18 @@ struct ProtoX {
 				frame = 0;
 				elapsed = 0.;
 			}
+			if (on)	::Play(source, pan, gain, true);
+			else ::alSourceStop(source);
 		}
-		Propulsion(const glm::vec3& pos, float rot, float scale, size_t frame_count) :
-			pos(pos), rot(rot), scale(scale), frame_count(frame_count) {}
+		Propulsion(const glm::vec3& pos, float rot, float scale, size_t frame_count, float pan, float gain) :
+			pos(pos), rot(rot), scale(scale), frame_count(frame_count),
+			source(globals.audio->GenSource(globals.audio->jet)),
+			pan(pan), gain(gain) {}
 		auto GetModel(const glm::mat4& m) const {
 			return ::GetModel(m, pos, rot, /*layer.pivot*/{}, scale);
+		}
+		~Propulsion() {
+			::alSourceStop(source);
 		}
 	}left, bottom, right;
 	struct Turret {
@@ -997,17 +1032,25 @@ struct ProtoX {
 			return ::GetModel(m, {}, prev_rot, layer.pivot);
 		}*/
 	}turret;
-	ProtoX(const size_t id, const Asset::Model& model, const Asset::Model& debris, size_t frame_count, const glm::vec3& pos, Client* ws = nullptr) : id(id),
+	ProtoX(const size_t id, const Asset::Model& model, const Asset::Model& debris, size_t frame_count, const glm::vec3& pos, std::vector<Missile>& missiles, Client* ws = nullptr) : id(id),
 		aabb(model.aabb),
 		ws(ws),
 		debris(debris),
-		left({ 88.f, 3.f, 0.f }, glm::radians(55.f), 1.f, frame_count),
-		right({ -88.f, 3.f, 0.f }, -glm::radians(55.f), 1.f, frame_count),
-		bottom({ 0.f, -20.f, 0.f }, 0.f, 2.f, frame_count),
+		left({ 88.f, 3.f, 0.f }, glm::radians(55.f), 1.f, frame_count, 1.f, .3f),
+		right({ -88.f, 3.f, 0.f }, -glm::radians(55.f), 1.f, frame_count, -1.f, .3f),
+		bottom({ 0.f, -20.f, 0.f }, 0.f, 2.f, frame_count, 0.f, 1.f),
 		body(pos, 0.f, model.layers.front()),
 		turret(model.layers.back(), body.GetModel()),
-		clear_color_blink(globals.clear_color_blink_rate) {
+		clear_color_blink(globals.clear_color_blink_rate),
+		die(globals.audio->GenSource(globals.audio->die)),
+		missiles(missiles) {
 		Init();
+	}
+	~ProtoX() {
+		// TODO:: handle missiles after owner destruction
+		auto it = std::partition(std::begin(missiles), std::end(missiles), [this](const Missile& m) {
+			return m.owner != this; });
+		missiles.erase(it, std::end(missiles));
 	}
 	/*auto GetPrevModel() const {
 		return ::GetModel({}, prev_pos, prev_rot, layer.pivot);
@@ -1055,7 +1098,7 @@ struct ProtoX {
 	void Shoot(std::vector<Missile>& missiles, double frame_time) {
 		if (ctrl != Ctrl::Turret && ctrl != Ctrl::Full) return;
 		if (killed) return;
-		const float missile_vel = .0f;
+		const float missile_vel = 1.f;
 		auto rot = turret.rest_rot + turret.rot + body.rot;
 		glm::vec3 missile_vec{ std::cos(rot) * missile_vel, std::sin(rot) * missile_vel,.0f};
 		auto vec = (turret.missile_start_pos.operator const glm::vec4 &() - turret.missile_start_pos.prev)/* / (float)frame_time*/;
@@ -1073,6 +1116,7 @@ struct ProtoX {
 		//turret.rot += float((px - x) * rot_ratio);
 	}
 	void Move(const Time& t, bool lt, bool rt, bool bt) {
+		if (hit) return;
 		if (ctrl != Ctrl::Prop && ctrl != Ctrl::Full) return;
 		left.Set(lt);
 		right.Set(rt);
@@ -1126,13 +1170,16 @@ struct ProtoX {
 		hit = killed = false;
 	}
 	bool SkipDeathCheck() const { return invincible > 0.f || hit || killed; }
-	void Die(const glm::vec3& hit_pos, std::list<Particles>& particles, const glm::vec3& missile_vec, double hit_time) {
+	void Die(const glm::vec3& hit_pos, std::list<Particles>& particles, const glm::vec3& missile_vec, double hit_time, const Camera& cam) {
 		if (SkipDeathCheck()) return;
 		hit = true;
 		this->hit_pos = RotateZ(hit_pos, body.pos, -body.rot);
 		this->hit_time = hit_time;
 		debris.Setup(missile_vec);
 		particles.push_back({ hit_pos,  missile_vec, hit_time });
+		left.Set(false); right.Set(false); bottom.Set(false);
+		const auto& ndc = cam.NDC(body.pos);
+		::Play(die, glm::clamp(ndc.x, -1.f, 1.f), ::NDCToGain(ndc.x));
 	}
 	bool IsInRestingPos(const AABB& bounds) const {
 		return body.pos.y + body.layer.aabb.b <= bounds.b + ground_level;
@@ -1185,7 +1232,7 @@ struct ProtoX {
 	//	return res;
 	//}
 
-	void Update(const Time& t, const AABB& bounds, std::list<Particles>& particles, bool player_self) {
+	void Update(const Time& t, const AABB& bounds, std::list<Particles>& particles, bool player_self, const Camera& cam) {
 		
 		msg.clear();
 		if (invincible > 0.f) {
@@ -1206,6 +1253,13 @@ struct ProtoX {
 
 			debris.Update(t, hit_pos);
 			return;
+		}
+		
+		if (!player_self) {
+			// TODO:: after cam update
+			const auto& ndc = cam.NDC(body.pos);
+			left.pan = right.pan = bottom.pan = glm::clamp(ndc.x, -1.f, 1.f);
+			left.gain = right.gain = bottom.gain = ::NDCToGain(ndc.x);
 		}
 		left.Update(t);
 		right.Update(t);
@@ -1239,7 +1293,7 @@ struct ProtoX {
 					glm::vec3 hit_pos = body.pos + glm::vec3{ 0.f, body.layer.aabb.b, 0.f },
 						n{ 0.f, 1.f, 0.f };
 					const auto& vec = glm::reflect(glm::normalize(vel), n);
-					Die(hit_pos, particles, vec, t.total);
+					Die(hit_pos, particles, vec, t.total, cam);
 					--score;
 					Kill(id, id, score, hit_pos, vec);
 				}
@@ -2137,8 +2191,8 @@ public:
 	AABB bounds;
 	Shader::Simple simple;
 	Renderer renderer;
-	std::unique_ptr<ProtoX> player;
 	std::vector<Missile> missiles;
+	std::unique_ptr<ProtoX> player;
 	std::map<size_t, std::unique_ptr<ProtoX>> players;
 	std::list<Particles> particles;
 	std::vector<Text> texts;
@@ -2200,7 +2254,7 @@ public:
 	}
 	void GenerateNPC() {
 		static size_t i = 0;
-		auto p = std::make_unique<ProtoX>((size_t)0xbeef, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb));
+		auto p = std::make_unique<ProtoX>((size_t)0xbeef, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), missiles);
 		std::uniform_real_distribution<> rot_dist(0., glm::degrees(glm::two_pi<float>()));
 		p->body.rot = rot_dist(mt);
 		p->turret.SetRot(rot_dist(mt));
@@ -2245,7 +2299,7 @@ public:
 //#ifndef __EMSCRIPTEN__
 #ifdef DEBUG_REL
 #ifndef OBB_TEST
-	player(std::make_unique<ProtoX>(0xdeadbeef, assets.probe, assets.debris, assets.propulsion.layers.size(), glm::vec3{})),
+	player(std::make_unique<ProtoX>(0xdeadbeef, assets.probe, assets.debris, assets.propulsion.layers.size(), glm::vec3{}, missiles)),
 #endif
 #endif
 //#endif
@@ -2335,8 +2389,8 @@ public:
 		if (!p1.SkipDeathCheck() && !p2.SkipDeathCheck() && p1.CollisionTest(p2)) {
 			const auto d = glm::normalize(Center(p1.aabb) - Center(p2.aabb));
 			glm::vec3 hit_pos((p1.body.pos.x + p2.body.pos.x) / 2.f, (p1.body.pos.y + p2.body.pos.y) / 2.f, 0.f);
-			p1.Die(hit_pos, particles, d * glm::length(p1.vel), total);
-			p2.Die(hit_pos, particles, -d * glm::length(p2.vel), total);
+			p1.Die(hit_pos, particles, d * glm::length(p1.vel), total, camera);
+			p2.Die(hit_pos, particles, -d * glm::length(p2.vel), total, camera);
 		}
 	}
 	void Update(const Time& t) {
@@ -2386,10 +2440,10 @@ public:
 					}
 				}
 			}
-			player->Update(t, bounds, particles, true);
+			player->Update(t, bounds, particles, true, camera);
 		}
 		for (auto& p : players) {
-			p.second->Update(t, bounds, particles, false);
+			p.second->Update(t, bounds, particles, false, camera);
 		}
 
 		for (auto p = std::begin(players); p != std::end(players);) {
@@ -2406,15 +2460,12 @@ public:
 			if (player->killed) {
 				auto ctrl = player->ctrl;
 				auto score = player->score;
-				player = std::make_unique<ProtoX>(player->id, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), globals.ws.get());
+				player = std::make_unique<ProtoX>(player->id, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), missiles, globals.ws.get());
 				camera.SetPos(player->body.pos.x, player->body.pos.y, globals.camera_z);
 				renderer.clearColor = { 0.f, 0.f, 0.f, 1.f };
 				SetCtrl(ctrl);
 				player->score = score;
 			}
-		}
-		for (auto& m : missiles) {
-			m.Update(t);
 		}
 		for (const auto& e : globals.envelopes) {
 			if (auto spt = e.lock())
@@ -2431,6 +2482,11 @@ public:
 			// TODO:: is this needed? auto d = camera.pos.x + player->body.pos.x;
 			auto res = player->WrapAround(assets.land.layers[0].aabb.l, assets.land.layers[0].aabb.r);
 			camera.Update(t, bounds, player->body.pos, player->vel);
+		}
+		for (auto& m : missiles) {
+			m.Update(t, camera);
+		}
+		if (player) {
 			//std::stringstream ss;
 			//ss << camera.pos.x << " "<<camera.pos.y;
 			//
@@ -2472,7 +2528,7 @@ public:
 						glm::vec3 hit_pos;
 						if (!p.second->hit && !p.second->killed && p.second->invincible == 0.f && m.HitTest(p.second->aabb/*.Translate(p.second->body.pos)*/, hit_pos)) {
 							glm::vec3 vec{ std::cos(m.rot), std::sin(m.rot), 0.f };
-							p.second->Die(hit_pos, particles, vec, (double)t.total);
+							p.second->Die(hit_pos, particles, vec, (double)t.total, camera);
 							++player->score;
 							player->Kill(p.second->id, m.id, player->score, hit_pos, vec);
 							last = RemoveMissile(m);
@@ -2554,7 +2610,7 @@ public:
 	void OnConn(const std::vector<unsigned char>& msg) {
 		const Conn* conn = reinterpret_cast<const Conn*>(msg.data());
 		size_t id = ID5(conn->client_id, 0);
-		player = std::make_unique<ProtoX>(id, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), globals.ws.get());
+		player = std::make_unique<ProtoX>(id, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), missiles, globals.ws.get());
 		player->ctrl = static_cast<ProtoX::Ctrl>(conn->ctrl - 48/*TODO:: eliminate conversion*/);
 	}
 	void SendSessionID() {
@@ -2578,7 +2634,7 @@ public:
 		auto it = players.find(player->id);
 		ProtoX * proto;
 		if (it == players.end()) {
-			auto ptr = std::make_unique<ProtoX>(player->id, assets.probe, assets.debris, assets.propulsion.layers.size(), glm::vec3{ player->x, player->y, 0.f });
+			auto ptr = std::make_unique<ProtoX>(player->id, assets.probe, assets.debris, assets.propulsion.layers.size(), glm::vec3{ player->x, player->y, 0.f }, missiles);
 			proto = ptr.get();
 			players[player->id] = std::move(ptr);
 		}
@@ -2617,11 +2673,11 @@ public:
 		const::glm::vec3 hit_pos(scor->x, scor->y, 0.f),
 			missile_vec{ scor->vec_x, scor->vec_y, 0.f };
 		if (scor->target_id == player->id)
-			player->Die(hit_pos, particles, missile_vec, t.total);
+			player->Die(hit_pos, particles, missile_vec, t.total, camera);
 		else {
 			auto it = players.find(scor->target_id);
 			if (it != players.end())
-				it->second->Die(hit_pos, particles, missile_vec, t.total);
+				it->second->Die(hit_pos, particles, missile_vec, t.total, camera);
 		}
 	}
 	void OnKill(const std::vector<unsigned char>& msg, const Time& t) {
@@ -2633,7 +2689,7 @@ public:
 		if (it == std::end(players)) return;
 		auto& p = it->second;
 		auto hit_pos = p->body.pos + glm::vec3{ p->aabb.r - p->aabb.l, p->aabb.t - p->aabb.b, 0.f };
-		p->Die(hit_pos, particles, {}, t.total);
+		p->Die(hit_pos, particles, {}, t.total, camera);
 	}
 	void OnCtrl(const std::vector<unsigned char>& msg) {
 		const Ctrl* ctrl = reinterpret_cast<const Ctrl*>(&msg.front());
@@ -2738,6 +2794,7 @@ int main(int argc, char** argv) {
 
 	try {
 		globals.timer.Tick();
+		globals.audio = std::make_unique<Audio>();
 		globals.scene = std::make_unique<Scene>();
 	}
 	catch (const custom_exception& ex) {

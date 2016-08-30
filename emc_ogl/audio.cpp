@@ -53,7 +53,7 @@ namespace {
 	};
 
 	auto LoadWAV(const char * fname) {
-		LOG_INFO("Loading %s...", fname);
+		LOG_INFO("Loading %s...\n", fname);
 		Buffer res;
 #ifdef __EMSCRIPTEN__
 		FILE* f = fopen(fname, "rb");
@@ -137,6 +137,18 @@ namespace {
 	}
 }
 
+void Play(ALuint id, float pan, float gain, bool loop) {
+	const float max_gain = .5f;
+	ALint state;
+	::alGetSourcei(id, AL_SOURCE_STATE, &state);
+	if (state != AL_PLAYING) {
+		::alSourcei(id, AL_LOOPING, loop ? AL_TRUE : AL_FALSE);
+		::alSourcePlay(id);
+	}
+	::alSource3f(id, AL_POSITION, pan, 0.f, 0.f);
+	::alSourcef(id, AL_GAIN, gain * max_gain);
+}
+
 Audio::Audio() : device(::alcOpenDevice(NULL)),
 	context(::alcCreateContext(device, NULL)) {
 	assert(device);
@@ -165,7 +177,7 @@ Audio::Audio() : device(::alcOpenDevice(NULL)),
 	const char* fname = PATH_PREFIX"audio.wav";
 	const auto res = LoadWAV(fname);
 	if (!res.data.empty()) {
-		alBufferData(pew = buffers[0], res.format, &res.data.front(), res.data.size(), res.freq);
+		alBufferData(pew = die = jet = buffers[0], res.format, &res.data.front(), res.data.size(), res.freq);
 	}
 }
 Audio::~Audio() {

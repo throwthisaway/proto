@@ -12,5 +12,5 @@
 #define LINE_WIDTH 3.f
 #define VP_RATIO(h) h * 3 / 4
 #define HUD_RATIO(h) h / 4
-#define OBB_TEST
+//#define OBB_TEST
 

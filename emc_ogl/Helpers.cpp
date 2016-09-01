@@ -1,6 +1,7 @@
 #include "Helpers.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
+#include "Globals.h"
 
 glm::mat4 GetModel(const glm::mat4& m, const glm::vec3& pos, float rot, const glm::vec3& pivot, float scale) {
 	return glm::translate(
@@ -104,4 +105,9 @@ std::vector<glm::vec3> ConvexHullCCW(std::vector<glm::vec3> points) {
 
 std::vector<glm::vec3> GetConvexHullOfOBBSweep(const OBB& obb, const OBB& prev_obb) {
 	return ConvexHullCCW(MergeOBBs(obb, prev_obb));
+}
+
+bool Cull(const glm::vec3& pos, const glm::mat4& vp) {
+	const auto ndc = vp * glm::vec4(pos, 1.f);
+	return ndc.x < -CULL || ndc.y < -CULL || ndc.x > CULL && ndc.y > CULL;
 }

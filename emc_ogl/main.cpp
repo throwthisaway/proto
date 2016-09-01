@@ -41,16 +41,15 @@
 #include "Palette.h"
 #include "audio.h"
 // TODO::
+// - culling after camrea update
+// - draw debris on top of everything
+// - maximize missile count
+// - fix audio updqate before camera update
 // - culling particles, debris, players, missiles
-// - WrapAround flicker fix
-// - investigate random crashes on network play (message delete for example)
-// - add sound
-// - finish network game mechanics
-// - finalize/cleanup html
-// - create preview/thumbnail image
-// - player collision
-// - refactor pallette
-// - redesign proto
+// - introduce npc flag, overhaul player_self flag, add npc behaviour
+// - fix aufio sources wraparound source ownership problem.
+// - fix missile ownership after plazer destruction
+//----------------------------------------
 // - colorize player only
 // - display session lost on socket error
 // - test connection loss on broadcast messages (remove connection on exception)
@@ -112,7 +111,10 @@ struct {
 		look_ahead_ratio = .3f,
 		camera_z = -10.f,
 		missile_start_offset_y = 1.f * scale,
-		foreground_pos_x_ratio = 1.f;
+		foreground_pos_x_ratio = 1.f,
+		player_particle_v_ratio = 2.5f,
+		missile_particle_v_ratio = .5f,
+		player_fade_out_time = 3500.f; // ms;
 	int ab = a;
 	const glm::vec4 radar_player_color{ 1.f, 1.f, 1.f, 1.f }, radar_enemy_color{ 1.f, .5f, .5f, 1.f };
 	const gsl::span<const glm::vec4, gsl::dynamic_range>& palette = pal, &grey_palette = grey_pal;
@@ -788,63 +790,72 @@ struct Text {
 struct Particles {
 	static GLuint vbo;
 	static GLsizei vertex_count;
+private:
 	static const size_t count = 400;
 	static constexpr float slowdown = .02f, g = -.001f, init_mul = 1.f, min_fade = 750.f, max_fade = 2500.f,
-		v_min = .05f, v_max = .35f, blink_rate = 16.f;
+		v_min = .05f, v_max = .75f, blink_rate = 16.f;
 	const float vec_ratio = .75f; // static constexpr makes emscripten complain about unresolved symbol...
-	glm::vec3 pos;
-	bool kill = false;
-	float time;
+	bool kill = false, first = true;
+public:
+	const glm::vec3 pos, vec;
+	const float time;
 	struct Particle {
-		glm::vec3 pos, v;
+		glm::vec3 pos, v, decay;
 		glm::vec4 col;
 		float life, fade_duration;
 		size_t start_col_idx;
 	};
 	std::array<Particle, count> arr;
-	//		struct A {
-	//			int a, b;
-	//			A(int a, int b) : a(a), b(b) {
-	//#ifdef __EMSCRIPTEN__
-	//				emscripten_log(EM_LOG_CONSOLE, "A ctor. %d %d", a, b);
-	//#endif
-	//			}
-	//		};
-	Particles(const glm::vec3& pos, const glm::vec3& vec, double time) : pos(pos), time((float)time) {
-		//static A a(1, 2), b(3, 4), c(5, 6), d(7, 8), e(9, 10), f(11, 12), g(13, 14), h(15, 16);
-		//static A a1(17, 18) , b1(31, 41), /*missing*/c1(51, 61), d1(71, 81), e1(91, 101), f1(111, 121), g1(131, 141), h1(151, 161);
-		static std::uniform_real_distribution<> col_dist(0., 1.);
-		static std::uniform_real_distribution<> rad_dist(.0, glm::two_pi<float>());
-		static std::uniform_real_distribution<float> fade_dist(min_fade, max_fade);
-		static std::uniform_real_distribution<> v_dist(v_min, v_max);
-		static std::uniform_int_distribution<> col_idx_dist(0, globals.palette.size() - 1);
-
-		//#ifdef __EMSCRIPTEN__
-		//			emscripten_log(EM_LOG_CONSOLE, "%d %x %x", sizeof(col_idx_dist), *reinterpret_cast<int*>(&col_idx_dist), *(reinterpret_cast<int*>(&col_idx_dist) + 1));
-		//#endif
-		for (size_t i = 0; i < count; ++i) {
-			arr[i].col = { col_dist(mt), col_dist(mt), col_dist(mt), 1.f };
-			arr[i].pos = {};
-			auto r = rad_dist(mt);
-
-			arr[i].v = { std::cos(r) * v_dist(mt) * init_mul, std::sin(r) * v_dist(mt) * init_mul, 0.f };
-			arr[i].v += vec * vec_ratio;
-			arr[i].life = 1.f;
-			arr[i].fade_duration = fade_dist(mt);
-			arr[i].start_col_idx = col_idx_dist(mt);
-		}
+	Particles(const glm::vec3& pos, const glm::vec3& vec, double time) : pos(pos), vec(vec), time((float)time) {}
+	//static constexpr AABB GetMissileMaxBounds() {
+	//	
+	//	AABB res;
+	//AABB max_bounds;
+	// t = max_fade
+	// a = decay
+	// v0 = v
+	//x = v0 * t + .5f * a  * t * t;
+	//	return res;
+	//}
+	glm::vec3 GetPos(const Particle& p, float dt) const {
+		return p.v * dt + p.decay * .5f * dt * dt;
+	}
+	bool Kill(double elapsed) const {
+		return elapsed - time > max_fade || kill;
 	}
 	void Update(const Time& t) {
+		if (first) {
+			first = false;
+			static std::uniform_real_distribution<> col_dist(0., 1.);
+			static std::uniform_real_distribution<> rad_dist(.0, glm::two_pi<float>());
+			static std::uniform_real_distribution<float> fade_dist(min_fade, max_fade);
+			static std::uniform_real_distribution<> v_dist(v_min, v_max);
+			static std::uniform_int_distribution<> col_idx_dist(0, globals.palette.size() - 1);
+
+			for (size_t i = 0; i < count; ++i) {
+				arr[i].col = { col_dist(mt), col_dist(mt), col_dist(mt), 1.f };
+				arr[i].pos = {};
+				auto r = rad_dist(mt);
+
+				arr[i].v = { std::cos(r) * v_dist(mt) * init_mul, std::sin(r) * v_dist(mt) * init_mul, 0.f };
+				arr[i].life = 1.f;
+				arr[i].fade_duration = fade_dist(mt);
+				arr[i].decay = -arr[i].v / arr[i].fade_duration;
+				arr[i].decay.y += g;
+				arr[i].v += vec;
+				arr[i].start_col_idx = col_idx_dist(mt);
+			}
+		}
 		kill = true;
+		// TODO:: do it in vertex shader?
+		float dt = (float)(t.total - time);
 		for (size_t i = 0; i < count; ++i) {
 			if (arr[i].life <= 0.f) continue;
 			kill = false;
-			arr[i].pos += arr[i].v * (float)t.frame;
-			//arr[i].v *= 1.f - arr[i].decay * (float)t.frame;
-			arr[i].v.y += g * (float)t.frame;
-			arr[i].col = globals.palette[(arr[i].start_col_idx + size_t((t.total - time) / blink_rate)) % globals.palette.size()];
+			arr[i].pos = GetPos(arr[i], dt);
+			arr[i].col = globals.palette[(arr[i].start_col_idx + size_t(dt / blink_rate)) % globals.palette.size()];
 			arr[i].col.a = arr[i].life;
-			auto fade_time = (float)(t.total - time) / arr[i].fade_duration;
+			auto fade_time = dt / arr[i].fade_duration;
 			arr[i].life = 1.f - fade_time * fade_time * fade_time * fade_time * fade_time;
 			if (arr[i].life <= 0.01f) arr[i].life = 0.f;
 		}
@@ -853,75 +864,90 @@ struct Particles {
 GLuint Particles::vbo;
 GLsizei Particles::vertex_count;
 
+struct Debris {
+	const float max_centrifugal_speed = .02f, // rad/ms
+		max_speed = .3f, //px/ ms
+		min_speed = .05f, //px/ ms
+		min_scale = 1.f, // 1/ms
+		max_scale = 1.035f, // 1/ms
+		missile_vec_ratio = .35f;
+	const size_t min_scale_occurence = 3u, max_scale_occurence = 6u;
+	const Asset::Model& ref;
+	Asset::Model model;
+	std::vector<float> centrifugal_speed, speed, scale;
+	const glm::mat4 m;
+	const glm::vec3 pos, vec;
+	const float start;
+	bool first = true;
+	float fade_out;
+	Debris(const Asset::Model& model, const glm::mat4& m, glm::vec3& pos, const glm::vec3& vec, float start) :
+		ref(model),
+		centrifugal_speed(model.vertices.size() / 6),
+		speed(model.vertices.size() / 6),
+		scale(model.vertices.size() / 6),
+		m(m),
+		pos(pos),
+		vec(glm::vec3(m * glm::vec4(vec, 0.f))),
+		start(start) {}
+	bool Kill(double elapsed) const {
+		// don't change to fade_out, it might be not updated
+		return elapsed - start > globals.player_fade_out_time;
+	}
+	void Setup() {
+		if (!first) return;
+		first = false;
+		model = ref;
+		static std::uniform_real_distribution<float> dist_cfs(-max_centrifugal_speed, max_centrifugal_speed),
+			dist_sp(min_speed, max_speed),
+			dist_scale(min_scale, max_scale);
+		static std::uniform_int_distribution<size_t> dist_scale_occurence(std::min(min_scale_occurence, scale.size() - 1),
+			std::min(max_scale_occurence, scale.size() - 1)),
+			dist_scale_count(0, scale.size() - 1);
+		for (auto& cfs : centrifugal_speed) cfs = dist_cfs(mt);
+		for (auto& sp : speed) sp = dist_sp(mt);
+		std::fill(std::begin(scale), std::end(scale), 1.f);
+		for (size_t i = 0, count = dist_scale_occurence(mt); i < count; ++i) scale[dist_scale_count(mt)] = dist_scale(mt);
+	}
+	void Update(const Time& t) {
+		Setup();
+		float dt = t.total - start;
+		fade_out = 1.f - dt / globals.player_fade_out_time;
+		// TODO:: refactor to continuous fx instead of incremental
+		for (size_t i = 0, cfs = 0; i < model.vertices.size(); i += 6, ++cfs) {
+			// TODO:: only enough to have the average of the furthest vertices
+			auto center = (model.vertices[i] + model.vertices[i + 1] + model.vertices[i + 2] +
+				model.vertices[i + 3] + model.vertices[i + 4] + model.vertices[i + 5]) / 6.f;
+			auto v = center - pos;
+			float len = glm::length(v);
+			v /= len;
+			v *= (speed[cfs] /*+ missile_vec * missile_vec_ratio*/) * (float)t.frame;
+			//v.y += g * (float)t.frame;
+			auto incr = centrifugal_speed[cfs] * (float)t.frame;
+			//				auto r = RotateZ(debris.vertices[i], center, incr);
+			model.vertices[i] += v;
+			model.vertices[i] = center + RotateZ(model.vertices[i], center, incr) * scale[cfs];
+			model.vertices[i + 1] += v;
+			model.vertices[i + 1] = center + RotateZ(model.vertices[i + 1], center, incr) * scale[cfs];
+			model.vertices[i + 2] += v;
+			model.vertices[i + 2] = center + RotateZ(model.vertices[i + 2], center, incr) * scale[cfs];
+			model.vertices[i + 3] += v;
+			model.vertices[i + 3] = center + RotateZ(model.vertices[i + 3], center, incr) * scale[cfs];
+			model.vertices[i + 4] += v;
+			model.vertices[i + 4] = center + RotateZ(model.vertices[i + 4], center, incr) * scale[cfs];
+			model.vertices[i + 5] += v;
+			model.vertices[i + 5] = center + RotateZ(model.vertices[i + 5], center, incr) * scale[cfs];
+		}
+	}
+};
 struct ProtoX {
 	const size_t id;
 	AABB aabb;
 	Client *ws;
-	struct Debris{
-		const float max_centrifugal_speed = .02f, // rad/ms
-			max_speed = .3f, //px/ ms
-			min_speed = .05f, //px/ ms
-			min_scale = 1.f, // 1/ms
-			max_scale = 1.035f, // 1/ms
-			missile_vec_ratio = .35f;
-		const size_t min_scale_occurence = 3u, max_scale_occurence = 6u;
-		const Asset::Model& ref;
-		Asset::Model model;
-		std::vector<float> centrifugal_speed, speed, scale;
-		glm::vec3 missile_vec;
-		Debris(const Asset::Model& model) :
-			ref(model),
-			centrifugal_speed(model.vertices.size() / 6),
-			speed(model.vertices.size() / 6),
-			scale(model.vertices.size() / 6) {}
-		void Setup(const glm::vec3& missile_vec) {
-			this->missile_vec = missile_vec;
-			model = ref;
-			static std::uniform_real_distribution<float> dist_cfs(-max_centrifugal_speed, max_centrifugal_speed),
-				dist_sp(min_speed, max_speed),
-				dist_scale(min_scale, max_scale);
-			static std::uniform_int_distribution<size_t> dist_scale_occurence(std::min(min_scale_occurence, scale.size() - 1),
-				std::min(max_scale_occurence, scale.size() - 1)),
-				dist_scale_count(0, scale.size() - 1);
-			for (auto& cfs : centrifugal_speed) cfs = dist_cfs(mt);
-			for (auto& sp : speed) sp = dist_sp(mt);
-			std::fill(std::begin(scale), std::end(scale), 1.f);
-			for (size_t i = 0, count = dist_scale_occurence(mt); i < count; ++i) scale[dist_scale_count(mt)] = dist_scale(mt);
-		}
-		void Update(const Time& t, const glm::vec3& hit_pos) {
-			// TODO:: refactor to continuous fx instead of incremental
-			for (size_t i = 0, cfs = 0; i < model.vertices.size(); i += 6, ++cfs) {
-				// TODO:: only enough to have the average of the furthest vertices
-				auto center = (model.vertices[i] + model.vertices[i + 1] + model.vertices[i + 2] +
-					model.vertices[i + 3] + model.vertices[i + 4] + model.vertices[i + 5]) / 6.f;
-				auto v = center - hit_pos;
-				float len = glm::length(v);
-				v /= len;
-				v *= (speed[cfs] /*+ missile_vec * missile_vec_ratio*/) * (float)t.frame;
-				//v.y += g * (float)t.frame;
-				auto incr = centrifugal_speed[cfs] * (float)t.frame;
-				//				auto r = RotateZ(debris.vertices[i], center, incr);
-				model.vertices[i] += v;
-				model.vertices[i] = center + RotateZ(model.vertices[i], center, incr) * scale[cfs];
-				model.vertices[i + 1] += v;
-				model.vertices[i + 1] = center + RotateZ(model.vertices[i + 1], center, incr) * scale[cfs];
-				model.vertices[i + 2] += v;
-				model.vertices[i + 2] = center + RotateZ(model.vertices[i + 2], center, incr) * scale[cfs];
-				model.vertices[i + 3] += v;
-				model.vertices[i + 3] = center + RotateZ(model.vertices[i + 3], center, incr) * scale[cfs];
-				model.vertices[i + 4] += v;
-				model.vertices[i + 4] = center + RotateZ(model.vertices[i + 4], center, incr) * scale[cfs];
-				model.vertices[i + 5] += v;
-				model.vertices[i + 5] = center + RotateZ(model.vertices[i + 5], center, incr) * scale[cfs];
-			}
-		}
-	}debris;
 	const float max_vel = .3f,
 		m = 500.f,
 		force = .2f,
 		slowdown = .0003f,
 		ground_level = 20.f,
-		fade_out_time = 3500.f, // ms
 		rot_max_speed = .003f, //rad/ms
 		rot_inc = .000005f, // rad/ms*ms
 		safe_rot = glm::radians(35.f);
@@ -1032,10 +1058,9 @@ struct ProtoX {
 			return ::GetModel(m, {}, prev_rot, layer.pivot);
 		}*/
 	}turret;
-	ProtoX(const size_t id, const Asset::Model& model, const Asset::Model& debris, size_t frame_count, const glm::vec3& pos, std::vector<Missile>& missiles, Client* ws = nullptr) : id(id),
+	ProtoX(const size_t id, const Asset::Model& model, size_t frame_count, const glm::vec3& pos, std::vector<Missile>& missiles, Client* ws = nullptr) : id(id),
 		aabb(model.aabb),
 		ws(ws),
-		debris(debris),
 		left({ 88.f, 3.f, 0.f }, glm::radians(55.f), 1.f, frame_count, 1.f, .3f),
 		right({ -88.f, 3.f, 0.f }, -glm::radians(55.f), 1.f, frame_count, -1.f, .3f),
 		bottom({ 0.f, -20.f, 0.f }, 0.f, 2.f, frame_count, 0.f, 1.f),
@@ -1163,20 +1188,20 @@ struct ProtoX {
 	}
 	void Init() {
 		SetInvincibility();
-		fade_out = fade_out_time;
+		fade_out = globals.player_fade_out_time;
 		e_blink = std::shared_ptr<Envelope>(
 			new Blink(blink, 0., globals.timer.TotalMs(), globals.blink_rate, globals.blink_ratio));
 		globals.envelopes.push_back(e_blink);
 		hit = killed = false;
 	}
 	bool SkipDeathCheck() const { return invincible > 0.f || hit || killed; }
-	void Die(const glm::vec3& hit_pos, std::list<Particles>& particles, const glm::vec3& missile_vec, double hit_time, const Camera& cam) {
+	void Die(const glm::vec3& hit_pos, const glm::mat4& vp, std::list<Debris>& debris, std::list<Particles>& particles, const Asset::Model& debris_model, const glm::vec3& missile_vec, double hit_time, const Camera& cam) {
 		if (SkipDeathCheck()) return;
 		hit = true;
 		this->hit_pos = RotateZ(hit_pos, body.pos, -body.rot);
 		this->hit_time = hit_time;
-		debris.Setup(missile_vec);
-		particles.push_back({ hit_pos,  missile_vec, hit_time });
+		debris.emplace_back(debris_model, body.GetModel(), body.pos, missile_vec, hit_time);
+		particles.emplace_back( hit_pos,  missile_vec, hit_time );
 		left.Set(false); right.Set(false); bottom.Set(false);
 		const auto& ndc = cam.NDC(body.pos);
 		::Play(die, glm::clamp(ndc.x, -1.f, 1.f), ::NDCToGain(ndc.x));
@@ -1232,7 +1257,7 @@ struct ProtoX {
 	//	return res;
 	//}
 
-	void Update(const Time& t, const AABB& bounds, std::list<Particles>& particles, bool player_self, const Camera& cam) {
+	void Update(const Time& t, const AABB& bounds, std::list<Particles>& particles, std::list<Debris>& debris, bool player_self, const Camera& cam, const Asset::Model& debris_model) {
 		
 		msg.clear();
 		if (invincible > 0.f) {
@@ -1242,7 +1267,7 @@ struct ProtoX {
 			}
 		}
 		else if (hit) {
-			auto fade_time = (float)(t.total - hit_time) / fade_out_time;
+			auto fade_time = (float)(t.total - hit_time) / globals.player_fade_out_time;
 			fade_out = 1.f - fade_time * fade_time * fade_time * fade_time * fade_time;
 			if ((killed = (fade_out <= 0.0001f))) return;
 			left.on = right.on = bottom.on = false;
@@ -1250,8 +1275,6 @@ struct ProtoX {
 				clear_color_blink += globals.clear_color_blink_rate;
 			else
 				clear_color_blink -= (float)t.frame;
-
-			debris.Update(t, hit_pos);
 			return;
 		}
 		
@@ -1292,8 +1315,9 @@ struct ProtoX {
 				if (std::abs(body.rot) > safe_rot && invincible <= 0.f) {
 					glm::vec3 hit_pos = body.pos + glm::vec3{ 0.f, body.layer.aabb.b, 0.f },
 						n{ 0.f, 1.f, 0.f };
-					const auto& vec = glm::reflect(glm::normalize(vel), n);
-					Die(hit_pos, particles, vec, t.total, cam);
+					auto vec = glm::reflect(glm::normalize(vel), n);
+					vec *= globals.player_particle_v_ratio;
+					Die(hit_pos, cam.vp, debris, particles, debris_model, vec, t.total, cam);
 					--score;
 					Kill(id, id, score, hit_pos, vec);
 				}
@@ -1314,21 +1338,15 @@ struct ProtoX {
 				float pi = (body.rot < 0.f) ? -glm::pi<float>() : glm::pi<float>();
 				body.rot = std::fmod(body.rot + rot_speed * (float)t.frame + pi, pi * 2.f) - pi;
 			}
-			{
-				body.Update(t);
-				turret.Update(t, body.GetModel());
-				aabb = Union(Union(body.aabb, turret.aabb),
-					Union(body.aabb.prev, turret.aabb.prev));
-			}
-			/*std::stringstream ss;
-			ss << IsInRestingPos(bounds) << " " << body.rot<< " " << vel.y;
-			msg.push_back({ body.pos + glm::vec3{ 100.f, 0.f, 0.f }, 1.f, Text::Align::Left, ss.str() });*/
-
 			if (ws) {
 				Plyr player{ Tag("PLYR"), id, body.pos.x, body.pos.y, turret.rot, invincible, vel.x, vel.y, body.rot, left.on, right.on, bottom.on };
 				globals.ws->Send((char*)&player, sizeof(Plyr));
 			}
 		}
+		body.Update(t);
+		turret.Update(t, body.GetModel());
+		aabb = Union(Union(body.aabb, turret.aabb),
+			Union(body.aabb.prev, turret.aabb.prev));
 	}
 	float WrapAround(float min, float max) {
 		float dif = body.pos.x - max;
@@ -1712,6 +1730,7 @@ struct Renderer {
 			(void*)0);
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &cam.vp[0][0]);
 		for (const auto& p : particles) {
+			if (Cull(p.pos, cam.vp)) continue;
 			for (size_t i = 0; i < p.arr.size(); ++i) {
 				glUniform4f(shader.uCol, p.arr[i].col.r, p.arr[i].col.g, p.arr[i].col.b, p.arr[i].col.a);
 				glVertexAttrib3fv(shader.aVertex, &(p.pos + p.arr[i].pos)[0]);
@@ -1831,34 +1850,37 @@ struct Renderer {
 		}
 		glDisableVertexAttribArray(0);
 	}
+	void Draw(const Camera& cam, const std::list<Debris>& debris) {
+		glEnable(GL_BLEND);
+		glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+		glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
+		glEnableVertexAttribArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_DEBRIS]);
+		glVertexAttribPointer(0,
+			3,
+			GL_FLOAT,
+			GL_FALSE,
+			0,
+			(void*)0);
+		for (const auto& d : debris) {
+			if (Cull(d.pos, cam.vp)) continue;
+			glBufferData(GL_ARRAY_BUFFER, d.model.vertices.size() * sizeof(d.model.vertices[0]), &d.model.vertices.front(), GL_DYNAMIC_DRAW);
+			const auto& shader = colorShader;
+			glUseProgram(shader.id);
+			auto& p = assets.debris.layers.front().parts.front();
+			glm::mat4 mvp = cam.vp * d.m;
+			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
+			glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, d.fade_out);
+			glDrawArrays(GL_TRIANGLES, p.first, p.count);
+		}
+		glDisableVertexAttribArray(0);
+		glDisable(GL_BLEND);
+	}
 	void Draw(const Camera& cam, const ProtoX& proto, bool player = false) {
 		if (!proto.visible)
 			return;
 		const auto m = proto.body.GetModel();
-		if (proto.hit) {
-			glEnable(GL_BLEND);
-			glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
-			glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
-			glEnableVertexAttribArray(0);
-			glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_DEBRIS]);
-			glBufferData(GL_ARRAY_BUFFER, proto.debris.model.vertices.size() * sizeof(proto.debris.model.vertices[0]), &proto.debris.model.vertices.front(), GL_DYNAMIC_DRAW);
-			glVertexAttribPointer(0,
-				3,
-				GL_FLOAT,
-				GL_FALSE,
-				0,
-				(void*)0);
-			const auto& shader = colorShader;
-			glUseProgram(shader.id);
-			auto& p = assets.debris.layers.front().parts.front();
-			glm::mat4 mvp = cam.vp * m;
-			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
-			glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, proto.fade_out);
-			glDrawArrays(GL_TRIANGLES, p.first, p.count);
-			glDisableVertexAttribArray(0);
-			glDisable(GL_BLEND);
-			return;
-		}
+		if (proto.hit) return;
 #ifdef VAO_SUPPORT
 		glBindVertexArray(vao);
 #else
@@ -2195,6 +2217,7 @@ public:
 	std::unique_ptr<ProtoX> player;
 	std::map<size_t, std::unique_ptr<ProtoX>> players;
 	std::list<Particles> particles;
+	std::list<Debris> debris;
 	std::vector<Text> texts;
 	Camera camera{ (int)globals.width, (int)globals.height }, hud{ (int)globals.width, (int)globals.height },
 		overlay;
@@ -2254,7 +2277,7 @@ public:
 	}
 	void GenerateNPC() {
 		static size_t i = 0;
-		auto p = std::make_unique<ProtoX>((size_t)0xbeef, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), missiles);
+		auto p = std::make_unique<ProtoX>((size_t)0xbeef, assets.probe, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), missiles);
 		std::uniform_real_distribution<> rot_dist(0., glm::degrees(glm::two_pi<float>()));
 		p->body.rot = rot_dist(mt);
 		p->turret.SetRot(rot_dist(mt));
@@ -2299,7 +2322,7 @@ public:
 //#ifndef __EMSCRIPTEN__
 #ifdef DEBUG_REL
 #ifndef OBB_TEST
-	player(std::make_unique<ProtoX>(0xdeadbeef, assets.probe, assets.debris, assets.propulsion.layers.size(), glm::vec3{}, missiles)),
+	player(std::make_unique<ProtoX>(0xdeadbeef, assets.probe, assets.propulsion.layers.size(), glm::vec3{}, missiles)),
 #endif
 #endif
 //#endif
@@ -2343,7 +2366,7 @@ public:
 			renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::obb2, { 1.f, .3f, .3f, 1.f });
 		}
 		renderer.Draw(camera, particles);
-
+		renderer.Draw(camera, debris);
 		if (player) {
 			if (player->ctrl == ProtoX::Ctrl::Full || player->ctrl == ProtoX::Ctrl::Prop)
 				renderer.Draw(overlay, renderer.wsad_decal.id, { -globals.width / 2.f, -globals.height / 2.f, 0.f }, *renderer.wsad_decal.model, renderer.wsad_decal.factor);
@@ -2389,8 +2412,8 @@ public:
 		if (!p1.SkipDeathCheck() && !p2.SkipDeathCheck() && p1.CollisionTest(p2)) {
 			const auto d = glm::normalize(Center(p1.aabb) - Center(p2.aabb));
 			glm::vec3 hit_pos((p1.body.pos.x + p2.body.pos.x) / 2.f, (p1.body.pos.y + p2.body.pos.y) / 2.f, 0.f);
-			p1.Die(hit_pos, particles, d * glm::length(p1.vel), total, camera);
-			p2.Die(hit_pos, particles, -d * glm::length(p2.vel), total, camera);
+			p1.Die(hit_pos, camera.vp, debris, particles, assets.debris, d * glm::length(p1.vel) * globals.player_particle_v_ratio, total, camera);
+			p2.Die(hit_pos, camera.vp, debris, particles, assets.debris, -d * glm::length(p2.vel) * globals.player_particle_v_ratio, total, camera);
 		}
 	}
 	void Update(const Time& t) {
@@ -2440,10 +2463,13 @@ public:
 					}
 				}
 			}
-			player->Update(t, bounds, particles, true, camera);
+			player->Update(t, bounds, particles, debris, true, camera, assets.debris);
+			// TODO:: is this needed? auto d = camera.pos.x + player->body.pos.x;
+			auto res = player->WrapAround(assets.land.layers[0].aabb.l, assets.land.layers[0].aabb.r);
+			camera.Update(t, bounds, player->body.pos, player->vel);
 		}
 		for (auto& p : players) {
-			p.second->Update(t, bounds, particles, false, camera);
+			p.second->Update(t, bounds, particles, debris, false, camera, assets.debris);
 		}
 
 		for (auto p = std::begin(players); p != std::end(players);) {
@@ -2460,7 +2486,7 @@ public:
 			if (player->killed) {
 				auto ctrl = player->ctrl;
 				auto score = player->score;
-				player = std::make_unique<ProtoX>(player->id, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), missiles, globals.ws.get());
+				player = std::make_unique<ProtoX>(player->id, assets.probe, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), missiles, globals.ws.get());
 				camera.SetPos(player->body.pos.x, player->body.pos.y, globals.camera_z);
 				renderer.clearColor = { 0.f, 0.f, 0.f, 1.f };
 				SetCtrl(ctrl);
@@ -2478,11 +2504,6 @@ public:
 			if (!spt) return true;
 			return spt->Finished(); }), globals.envelopes.end());
 
-		if (player) {
-			// TODO:: is this needed? auto d = camera.pos.x + player->body.pos.x;
-			auto res = player->WrapAround(assets.land.layers[0].aabb.l, assets.land.layers[0].aabb.r);
-			camera.Update(t, bounds, player->body.pos, player->vel);
-		}
 		for (auto& m : missiles) {
 			m.Update(t, camera);
 		}
@@ -2528,7 +2549,8 @@ public:
 						glm::vec3 hit_pos;
 						if (!p.second->hit && !p.second->killed && p.second->invincible == 0.f && m.HitTest(p.second->aabb/*.Translate(p.second->body.pos)*/, hit_pos)) {
 							glm::vec3 vec{ std::cos(m.rot), std::sin(m.rot), 0.f };
-							p.second->Die(hit_pos, particles, vec, (double)t.total, camera);
+							vec *= globals.missile_particle_v_ratio;
+							p.second->Die(hit_pos, camera.vp, debris, particles, assets.debris, vec, (double)t.total, camera);
 							++player->score;
 							player->Kill(p.second->id, m.id, player->score, hit_pos, vec);
 							last = RemoveMissile(m);
@@ -2547,12 +2569,17 @@ public:
 			}
 		}
 		for (auto it = particles.begin(); it != particles.end();) {
-			it->Update(t);
-			if (it->kill) {
-				auto temp = it;
-				++it;
-				particles.erase(temp);
-			}
+			if (!Cull(it->pos, camera.vp))
+				it->Update(t);
+			if (it->Kill(t.total))
+				it = particles.erase(it);
+			else ++it;
+		}
+		for (auto it = debris.begin(); it != debris.end();) {
+			if (!Cull(it->pos, camera.vp))
+				it->Update(t);
+			if (it->Kill(t.total))
+				it = debris.erase(it);
 			else ++it;
 		}
 		// reset pos_invalidated
@@ -2610,7 +2637,7 @@ public:
 	void OnConn(const std::vector<unsigned char>& msg) {
 		const Conn* conn = reinterpret_cast<const Conn*>(msg.data());
 		size_t id = ID5(conn->client_id, 0);
-		player = std::make_unique<ProtoX>(id, assets.probe, assets.debris, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), missiles, globals.ws.get());
+		player = std::make_unique<ProtoX>(id, assets.probe, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), missiles, globals.ws.get());
 		player->ctrl = static_cast<ProtoX::Ctrl>(conn->ctrl - 48/*TODO:: eliminate conversion*/);
 	}
 	void SendSessionID() {
@@ -2634,7 +2661,7 @@ public:
 		auto it = players.find(player->id);
 		ProtoX * proto;
 		if (it == players.end()) {
-			auto ptr = std::make_unique<ProtoX>(player->id, assets.probe, assets.debris, assets.propulsion.layers.size(), glm::vec3{ player->x, player->y, 0.f }, missiles);
+			auto ptr = std::make_unique<ProtoX>(player->id, assets.probe, assets.propulsion.layers.size(), glm::vec3{ player->x, player->y, 0.f }, missiles);
 			proto = ptr.get();
 			players[player->id] = std::move(ptr);
 		}
@@ -2670,17 +2697,18 @@ public:
 			RemoveMissile(*it);
 		}
 		if (scor->owner_id == player->id && player->ctrl == ProtoX::Ctrl::Prop) player->score = scor->score;
-		const::glm::vec3 hit_pos(scor->x, scor->y, 0.f),
+		glm::vec3 hit_pos(scor->x, scor->y, 0.f),
 			missile_vec{ scor->vec_x, scor->vec_y, 0.f };
+		missile_vec *= globals.missile_particle_v_ratio;
 		if (scor->target_id == player->id)
-			player->Die(hit_pos, particles, missile_vec, t.total, camera);
+			player->Die(hit_pos, camera.vp, debris, particles, assets.debris, missile_vec, t.total, camera);
 		else {
 			auto it = players.find(scor->target_id);
 			if (it != players.end())
-				it->second->Die(hit_pos, particles, missile_vec, t.total, camera);
+				it->second->Die(hit_pos, camera.vp, debris, particles, assets.debris, missile_vec, t.total, camera);
 		}
 	}
-	void OnKill(const std::vector<unsigned char>& msg, const Time& t) {
+	void OnKill(const std::vector<unsigned char>& msg, const Asset::Model& debris_model, const Time& t) {
 		const Kill* kill = reinterpret_cast<const Kill*>(&msg.front());
 		auto clientID = ID5(kill->client_id, 0);
 		auto it = std::find_if(std::begin(players), std::end(players), [&](const auto& p) {
@@ -2689,7 +2717,7 @@ public:
 		if (it == std::end(players)) return;
 		auto& p = it->second;
 		auto hit_pos = p->body.pos + glm::vec3{ p->aabb.r - p->aabb.l, p->aabb.t - p->aabb.b, 0.f };
-		p->Die(hit_pos, particles, {}, t.total, camera);
+		p->Die(hit_pos, camera.vp, debris, particles, debris_model, {}, t.total, camera);
 	}
 	void OnCtrl(const std::vector<unsigned char>& msg) {
 		const Ctrl* ctrl = reinterpret_cast<const Ctrl*>(&msg.front());
@@ -2723,7 +2751,7 @@ public:
 			OnScor(msg, t);
 			break;
 		case kill:
-			OnKill(msg, t);
+			OnKill(msg, assets.debris, t);
 			break;
 		case ctrl:
 			OnCtrl(msg);

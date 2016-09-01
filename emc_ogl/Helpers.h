@@ -36,3 +36,5 @@ std::vector<glm::vec3> GetConvexHullOfOBBSweep(const OBB& obb, const OBB& prev_o
 //void EraseAll(const std::vector<T>& v, ) {
 //	std::remove_if()
 //}
+// TODO:: AABB overload
+bool Cull(const glm::vec3& pos, const glm::mat4& vp);

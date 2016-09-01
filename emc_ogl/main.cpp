@@ -887,7 +887,8 @@ struct Debris {
 		scale(model.vertices.size() / 6),
 		m(m),
 		pos(pos),
-		vec(glm::vec3(m * glm::vec4(vec, 0.f))),
+		//vec(glm::vec3(m * glm::vec4(vec, 0.f))),
+		vec(vec),
 		start(start) {}
 	bool Kill(double elapsed) const {
 		// don't change to fade_out, it might be not updated
@@ -917,7 +918,7 @@ struct Debris {
 			// TODO:: only enough to have the average of the furthest vertices
 			auto center = (model.vertices[i] + model.vertices[i + 1] + model.vertices[i + 2] +
 				model.vertices[i + 3] + model.vertices[i + 4] + model.vertices[i + 5]) / 6.f;
-			auto v = center - pos;
+			auto v = center;// -pos;
 			float len = glm::length(v);
 			v /= len;
 			v *= (speed[cfs] /*+ missile_vec * missile_vec_ratio*/) * (float)t.frame;
@@ -1201,6 +1202,9 @@ struct ProtoX {
 		this->hit_pos = RotateZ(hit_pos, body.pos, -body.rot);
 		this->hit_time = hit_time;
 		debris.emplace_back(debris_model, body.GetModel(), body.pos, missile_vec, hit_time);
+		obb1.clear();
+		obb1.push_back(body.pos);
+		obb1.push_back(body.pos + glm::vec3(glm::inverse(body.GetModel())* glm::vec4(missile_vec, 0.f)) * 100.f);
 		particles.emplace_back( hit_pos,  missile_vec, hit_time );
 		left.Set(false); right.Set(false); bottom.Set(false);
 		const auto& ndc = cam.NDC(body.pos);
@@ -1315,7 +1319,7 @@ struct ProtoX {
 				if (std::abs(body.rot) > safe_rot && invincible <= 0.f) {
 					glm::vec3 hit_pos = body.pos + glm::vec3{ 0.f, body.layer.aabb.b, 0.f },
 						n{ 0.f, 1.f, 0.f };
-					auto vec = glm::reflect(glm::normalize(vel), n);
+					auto vec = glm::reflect(vel, n);
 					vec *= globals.player_particle_v_ratio;
 					Die(hit_pos, cam.vp, debris, particles, debris_model, vec, t.total, cam);
 					--score;
@@ -1868,7 +1872,7 @@ struct Renderer {
 			const auto& shader = colorShader;
 			glUseProgram(shader.id);
 			auto& p = assets.debris.layers.front().parts.front();
-			glm::mat4 mvp = cam.vp * d.m;
+			glm::mat4 mvp = cam.vp *d.m; // * glm::translate(d.pos);//
 			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 			glUniform4f(shader.uCol, p.col.r, p.col.g, p.col.b, d.fade_out);
 			glDrawArrays(GL_TRIANGLES, p.first, p.count);
@@ -2367,13 +2371,13 @@ public:
 		}
 		renderer.Draw(camera, particles);
 		renderer.Draw(camera, debris);
+		renderer.DrawForeground(camera);
 		if (player) {
 			if (player->ctrl == ProtoX::Ctrl::Full || player->ctrl == ProtoX::Ctrl::Prop)
 				renderer.Draw(overlay, renderer.wsad_decal.id, { -globals.width / 2.f, -globals.height / 2.f, 0.f }, *renderer.wsad_decal.model, renderer.wsad_decal.factor);
 			if (player->ctrl == ProtoX::Ctrl::Full || player->ctrl == ProtoX::Ctrl::Turret)
 				renderer.Draw(overlay, renderer.mouse_decal.id, { globals.width / 2.f, -globals.height / 2.f, 0.f }, *renderer.mouse_decal.model, renderer.mouse_decal.factor);
 		}
-		renderer.DrawForeground(camera);
 		renderer.Draw(overlay, texts);
 		glViewport(0, 0, res.x, HUD_RATIO(res.y));
 		renderer.RenderHUD(hud, bounds, player.get(), players);

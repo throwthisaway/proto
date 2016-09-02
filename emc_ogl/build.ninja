@@ -42,6 +42,8 @@ build RT.bc: cpp RT.cpp
 build SAT.bc: cpp SAT.cpp
 build Timer.bc: cpp Timer.cpp
 build Palette.bc: cpp Palette.cpp
+build audio.bc: cpp audio.cpp
 build main.js: link main.bc MeshLoader.bc types.bc MeshSurface.bc FileReader.bc File.bc Img.bc Tga.bc Log.bc Exception.bc RT.bc Shader.bc Color.bc ColorPosAttrib.bc CRTShader.bc Simple.bc Texture.bc VBlur7x.bc HBlur7x.bc VBlur9x.bc HBlur9x.bc Contrast.bc SAT.bc Spherical.bc Timer.bc BloomPass1.bc BloomPass2.bc Highlight.bc CombineMAdd.bc $
 TextureColorMod.bc $
-Palette.bc
+Palette.bc $
+audio.bc

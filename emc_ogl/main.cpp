@@ -85,7 +85,7 @@ class Envelope;
 static const glm::vec3 g(0.f, -.1f, 0.f);/* m/ms2 */
 struct {
 #ifdef DEBUG_REL
-	const float invincibility = 1.f;
+	const float invincibility = 1000.f;
 #else
 	const float invincibility = 5000.f;
 #endif
@@ -682,7 +682,7 @@ struct Missile {
 	ProtoX* owner;
 	size_t id, col_idx;
 	float life, blink;
-	bool first = true;
+	bool remove = false;
 	ALuint pew;
 	Missile& operator=(const Missile&) = default;
 	Missile(const glm::vec3 pos, float rot, float vel, ProtoX* owner, size_t id, const glm::vec3& vec) : pos(pos), prev(pos), vec(vec),
@@ -697,8 +697,11 @@ struct Missile {
 		std::uniform_int_distribution<> col_idx_dist(0, globals.palette.size() - 1);
 		col_idx = col_idx_dist(mt);
 	}
-	void Update(const Time& t, const Camera& cam) {
-		if (first) { first = false; return; }	// draw at least once, and exist at initial position
+	void Update(const Time& t, const Camera& cam, const AABB& scene_bounds) {
+		if (life <= 0.f || IsOutOfBounds(scene_bounds)) {
+			remove = true;
+			return;
+		}
 		life -= (float)t.frame;
 		prev = pos;
 		pos += ((glm::vec3{ std::cos(rot), std::sin(rot), 0.f } )* vel) * (float)t.frame + vec;
@@ -887,8 +890,8 @@ struct Debris {
 		scale(model.vertices.size() / 6),
 		m(m),
 		pos(pos),
-		//vec(glm::vec3(m * glm::vec4(vec, 0.f))),
-		vec(vec),
+		vec(glm::vec3(glm::inverse(m) * glm::vec4(vec, 0.f))),
+		//vec(vec),
 		start(start) {}
 	bool Kill(double elapsed) const {
 		// don't change to fade_out, it might be not updated
@@ -921,7 +924,8 @@ struct Debris {
 			auto v = center;// -pos;
 			float len = glm::length(v);
 			v /= len;
-			v *= (speed[cfs] /*+ missile_vec * missile_vec_ratio*/) * (float)t.frame;
+			v *= speed[cfs] * (float)t.frame;
+			v += vec /** missile_vec_ratio*/ * (float)t.frame;
 			//v.y += g * (float)t.frame;
 			auto incr = centrifugal_speed[cfs] * (float)t.frame;
 			//				auto r = RotateZ(debris.vertices[i], center, incr);
@@ -956,7 +960,7 @@ struct ProtoX {
 	float invincible, fade_out, visible = 1.f, blink = 1.f;
 	double hit_time;
 	bool hit, killed;
-	glm::vec3 vel, f, hit_pos;
+	glm::vec3 vel, f/*, hit_pos*/;
 	int score = 0;
 	size_t missile_id = 0;
 	enum class Ctrl { Full, Prop, Turret };
@@ -1086,8 +1090,16 @@ struct ProtoX {
 		Scor msg{ Tag("SCOR"), this->id, id, missile_id, score, hit_pos.x, hit_pos.y, missile_vec.x, missile_vec.y };
 		ws->Send((const char*)&msg, sizeof(msg));
 	}
+	bool Cull(const glm::mat4& vp) {
+		glm::vec4 tl(aabb.l, aabb.t, 0.f, 1.f);
+		tl = vp * tl;
+		if (tl.x < -1.f || tl.y < -1.f) return true;
 
-
+		glm::vec4 br(aabb.r, aabb.b, 0.f, 1.f);
+		br = vp * br;
+		if (br.x > 1.f || br.y > 1.f) return true;
+		return false;
+	}
 	static std::vector<glm::vec3> obb1, obb2;
 	bool CollisionTest(const ProtoX& other) const {
 		const AABB intersection = Intersect(aabb, other.aabb);
@@ -1123,7 +1135,7 @@ struct ProtoX {
 
 	void Shoot(std::vector<Missile>& missiles, double frame_time) {
 		if (ctrl != Ctrl::Turret && ctrl != Ctrl::Full) return;
-		if (killed) return;
+		if (hit || killed) return;
 		const float missile_vel = 1.f;
 		auto rot = turret.rest_rot + turret.rot + body.rot;
 		glm::vec3 missile_vec{ std::cos(rot) * missile_vel, std::sin(rot) * missile_vel,.0f};
@@ -1199,12 +1211,12 @@ struct ProtoX {
 	void Die(const glm::vec3& hit_pos, const glm::mat4& vp, std::list<Debris>& debris, std::list<Particles>& particles, const Asset::Model& debris_model, const glm::vec3& missile_vec, double hit_time, const Camera& cam) {
 		if (SkipDeathCheck()) return;
 		hit = true;
-		this->hit_pos = RotateZ(hit_pos, body.pos, -body.rot);
+	//	this->hit_pos = RotateZ(hit_pos, body.pos, -body.rot);
 		this->hit_time = hit_time;
-		debris.emplace_back(debris_model, body.GetModel(), body.pos, missile_vec, hit_time);
-		obb1.clear();
+		debris.emplace_back(debris_model, body.GetModel(), body.pos, (glm::normalize(::Center(aabb) - hit_pos) + glm::normalize(missile_vec)) / 2.f, hit_time);
+		/*obb1.clear();
 		obb1.push_back(body.pos);
-		obb1.push_back(body.pos + glm::vec3(glm::inverse(body.GetModel())* glm::vec4(missile_vec, 0.f)) * 100.f);
+		obb1.push_back(body.pos + glm::vec3(glm::inverse(body.GetModel())* glm::vec4(missile_vec, 0.f)) * 100.f);*/
 		particles.emplace_back( hit_pos,  missile_vec, hit_time );
 		left.Set(false); right.Set(false); bottom.Set(false);
 		const auto& ndc = cam.NDC(body.pos);
@@ -2277,12 +2289,13 @@ public:
 	glm::vec3 RandomizePos(const AABB& asset_aabb) {
 		const AABB aabb{ bounds.l - asset_aabb.l, bounds.t - asset_aabb.t, bounds.r - asset_aabb.r, bounds.b - asset_aabb.b };
 		std::uniform_real_distribution<> xdist(aabb.l, aabb.r), ydist(aabb.b, aabb.t);
-		return{ xdist(mt), ydist(mt), 0.f };
+		//return{ xdist(mt), ydist(mt), 0.f };
+		return{};
 	}
 	void GenerateNPC() {
 		static size_t i = 0;
-		auto p = std::make_unique<ProtoX>((size_t)0xbeef, assets.probe, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), missiles);
-		std::uniform_real_distribution<> rot_dist(0., glm::degrees(glm::two_pi<float>()));
+		auto p = std::make_unique<ProtoX>((size_t)0xbeef, assets.probe, assets.propulsion.layers.size(), glm::vec3{ 0.f, 100.f, 0.f }/* RandomizePos(assets.probe.aabb)*/, missiles);
+		std::uniform_real_distribution<> rot_dist(-glm::pi<float>(), glm::pi<float>());
 		p->body.rot = rot_dist(mt);
 		p->turret.SetRot(rot_dist(mt));
 		players[++i] = std::move(p);
@@ -2352,8 +2365,9 @@ public:
 		glViewport(0, HUD_RATIO(res.y), res.x, VP_RATIO(res.y));
 		renderer.DrawBackground(camera);
 		renderer.DrawLandscape(camera);
-		renderer.Draw(camera, missiles);
+		
 		for (const auto& p : players) {
+			if (p.second->Cull(camera.vp)) continue;
 			renderer.Draw(camera, *p.second.get());
 			//renderer.Draw(camera, p.second->aabb);
 			//renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::GetConvexHullOfOBBSweep(p.second->body.bbox, p.second->body.bbox.prev), { .3f, 1.f, .3f, 1.f });
@@ -2361,6 +2375,7 @@ public:
 
 		//	renderer.Draw(camera, p.second->aabb.Translate(p.second->pos));
 		}
+		renderer.Draw(camera, missiles);
 		if (player) {
 			renderer.Draw(camera, *player.get(), true);
 			renderer.Draw(camera, player->aabb);
@@ -2509,7 +2524,13 @@ public:
 			return spt->Finished(); }), globals.envelopes.end());
 
 		for (auto& m : missiles) {
-			m.Update(t, camera);
+			m.Update(t, camera, bounds);
+		}
+		auto it = missiles.begin();
+		while (it != missiles.end()) {
+			if (it->remove) {
+				if (RemoveMissile(*it)) break;
+			} else ++it;
 		}
 		if (player) {
 			//std::stringstream ss;
@@ -2527,45 +2548,33 @@ public:
 			//	camera.Translate(std::max(d, -float(globals.width >> 2)) - (globals.width >> 2), 0.f, 0.f);
 			//else if (res > 0)
 			//	camera.Translate(std::min(d, float(globals.width >> 2)) + (globals.width >> 2), 0.f, 0.f);
-
-			auto it = missiles.begin();
-			while (it != missiles.end()) {
-				bool missile_removed = false;
-				auto& m = *it;
-				if (m.life<=0.f || m.IsOutOfBounds(bounds)) {
-					if (RemoveMissile(m)) break;
+			
+		
+			for (auto& m : missiles){
+				//invincible players can't kill
+				if (m.owner->invincible > 0.f) {
+					++it;
 					continue;
 				}
-				else {
-					//invincible players can't kill
-					if (m.owner->invincible > 0.f) {
-						++it;
-						continue;	
-					}
-					// TODO:: test all hits or just ours?
-					if (m.owner != player.get()) {
-						++it;
-						continue;
-					}
-					bool last = false;
-					for (const auto& p : players) {
-						// if (m.owner != p.second.get()) continue;
-						glm::vec3 hit_pos;
-						if (!p.second->hit && !p.second->killed && p.second->invincible == 0.f && m.HitTest(p.second->aabb/*.Translate(p.second->body.pos)*/, hit_pos)) {
-							glm::vec3 vec{ std::cos(m.rot), std::sin(m.rot), 0.f };
-							vec *= globals.missile_particle_v_ratio;
-							p.second->Die(hit_pos, camera.vp, debris, particles, assets.debris, vec, (double)t.total, camera);
-							++player->score;
-							player->Kill(p.second->id, m.id, player->score, hit_pos, vec);
-							last = RemoveMissile(m);
-							missile_removed = true;
-							break;
-						}
-					}
-					if (last) break;
-				}
-				if (!missile_removed)
+				// TODO:: test all hits or just ours?
+				if (m.owner != player.get()) {
 					++it;
+					continue;
+				}
+				bool last = false;
+				for (const auto& p : players) {
+					// if (m.owner != p.second.get()) continue;
+					glm::vec3 hit_pos;
+					if (!p.second->hit && !p.second->killed && p.second->invincible == 0.f && m.HitTest(p.second->aabb/*.Translate(p.second->body.pos)*/, hit_pos)) {
+						glm::vec3 vec{ std::cos(m.rot), std::sin(m.rot), 0.f };
+						vec *= globals.missile_particle_v_ratio;
+						p.second->Die(hit_pos, camera.vp, debris, particles, assets.debris, vec, (double)t.total, camera);
+						++player->score;
+						player->Kill(p.second->id, m.id, player->score, hit_pos, vec);
+						m.remove = true;
+						break;
+					}
+				}
 			}
 			if (!player->SkipDeathCheck()) {
 				for (const auto& p : players)

@@ -25,7 +25,7 @@ template<typename T>
 class Val {
 public:
 	const T val, prev;
-	Val(T& val) : val(val), prev(val) {}
+	Val(const T& val) : val(val), prev(val) {}
 	Val& operator=(const T& val) { const_cast<T&>(prev) = this->val;  const_cast<T&>(this->val) = val; return *this; }
 	operator const T&() const { return val; }
 };

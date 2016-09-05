@@ -113,6 +113,7 @@ struct {
 		missile_start_offset_y = 1.f * scale,
 		foreground_pos_x_ratio = 1.f,
 		player_fade_out_time = 3500.f; // ms;
+	const size_t max_missile = 3;
 	int ab = a;
 	const glm::vec4 radar_player_color{ 1.f, 1.f, 1.f, 1.f }, radar_enemy_color{ 1.f, .5f, .5f, 1.f };
 	const gsl::span<const glm::vec4, gsl::dynamic_range>& palette = pal, &grey_palette = grey_pal;
@@ -674,23 +675,22 @@ struct Camera {
 struct ProtoX;
 struct Missile {
 	// TODO:: Val<glm::vec3> pos
-	glm::vec3 pos, prev, vec;
-	float rot;
-	float vel;
+	glm::vec3 pos, prev, vec, rot_v;
+	float rot, vel;
 	ProtoX* owner;
 	size_t id, col_idx;
 	float life, blink;
 	bool remove = false;
-	ALuint pew;
+	Audio::Source pew;
 	Missile& operator=(const Missile&) = default;
 	Missile(const glm::vec3 pos, float rot, float vel, ProtoX* owner, size_t id, const glm::vec3& vec) : pos(pos), prev(pos), vec(vec),
-		rot(rot), vel(vel), owner(owner), id(id), life(globals.missile_life), blink(globals.missile_blink_rate),
+		rot_v(glm::vec3{ std::cos(rot), std::sin(rot), 0.f }), rot(rot), vel(vel), owner(owner), id(id), life(globals.missile_life), blink(globals.missile_blink_rate),
 		pew(globals.audio->GenSource(globals.audio->pew)) {
 		GenColIdx();
 	}
-	~Missile() {
-		::alSourceStop(pew);
-	}
+	//~Missile() {
+	//	++owner->missile_count;
+	//}
 	void GenColIdx() {
 		std::uniform_int_distribution<> col_idx_dist(0, globals.palette.size() - 1);
 		col_idx = col_idx_dist(mt);
@@ -702,16 +702,29 @@ struct Missile {
 		}
 		life -= (float)t.frame;
 		prev = pos;
-		pos += ((glm::vec3{ std::cos(rot), std::sin(rot), 0.f } )* vel) * (float)t.frame + vec;
+		pos += rot_v * vel * (float)t.frame + vec;
 		blink -= (float)t.frame;
 		if (blink < 0.f) {
 			blink += globals.missile_blink_rate;
 			GenColIdx();
 		}
 		const auto& ndc = cam.NDC(pos);
-		::Play(pew, glm::clamp(ndc.x, -1.f, 1.f), ::NDCToGain(ndc.x));
+		globals.audio->Enqueue(Audio::Command::ID::Start, pew, glm::clamp(ndc.x, -1.f, 1.f), ::NDCToGain(ndc.x));
 	}
-	bool HitTest(const AABB& bounds, glm::vec3& hit_pos) {
+	auto End() const {
+		return rot_v * globals.missile_size + pos;
+	}
+	bool Cull(const glm::mat4& vp) const {
+		const auto end = End();
+		glm::vec4 tl(std::min(end.x, pos.x), std::max(end.y, pos.y), 0.f, 1.f);
+		tl = vp * tl;
+		if (tl.x > 1.f || tl.y < -1.f) return true;
+		glm::vec4 br(std::max(end.x, pos.x), std::min(end.y, pos.y), 0.f, 1.f);
+		br = vp * br;
+		if (br.x < -1.f || br.y > 1.f) return true;
+		return false;
+	}
+	bool HitTest(const AABB& bounds, glm::vec3& hit_pos) const {
 		if (pos == prev) return false;
 		/* AABB intersection
 		const glm::vec3 end = glm::vec3{ std::cos(rot), std::sin(rot), 0.f } * size + pos;
@@ -719,9 +732,9 @@ struct Missile {
 		const AABB aabb_union{ std::min(min.x, bounds.l), std::max(max.y, bounds.t), std::max(max.x, bounds.r), std::min(min.y, bounds.b)};
 		const float xd1 = max.x - min.x, yd1 = max.y - min.y, xd2 = bounds.r - bounds.l, yd2 = bounds.t - bounds.b;
 		return xd1 + xd2 >= aabb_union.r - aabb_union.l && yd1 + yd2 >= aabb_union.t - aabb_union.b;*/
-		const auto rot_v = glm::vec3{ std::cos(rot), std::sin(rot), 0.f };
+
 		// TODO:: hit pos might be off by one frame
-		auto end = rot_v * globals.missile_size + pos;
+		auto end = End();
 		auto start = prev;
 		
 		// approximate hit position
@@ -967,16 +980,18 @@ struct ProtoX {
 	float clear_color_blink;
 	float rot_speed = 0.f;
 	std::shared_ptr<Envelope> e_invinciblity, e_blink;
-	ALuint die;
+	Audio::Source die;
 	// TODO:: hack for missle owner cleanup in ProtoX dtor
 	std::vector<Missile>& missiles;
+	size_t missile_count = globals.max_missile;
 	struct Body {
 		glm::vec3 pos;
 		float rot;
 		const Asset::Layer& layer;
 		Val<AABB> aabb;
 		Val<OBB> bbox;
-		Body(const glm::vec3& pos, float rot, const Asset::Layer& layer) : pos(pos), rot(rot), layer(layer), aabb(TransformAABB(layer.aabb, GetModel())),
+		Body(const glm::vec3& pos, float rot, const Asset::Layer& layer) : pos(pos), rot(rot), layer(layer),
+			aabb(TransformAABB(layer.aabb, GetModel())),
 			bbox(TransformBBox(layer.aabb, GetModel())) {}
 		void Update(const Time& t) {
 			aabb = TransformAABB(layer.aabb, GetModel());
@@ -995,7 +1010,7 @@ struct ProtoX {
 		const double frame_time = 100.; //ms
 		double elapsed = 0.;
 		size_t frame = 0;
-		ALuint source;
+		Audio::Source source;
 		float pan, gain;
 		void Update(const Time& t) {
 			elapsed += t.frame;
@@ -1013,8 +1028,10 @@ struct ProtoX {
 				frame = 0;
 				elapsed = 0.;
 			}
-			if (on)	::Play(source, pan, gain, true);
-			else ::alSourceStop(source);
+			if (on)	
+				globals.audio->Enqueue(Audio::Command::ID::Start, source, pan, gain, true);
+			else
+				globals.audio->Enqueue(Audio::Command::ID::Stop, source);
 		}
 		Propulsion(const glm::vec3& pos, float rot, float scale, size_t frame_count, float pan, float gain) :
 			pos(pos), rot(rot), scale(scale), frame_count(frame_count),
@@ -1024,7 +1041,7 @@ struct ProtoX {
 			return ::GetModel(m, pos, rot, /*layer.pivot*/{}, scale);
 		}
 		~Propulsion() {
-			::alSourceStop(source);
+			globals.audio->Enqueue(Audio::Command::ID::Stop, source);
 		}
 	}left, bottom, right;
 	struct Turret {
@@ -1091,11 +1108,11 @@ struct ProtoX {
 	bool Cull(const glm::mat4& vp) {
 		glm::vec4 tl(aabb.l, aabb.t, 0.f, 1.f);
 		tl = vp * tl;
-		if (tl.x < -1.f || tl.y < -1.f) return true;
+		if (tl.x > 1.f || tl.y < -1.f) return true;
 
 		glm::vec4 br(aabb.r, aabb.b, 0.f, 1.f);
 		br = vp * br;
-		if (br.x > 1.f || br.y > 1.f) return true;
+		if (br.x < -1.f || br.y > 1.f) return true;
 		return false;
 	}
 	static std::vector<glm::vec3> obb1, obb2;
@@ -1132,6 +1149,8 @@ struct ProtoX {
 	}
 
 	void Shoot(std::vector<Missile>& missiles, double frame_time) {
+		if (!missile_count) return;
+		missile_count--;
 		if (ctrl != Ctrl::Turret && ctrl != Ctrl::Full) return;
 		if (hit || killed) return;
 		const float missile_vel = 1.f;
@@ -1221,7 +1240,7 @@ struct ProtoX {
 		particles.emplace_back( hit_pos, vec, hit_time );
 		left.Set(false); right.Set(false); bottom.Set(false);
 		const auto& ndc = cam.NDC(body.pos);
-		::Play(die, glm::clamp(ndc.x, -1.f, 1.f), ::NDCToGain(ndc.x));
+		globals.audio->Enqueue(Audio::Command::ID::Start, die, glm::clamp(ndc.x, -1.f, 1.f), ::NDCToGain(ndc.x));
 	}
 	bool IsInRestingPos(const AABB& bounds) const {
 		return body.pos.y + body.layer.aabb.b <= bounds.b + ground_level;
@@ -1781,6 +1800,8 @@ struct Renderer {
 	}
 	template<GLenum mode>
 	void DrawLines(const Camera& cam, const std::vector<glm::vec3>& edges, const glm::vec4& col = {1.f, 1.f, 1.f, 1.f}) {
+		if (edges.empty())
+			return;
 		glEnableVertexAttribArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_EDGES]);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * edges.size(), edges.data(), GL_STATIC_DRAW);
@@ -2049,6 +2070,7 @@ struct Renderer {
 		const auto vp = cam.proj * cam.view;
 		for (const auto& missile : missiles) {
 			if (!missile.owner->visible) continue;
+			if (missile.Cull(cam.vp)) continue;
 			const glm::mat4 mvp = glm::rotate(glm::translate(vp, missile.pos), missile.rot, { 0.f, 0.f, 1.f });
 			glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 			const auto& col = globals.palette[missile.col_idx];
@@ -2289,12 +2311,12 @@ public:
 	glm::vec3 RandomizePos(const AABB& asset_aabb) {
 		const AABB aabb{ bounds.l - asset_aabb.l, bounds.t - asset_aabb.t, bounds.r - asset_aabb.r, bounds.b - asset_aabb.b };
 		std::uniform_real_distribution<> xdist(aabb.l, aabb.r), ydist(aabb.b, aabb.t);
-		//return{ xdist(mt), ydist(mt), 0.f };
-		return{};
+		return{ xdist(mt), ydist(mt), 0.f };
+		//return{};
 	}
 	void GenerateNPC() {
 		static size_t i = 0;
-		auto p = std::make_unique<ProtoX>((size_t)0xbeef, assets.probe, assets.propulsion.layers.size(), glm::vec3{ 0.f, 100.f, 0.f }/* RandomizePos(assets.probe.aabb)*/, missiles);
+		auto p = std::make_unique<ProtoX>((size_t)0xbeef, assets.probe, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), missiles);
 		std::uniform_real_distribution<> rot_dist(-glm::pi<float>(), glm::pi<float>());
 		p->body.rot = rot_dist(mt);
 		p->turret.SetRot(rot_dist(mt));
@@ -2401,10 +2423,12 @@ public:
 
 	bool RemoveMissile(Missile& m) {
 		if (&m != &missiles.back()) {
+			++m.owner->missile_count;
 			m = missiles.back();
 			missiles.pop_back();
 			return false;
 		}
+		++missiles.back().owner->missile_count;
 		missiles.pop_back();
 		return true;
 	}
@@ -2593,6 +2617,7 @@ public:
 				it = debris.erase(it);
 			else ++it;
 		}
+		globals.audio->Execute();
 		// reset pos_invalidated
 		if (player)
 			player->pos_invalidated = false;

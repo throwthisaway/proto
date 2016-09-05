@@ -5,6 +5,29 @@
 #include <stdio.h>
 namespace {
 	// http://bleepsandpops.com/post/37792760450/adding-cue-points-to-wav-files-in-c
+	struct Format { // "fmt "
+		unsigned short compression;
+		unsigned short channels;
+		unsigned int freq;
+		unsigned int avgBps;
+		unsigned short blockAlign;
+		unsigned short bits;
+	}format;
+	struct Cue {//  "cue "
+		char cuePointsCount[4];
+		struct CuePoint {
+			char id[4];
+			char playOrderPosition[4];
+			char dataChunkID[4];
+			char chunkStart[4];
+			char blockStart[4];
+			char frameOffset[4];
+		};
+		CuePoint* cuePoints;
+	}cue;
+	struct Wave { //  "data"
+		char* data;
+	}wave;
 	struct Chunks {
 		char id[4];  //  "data"
 		unsigned int size;
@@ -12,31 +35,9 @@ namespace {
 			struct { // "RIFF"
 				char type[4]; // "WAVE"
 			}header;
-			struct Format { // "fmt "
-				unsigned short compression;
-				unsigned short channels;
-				unsigned int freq;
-				unsigned int avgBps;
-				unsigned short blockAlign;
-				unsigned short bits;
-			}format;
-
-			struct Cue {//  "cue "
-				char cuePointsCount[4];
-				struct CuePoint {
-					char id[4];
-					char playOrderPosition[4];
-					char dataChunkID[4];
-					char chunkStart[4];
-					char blockStart[4];
-					char frameOffset[4];
-				};
-				CuePoint* cuePoints;
-			}cue;
-
-			struct Wave { //  "data"
-				char* data;
-			}wave;
+			Format format;
+			Cue cue;
+			Wave wave;
 		};
 	};
 
@@ -137,18 +138,6 @@ namespace {
 	}
 }
 
-void Play(ALuint id, float pan, float gain, bool loop) {
-	const float max_gain = .5f;
-	ALint state;
-	::alGetSourcei(id, AL_SOURCE_STATE, &state);
-	if (state != AL_PLAYING) {
-		::alSourcei(id, AL_LOOPING, loop ? AL_TRUE : AL_FALSE);
-		::alSourcePlay(id);
-	}
-	::alSource3f(id, AL_POSITION, pan, 0.f, 0.f);
-	::alSourcef(id, AL_GAIN, gain * max_gain);
-}
-
 Audio::Audio() : device(::alcOpenDevice(NULL)),
 	context(::alcCreateContext(device, NULL)) {
 	assert(device);
@@ -172,9 +161,10 @@ Audio::Audio() : device(::alcOpenDevice(NULL)),
 #ifdef __EMSCRIPTEN__
 #define PATH_PREFIX ""
 #else
-#define PATH_PREFIX "..//..//emc_openal//"
+#define PATH_PREFIX "..//..//emc_ogl//"
 #endif
-	const char* fname = PATH_PREFIX"audio.wav";
+	const char* fname = PATH_PREFIX"asset//sound//audio.wav";
+	//const char* fname = "audio.wav";
 	const auto res = LoadWAV(fname);
 	if (!res.data.empty()) {
 		alBufferData(pew = die = jet = buffers[0], res.format, &res.data.front(), res.data.size(), res.freq);
@@ -188,12 +178,50 @@ Audio::~Audio() {
 	::alcDestroyContext(context);
 	::alcCloseDevice(device);
 }
-ALuint Audio::GenSource(ALuint buffer) {
+Audio::Source Audio::GenSource(ALuint buffer) {
+	Source res{ index, ++counters[index], buffer };
 	ALuint id = sources[index++];
 	if (index >= sources.size()) index = 0;
 	ALint state;
 	::alGetSourcei(id, AL_SOURCE_STATE, &state);
 	if (state == AL_PLAYING) ::alSourceStop(id);
 	::alSourcei(id, AL_BUFFER, buffer);
-	return id;
+	return res;
+}
+void Audio::Enqueue(Command::ID id, Source& source, float pan, float gain, bool loop) {
+	if (counters[source.index] > source.counter) {
+		// audio source reused, 
+		if (id == Command::ID::Stop) return;	// already stopped, nothing to do
+		// get a new one
+		if (gain>0.f)
+			source = GenSource(source.buffer);
+	}
+	if (gain>0.f)
+		cmd_queue.push({ id, source, pan, gain, loop });
+}
+void Audio::Play(const Source& source, float pan, float gain, bool loop) const {
+	const float max_gain = .3f;
+	ALint state, id = sources[source.index];
+	::alGetSourcei(id, AL_SOURCE_STATE, &state);
+	if (state != AL_PLAYING) {
+		::alSourcei(id, AL_LOOPING, loop ? AL_TRUE : AL_FALSE);
+		::alSourcePlay(id);
+	}
+	::alSource3f(id, AL_POSITION, pan, 0.f, 0.f);
+	::alSourcef(id, AL_GAIN, gain * max_gain);
+}
+
+void Audio::Execute() {
+	while (!cmd_queue.empty()) {
+		const auto& cmd = cmd_queue.front();
+		switch (cmd.id) {
+		case Command::ID::Start:
+			Play(cmd.source, cmd.pan, cmd.gain, cmd.loop);
+			break;
+		case Command::ID::Stop:
+			::alSourceStop(sources[cmd.source.index]);
+			break;
+		}
+		cmd_queue.pop();
+	}
 }

@@ -1,6 +1,7 @@
 #pragma once
 #include <array>
 #include <queue>
+#include <random>
 #ifdef __EMSCRIPTEN__
 #include <AL/al.h>
 #include <AL/alc.h>
@@ -8,13 +9,23 @@
 #include <al.h>
 #include <alc.h>
 #endif
+template<typename ArrayT> 
+class Randomizer {
+	const ArrayT& array;
+	std::mt19937& mt;
+	std::uniform_int_distribution<> dist;
+public:
+	Randomizer(const ArrayT& array, std::mt19937& mt) : array(array), mt(mt), dist(0, array.size() - 1) {}
+	typename ArrayT::value_type Gen() const { return array[dist(mt)]; }
+};
 
 class Audio {
-	static constexpr int PEW = 0, CRASH = 1, PROPULSION = 2, NUM = 3;
-	static constexpr int MAX_SOURCES = 32;
+	static constexpr size_t NUM = 6;
+	static constexpr size_t MAX_SOURCES = 32;
 	ALCdevice* device;
 	ALCcontext* context;
 	std::array<ALuint, NUM> buffers;
+	ALuint LoadToBuffer(const char* fname);
 public:
 	std::array<ALuint, MAX_SOURCES> sources;
 	std::array<size_t, MAX_SOURCES> counters;
@@ -24,18 +35,21 @@ public:
 		ALuint buffer;
 	};
 	struct Command {
-		enum class ID { Start, Stop };
+		enum class ID { Start, Stop, Ctrl };
 		ID id;
-		Source source;
+		size_t index;
 		float pan, gain;
 		bool loop;
 	};
 	std::queue<Command> cmd_queue;
-	ALuint pew, die, jet;
+	ALuint die, engine;
+	static constexpr size_t PEW_COUNT = 4;
+	std::array<ALuint, PEW_COUNT> pew;
 	Audio();
 	~Audio();
 	Source GenSource(ALuint buffer);
 	void Enqueue(Command::ID id, Source& source, float pan = 0.f, float gain = 1.f, bool loop = false);
-	void Play(const Source& source, float pan, float gain, bool loop = false) const;
+	void Play(size_t index, float pan, float gain, bool loop = false) const;
+	void Ctrl(size_t index, float pan, float gain) const;
 	void Execute();
 };

@@ -136,6 +136,12 @@ namespace {
 		fclose(f);
 		return res;
 	}
+
+	inline void InternalControl(ALuint id, float pan, float gain) {
+		const float max_gain = .3f;
+		::alSource3f(id, AL_POSITION, pan, 0.f, 0.f);
+		::alSourcef(id, AL_GAIN, gain * max_gain);
+	}
 }
 
 Audio::Audio() : device(::alcOpenDevice(NULL)),
@@ -163,12 +169,13 @@ Audio::Audio() : device(::alcOpenDevice(NULL)),
 #else
 #define PATH_PREFIX "..//..//emc_ogl//"
 #endif
-	const char* fname = PATH_PREFIX"asset//sound//audio.wav";
-	//const char* fname = "audio.wav";
-	const auto res = LoadWAV(fname);
-	if (!res.data.empty()) {
-		alBufferData(pew = die = jet = buffers[0], res.format, &res.data.front(), res.data.size(), res.freq);
-	}
+
+	pew[0] = LoadToBuffer(PATH_PREFIX"asset//sound//pew1.wav");
+	pew[1] = LoadToBuffer(PATH_PREFIX"asset//sound//pew2.wav");
+	pew[2] = LoadToBuffer(PATH_PREFIX"asset//sound//pew3.wav");
+	pew[3] = LoadToBuffer(PATH_PREFIX"asset//sound//pew4.wav");
+	die = LoadToBuffer(PATH_PREFIX"asset//sound//die.wav");
+	engine = LoadToBuffer(PATH_PREFIX"asset//sound//engine.wav");
 }
 Audio::~Audio() {
 	for (const auto source : sources)
@@ -177,6 +184,15 @@ Audio::~Audio() {
 	::alDeleteBuffers(buffers.size(), &buffers.front());
 	::alcDestroyContext(context);
 	::alcCloseDevice(device);
+}
+ALuint Audio::LoadToBuffer(const char* fname) {
+	static size_t index = 0;
+	const auto res = LoadWAV(fname);
+	if (!res.data.empty()) {
+		alBufferData(buffers[index], res.format, &res.data.front(), res.data.size(), res.freq);
+		return buffers[index++];
+	}
+	return -1;
 }
 Audio::Source Audio::GenSource(ALuint buffer) {
 	Source res{ index, ++counters[index], buffer };
@@ -191,24 +207,29 @@ Audio::Source Audio::GenSource(ALuint buffer) {
 void Audio::Enqueue(Command::ID id, Source& source, float pan, float gain, bool loop) {
 	if (counters[source.index] > source.counter) {
 		// audio source reused, 
-		if (id == Command::ID::Stop) return;	// already stopped, nothing to do
+		if (id != Command::ID::Start) return;	// already stopped, nothing to do
 		// get a new one
 		if (gain>0.f)
 			source = GenSource(source.buffer);
 	}
 	if (gain>0.f)
-		cmd_queue.push({ id, source, pan, gain, loop });
+		cmd_queue.push({ id, source.index, pan, gain, loop });
 }
-void Audio::Play(const Source& source, float pan, float gain, bool loop) const {
-	const float max_gain = .3f;
-	ALint state, id = sources[source.index];
+void Audio::Play(size_t index, float pan, float gain, bool loop) const {
+	ALint state, id = sources[index];
 	::alGetSourcei(id, AL_SOURCE_STATE, &state);
 	if (state != AL_PLAYING) {
 		::alSourcei(id, AL_LOOPING, loop ? AL_TRUE : AL_FALSE);
 		::alSourcePlay(id);
 	}
-	::alSource3f(id, AL_POSITION, pan, 0.f, 0.f);
-	::alSourcef(id, AL_GAIN, gain * max_gain);
+	InternalControl(id, pan, gain);
+}
+
+void Audio::Ctrl(size_t index, float pan, float gain) const {
+	ALint state, id = sources[index];
+	::alGetSourcei(id, AL_SOURCE_STATE, &state);
+	if (state != AL_PLAYING) return;
+	InternalControl(id, pan, gain);
 }
 
 void Audio::Execute() {
@@ -216,10 +237,13 @@ void Audio::Execute() {
 		const auto& cmd = cmd_queue.front();
 		switch (cmd.id) {
 		case Command::ID::Start:
-			Play(cmd.source, cmd.pan, cmd.gain, cmd.loop);
+			Play(cmd.index, cmd.pan, cmd.gain, cmd.loop);
 			break;
 		case Command::ID::Stop:
-			::alSourceStop(sources[cmd.source.index]);
+			::alSourceStop(sources[cmd.index]);
+			break;
+		case Command::ID::Ctrl:
+			Ctrl(cmd.index, cmd.pan, cmd.gain);
 			break;
 		}
 		cmd_queue.pop();

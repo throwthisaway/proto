@@ -94,6 +94,9 @@ app.get('/develop/main.js', function (req, res) {
 app.get('/develop/main.js.mem', function (req, res) {
     res.sendFile(__dirname + '/emc_ogl/main.js.mem');
 });
+app.get('/develop/main.data', function (req, res) {
+    res.sendFile(__dirname + '/emc_ogl/main.data');
+});
 
 app.get('/', function (req, res) {
     console.log('coming_soon.html visit: ' + new Date().toLocaleString());

@@ -122,11 +122,11 @@ struct {
 	unsigned short port = 8000;
 	int width = 1024, height = 768;
 	std::string sessionID;
+	std::unique_ptr<Audio> audio;
+	std::unique_ptr<Randomizer<std::array<ALuint, Audio::PEW_COUNT>>> randomizer;
 	std::unique_ptr<Scene> scene;
 	std::unique_ptr<Client> ws;
 	std::vector<std::weak_ptr<Envelope>> envelopes;
-	std::unique_ptr<Audio> audio;
-
 }globals;
 
 static void ReadMeshFile(const char* fname, MeshLoader::Mesh& mesh) {
@@ -680,12 +680,12 @@ struct Missile {
 	ProtoX* owner;
 	size_t id, col_idx;
 	float life, blink;
-	bool remove = false;
+	bool remove = false, first = true;
 	Audio::Source pew;
 	Missile& operator=(const Missile&) = default;
 	Missile(const glm::vec3 pos, float rot, float vel, ProtoX* owner, size_t id, const glm::vec3& vec) : pos(pos), prev(pos), vec(vec),
 		rot_v(glm::vec3{ std::cos(rot), std::sin(rot), 0.f }), rot(rot), vel(vel), owner(owner), id(id), life(globals.missile_life), blink(globals.missile_blink_rate),
-		pew(globals.audio->GenSource(globals.audio->pew)) {
+		pew(globals.audio->GenSource(globals.randomizer->Gen())) {
 		GenColIdx();
 	}
 	//~Missile() {
@@ -709,7 +709,12 @@ struct Missile {
 			GenColIdx();
 		}
 		const auto& ndc = cam.NDC(pos);
-		globals.audio->Enqueue(Audio::Command::ID::Start, pew, glm::clamp(ndc.x, -1.f, 1.f), ::NDCToGain(ndc.x));
+		if (first) {
+			globals.audio->Enqueue(Audio::Command::ID::Start, pew, glm::clamp(ndc.x, -1.f, 1.f), ::NDCToGain(ndc.x));
+			first = false;
+		}
+		else
+			globals.audio->Enqueue(Audio::Command::ID::Ctrl, pew, glm::clamp(ndc.x, -1.f, 1.f), ::NDCToGain(ndc.x));
 	}
 	auto End() const {
 		return rot_v * globals.missile_size + pos;
@@ -1035,7 +1040,7 @@ struct ProtoX {
 		}
 		Propulsion(const glm::vec3& pos, float rot, float scale, size_t frame_count, float pan, float gain) :
 			pos(pos), rot(rot), scale(scale), frame_count(frame_count),
-			source(globals.audio->GenSource(globals.audio->jet)),
+			source(globals.audio->GenSource(globals.audio->engine)),
 			pan(pan), gain(gain) {}
 		auto GetModel(const glm::mat4& m) const {
 			return ::GetModel(m, pos, rot, /*layer.pivot*/{}, scale);
@@ -2400,7 +2405,7 @@ public:
 		renderer.Draw(camera, missiles);
 		if (player) {
 			renderer.Draw(camera, *player.get(), true);
-			renderer.Draw(camera, player->aabb);
+			//renderer.Draw(camera, player->aabb);
 			//renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::GetConvexHullOfOBBSweep(player->body.bbox, player->body.bbox.prev), { .3f, 1.f, .3f, 1.f });
 			//renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::GetConvexHullOfOBBSweep(player->turret.bbox, player->turret.bbox.prev), { 1.f, .3f, .3f, 1.f });
 			renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::obb1, { .3f, 1.f, .3f, 1.f });
@@ -2576,12 +2581,10 @@ public:
 			for (auto& m : missiles){
 				//invincible players can't kill
 				if (m.owner->invincible > 0.f) {
-					++it;
 					continue;
 				}
 				// TODO:: test all hits or just ours?
 				if (m.owner != player.get()) {
-					++it;
 					continue;
 				}
 				bool last = false;
@@ -2858,6 +2861,7 @@ int main(int argc, char** argv) {
 	try {
 		globals.timer.Tick();
 		globals.audio = std::make_unique<Audio>();
+		globals.randomizer = std::make_unique<Randomizer<std::array<ALuint, Audio::PEW_COUNT>>>(globals.audio->pew, mt);
 		globals.scene = std::make_unique<Scene>();
 	}
 	catch (const custom_exception& ex) {

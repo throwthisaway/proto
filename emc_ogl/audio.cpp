@@ -153,13 +153,14 @@ Audio::Audio() : device(::alcOpenDevice(NULL)),
 	alcGetIntegerv(device, ALC_MAJOR_VERSION, 1, &major);
 	alcGetIntegerv(device, ALC_MAJOR_VERSION, 1, &minor);
 	assert(major == 1);
-	const ALfloat pos[] = { 0.f, 0.f, 0.f },
+	const ALfloat pos[] = { 0.f, 0.f, 1.f },
 		vel[] = { 0.f, 0.f, 0.f },
 		orientation[] = { 0.f, 0.f, -1.f, 0.f, 1.f, 0.f };
 
 	::alListenerfv(AL_POSITION, pos);
 	::alListenerfv(AL_VELOCITY, vel);
 	::alListenerfv(AL_ORIENTATION, orientation);
+	::alDistanceModel(AL_LINEAR_DISTANCE);
 
 	::alGenBuffers(buffers.size(), &buffers.front());
 	::alGenSources(sources.size(), &sources.front());
@@ -220,6 +221,11 @@ void Audio::Play(size_t index, float pan, float gain, bool loop) const {
 	::alGetSourcei(id, AL_SOURCE_STATE, &state);
 	if (state != AL_PLAYING) {
 		::alSourcei(id, AL_LOOPING, loop ? AL_TRUE : AL_FALSE);
+		//float refD = 3.0f;
+		//float maxD = 10.0f;
+		//alSourcef(id, AL_REFERENCE_DISTANCE, refD);
+		//alSourcef(id, AL_MAX_DISTANCE, maxD);
+		//alSourcef(id, AL_ROLLOFF_FACTOR, 1.f);
 		::alSourcePlay(id);
 	}
 	InternalControl(id, pan, gain);

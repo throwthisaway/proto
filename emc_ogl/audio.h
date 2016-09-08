@@ -16,7 +16,7 @@ class Randomizer {
 	std::uniform_int_distribution<> dist;
 public:
 	Randomizer(const ArrayT& array, std::mt19937& mt) : array(array), mt(mt), dist(0, array.size() - 1) {}
-	typename ArrayT::value_type Gen() const { return array[dist(mt)]; }
+	typename ArrayT::value_type Gen() { return array[dist(mt)]; }
 };
 
 class Audio {

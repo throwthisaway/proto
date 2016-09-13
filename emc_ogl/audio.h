@@ -20,7 +20,7 @@ public:
 };
 
 class Audio {
-	static constexpr size_t NUM = 6;
+	static constexpr size_t NUM = 7;
 	static constexpr size_t MAX_SOURCES = 32;
 	ALCdevice* device;
 	ALCcontext* context;
@@ -42,7 +42,7 @@ public:
 		bool loop;
 	};
 	std::queue<Command> cmd_queue;
-	ALuint die, engine;
+	ALuint die, engine, start;
 	static constexpr size_t PEW_COUNT = 4;
 	std::array<ALuint, PEW_COUNT> pew;
 	Audio();

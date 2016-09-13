@@ -981,11 +981,12 @@ struct ProtoX {
 	size_t missile_id = 0;
 	enum class Ctrl { Full, Prop, Turret };
 	Ctrl ctrl = Ctrl::Full;
-	bool pos_invalidated = false; // from web-message
+	bool pos_invalidated = false, // from web-message
+		first = true;
 	float clear_color_blink;
 	float rot_speed = 0.f;
 	std::shared_ptr<Envelope> e_invinciblity, e_blink;
-	Audio::Source die;
+	Audio::Source die, start;
 	// TODO:: hack for missle owner cleanup in ProtoX dtor
 	std::vector<Missile>& missiles;
 	size_t missile_count = globals.max_missile;
@@ -1093,6 +1094,7 @@ struct ProtoX {
 		turret(model.layers.back(), body.GetModel()),
 		clear_color_blink(globals.clear_color_blink_rate),
 		die(globals.audio->GenSource(globals.audio->die)),
+		start(globals.audio->GenSource(globals.audio->start)),
 		missiles(missiles) {
 		Init();
 	}
@@ -1318,12 +1320,18 @@ struct ProtoX {
 				clear_color_blink -= (float)t.frame;
 			return;
 		}
-		
+		// TODO:: after cam update
+		const auto& ndc = cam.NDC(body.pos);
+		auto pan = glm::clamp(ndc.x, -1.f, 1.f), gain = ::NDCToGain(ndc.x);
+		if (first) {
+			globals.audio->Enqueue(Audio::Command::ID::Start, start, pan, gain);
+			first = false;w
+			globals.audio->Enqueue(Audio::Command::ID::Ctrl, start, pan, gain);
+
 		if (!player_self) {
 			// TODO:: after cam update
-			const auto& ndc = cam.NDC(body.pos);
-			left.pan = right.pan = bottom.pan = glm::clamp(ndc.x, -1.f, 1.f);
-			left.gain = right.gain = bottom.gain = ::NDCToGain(ndc.x);
+			left.pan = right.pan = bottom.pan = pan;
+			left.gain = right.gain = bottom.gain = gain;
 		}
 		left.Update(t);
 		right.Update(t);

@@ -177,6 +177,7 @@ Audio::Audio() : device(::alcOpenDevice(NULL)),
 	pew[3] = LoadToBuffer(PATH_PREFIX"asset//sound//pew4.wav");
 	die = LoadToBuffer(PATH_PREFIX"asset//sound//die.wav");
 	engine = LoadToBuffer(PATH_PREFIX"asset//sound//engine.wav");
+	start = LoadToBuffer(PATH_PREFIX"asset//sound//start.wav");
 }
 Audio::~Audio() {
 	for (const auto source : sources)

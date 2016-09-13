@@ -1325,7 +1325,8 @@ struct ProtoX {
 		auto pan = glm::clamp(ndc.x, -1.f, 1.f), gain = ::NDCToGain(ndc.x);
 		if (first) {
 			globals.audio->Enqueue(Audio::Command::ID::Start, start, pan, gain);
-			first = false;w
+			first = false;
+		} else
 			globals.audio->Enqueue(Audio::Command::ID::Ctrl, start, pan, gain);
 
 		if (!player_self) {

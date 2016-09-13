@@ -9,7 +9,6 @@
 #include <stdio.h>
 #include <vector>
 #include <array>
-#include <queue>
 #include <list>
 #include <map>
 #include <iostream>
@@ -40,6 +39,7 @@
 #include "Envelope.h"
 #include "Palette.h"
 #include "audio.h"
+#include "Command.h"
 // TODO::
 // - culling after camrea update
 // - draw debris on top of everything
@@ -990,6 +990,7 @@ struct ProtoX {
 	// TODO:: hack for missle owner cleanup in ProtoX dtor
 	std::vector<Missile>& missiles;
 	size_t missile_count = globals.max_missile;
+	std::queue<Command> commands;
 	struct Body {
 		glm::vec3 pos;
 		float rot;
@@ -1177,7 +1178,7 @@ struct ProtoX {
 		turret.SetRot(float((globals.width >> 1) - x) * rot_ratio);
 		//turret.rot += float((px - x) * rot_ratio);
 	}
-	void Move(const Time& t, bool lt, bool rt, bool bt) {
+	void Move(double frame_time, bool lt, bool rt, bool bt) {
 		if (hit) return;
 		if (ctrl != Ctrl::Prop && ctrl != Ctrl::Full) return;
 		left.Set(lt);
@@ -1202,9 +1203,9 @@ struct ProtoX {
 			limit = 0.f;
 		}
 		if (sign>0.f)
-			rot_speed = std::min(rot_speed + sign * rot_inc * (float)t.frame, limit);
+			rot_speed = std::min(rot_speed + sign * rot_inc * (float)frame_time, limit);
 		else if (sign<0.f)
-			rot_speed = std::max(rot_speed + sign * rot_inc * (float)t.frame, limit);
+			rot_speed = std::max(rot_speed + sign * rot_inc * (float)frame_time, limit);
 
 		glm::vec3 val;
 		if (lt) val += force_l;
@@ -1301,7 +1302,7 @@ struct ProtoX {
 	//}
 
 	void Update(const Time& t, const AABB& bounds, std::list<Particles>& particles, std::list<Debris>& debris, bool player_self, const Camera& cam, const Asset::Model& debris_model) {
-		
+		Execute(t.total, t.frame, commands);
 		msg.clear();
 		if (invincible > 0.f) {
 			invincible -= (float)t.frame;
@@ -2357,17 +2358,23 @@ public:
 		}
 	}
 #ifdef OBB_TEST
-	void AddNPC(size_t id, const glm::vec3& pos, float rot) {
-		auto p = std::make_unique<ProtoX>(id, assets.probe, assets.debris, assets.propulsion.layers.size(), pos);
+	auto AddNPC(size_t id, const glm::vec3& pos, float rot) {
+		auto p = std::make_unique<ProtoX>(id, assets.probe, assets.propulsion.layers.size(), pos, missiles);
 		std::uniform_real_distribution<> rot_dist(0., glm::degrees(glm::two_pi<float>()));
 		p->body.rot = rot;
 		//p->right.on = true;
 		p->bottom.on = true;
 		p->turret.SetRot(rot_dist(mt));
+		auto res = p.get();
 		players[id] = std::move(p);
+		return res;
 	}
-	void AddOBBTestEntities() {
-		AddNPC(0xdead, { -340.f, 200.f, 0.f }, -1.4f);
+	void AddOBBTestEntities(double total) {
+		auto p1 = AddNPC(0xdead, { -340.f, 100.f, 0.f }, 0.f);
+		p1->commands.push({ total, [=](double frame) {p1->Move(frame, false, false, false); } });
+		p1->commands.push({ total + 400., [=](double frame) {p1->Move(frame, false, true, false); } });
+		p1->commands.push({ total + 800., [=](double frame) {p1->Move(frame, true, false, true); } });
+		p1->commands.push({ total + 1000., [=](double frame) {p1->Move(frame, false, false, true); } });
 		AddNPC(0xbeef, { 340.f, 200.f, 0.f }, 1.4f);
 	}
 #endif
@@ -2389,9 +2396,6 @@ public:
 #ifdef DEBUG_REL
 		SetCtrl(ProtoX::Ctrl::Full);
 		GenerateNPCs();
-#ifdef OBB_TEST
-		AddOBBTestEntities();
-#endif
 #endif
 		inputHandler.keyCb = std::bind(&Scene::KeyCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
 	}
@@ -2506,7 +2510,7 @@ public:
 #endif
 			if (!touch) {
 				if (inputHandler.update) player->TurretControl(inputHandler.x, inputHandler.px);
-				player->Move(t, inputHandler.keys[(size_t)InputHandler::Keys::A],
+				player->Move(t.frame, inputHandler.keys[(size_t)InputHandler::Keys::A],
 					inputHandler.keys[(size_t)InputHandler::Keys::D],
 					inputHandler.keys[(size_t)InputHandler::Keys::W]);
 				while (!inputHandler.event_queue.empty()) {
@@ -2524,9 +2528,27 @@ public:
 			auto res = player->WrapAround(assets.land.layers[0].aabb.l, assets.land.layers[0].aabb.r);
 			camera.Update(t, bounds, player->body.pos, player->vel);
 		}
+#ifdef OBB_TEST
+		if (players.empty())
+			AddOBBTestEntities(t.total);
+		for (const auto& p : players) {
+			//auto a = p.second->left.on,
+			//	w = p.second->bottom.on,
+			//	d = p.second->right.on;
+			//p.second->Move(t, a, d, w);
+			p.second->Update(t, bounds, particles, debris, true, camera, assets.debris);
+		}
+		auto it1 = players.find(0xdead), it2 = players.find(0xbeef);
+		if (it1 != players.end() && it2 != players.end()) {
+			auto& p1 = *it1->second, &p2 = *it2->second;
+			HitTest(p1, p2, t.total);
+		}
+#else		
 		for (auto& p : players) {
 			p.second->Update(t, bounds, particles, debris, false, camera, assets.debris);
 		}
+#endif
+
 
 		for (auto p = std::begin(players); p != std::end(players);) {
 			if (p->second->killed) {
@@ -2644,22 +2666,6 @@ public:
 			//auto& p = players[0xbeef];
 			//p->pos.x = 50.f;
 		}
-#ifdef OBB_TEST
-		for (const auto& p : players) {
-			auto a = p.second->left.on,
-				w = p.second->bottom.on,
-				d = p.second->right.on;
-			p.second->Move(t, a, d, w);
-			p.second->Update(t, bounds, particles, true);
-		}
-		auto it1 = players.find(0xdead), it2 = players.find(0xbeef);
-		if (it1 != players.end() && it2 != players.end()) {
-			auto& p1 = *it1->second, &p2 = *it2->second;
-			HitTest(p1, p2, t.total);
-		}
-		if (players.empty())
-			AddOBBTestEntities();
-#endif
 #endif
 	}
 	~Scene() {

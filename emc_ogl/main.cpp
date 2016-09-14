@@ -40,7 +40,9 @@
 #include "Palette.h"
 #include "audio.h"
 #include "Command.h"
+#define OBB_TEST
 // TODO::
+// - move calculations from Move to Update
 // - culling after camrea update
 // - draw debris on top of everything
 // - maximize missile count
@@ -1387,6 +1389,8 @@ struct ProtoX {
 				// wrap around -PI..PI
 				float pi = (body.rot < 0.f) ? -glm::pi<float>() : glm::pi<float>();
 				body.rot = std::fmod(body.rot + rot_speed * (float)t.frame + pi, pi * 2.f) - pi;
+				//LOG_INFO("%g %g %g %g\n", f.x, f.y, f.z, body.rot);
+				//LOG_INFO("%g\n",body.rot);
 			}
 			if (ws) {
 				Plyr player{ Tag("PLYR"), id, body.pos.x, body.pos.y, turret.rot, invincible, vel.x, vel.y, body.rot, left.on, right.on, bottom.on };
@@ -2370,12 +2374,23 @@ public:
 		return res;
 	}
 	void AddOBBTestEntities(double total) {
-		auto p1 = AddNPC(0xdead, { -340.f, 100.f, 0.f }, 0.f);
-		p1->commands.push({ total, [=](double frame) {p1->Move(frame, false, false, false); } });
-		p1->commands.push({ total + 400., [=](double frame) {p1->Move(frame, false, true, false); } });
-		p1->commands.push({ total + 800., [=](double frame) {p1->Move(frame, true, false, true); } });
-		p1->commands.push({ total + 1000., [=](double frame) {p1->Move(frame, false, false, true); } });
-		AddNPC(0xbeef, { 340.f, 200.f, 0.f }, 1.4f);
+		auto p1 = AddNPC(0xdead, { -340.f, 0.f, 0.f }, 0.f);
+		p1->commands.push({ total, total + 1248.4, [=](double frame) {p1->Move(frame, 0, 0, 0); } });
+		p1->commands.push({ total + 1248.4, total + 2247.2, [=](double frame) {p1->Move(frame, 0, 0, 1); } });
+		p1->commands.push({ total + 2247.2, total + 2964.07, [=](double frame) {p1->Move(frame, 0, 1, 1); } });
+		p1->commands.push({ total + 2964.07, total + 3514.16, [=](double frame) {p1->Move(frame, 0, 0, 1); } });
+		p1->commands.push({ total + 3514.16, total + 3730.95, [=](double frame) {p1->Move(frame, 0, 0, 0); } });
+		//{
+		//	auto p1 = AddNPC(0xbeef, { 340.f, -150.f, 0.f }, 0.f);
+		//	p1->commands.push({ total, [=](double frame) {p1->Move(frame, false, false, false); } });
+		//	p1->commands.push({ total + 1694.65, [=](double frame) {p1->Move(frame, 0, 0, 1); } });
+		//	p1->commands.push({ total + 2710.15, [=](double frame) {p1->Move(frame, 1, 0, 1); } });
+		//	p1->commands.push({ total + 3344.39, [=](double frame) {p1->Move(frame, 0, 0, 1); } });
+		//	p1->commands.push({ total + 3494.76, [=](double frame) {p1->Move(frame, 0, 1, 1); } });
+		//	p1->commands.push({ total + 4411.06, [=](double frame) {p1->Move(frame, 0, 0, 1); } });
+		//	p1->commands.push({ total + 4443.45, [=](double frame) {p1->Move(frame, 0, 0, 0); } });
+		//}
+
 	}
 #endif
 	Scene() : bounds(assets.land.aabb),
@@ -2508,6 +2523,18 @@ public:
 				touch = true;
 			}
 #endif
+			static bool lt = false, rt = false, bt = false, first = true;
+			static double total = t.total;
+			if (first || inputHandler.keys[(size_t)InputHandler::Keys::A] != lt ||
+			inputHandler.keys[(size_t)InputHandler::Keys::D] != rt ||
+				inputHandler.keys[(size_t)InputHandler::Keys::W] != bt) {
+				lt = inputHandler.keys[(size_t)InputHandler::Keys::A];
+				rt = inputHandler.keys[(size_t)InputHandler::Keys::D];
+				bt = inputHandler.keys[(size_t)InputHandler::Keys::W];
+				LOG_INFO("p1->commands.push({ total + %g, total + %g, [=](double frame) {p1->Move(frame, %d, %d, %d); } });\n", total, t.total, lt, rt, bt);
+				first = false;
+				total = t.total;
+			}
 			if (!touch) {
 				if (inputHandler.update) player->TurretControl(inputHandler.x, inputHandler.px);
 				player->Move(t.frame, inputHandler.keys[(size_t)InputHandler::Keys::A],

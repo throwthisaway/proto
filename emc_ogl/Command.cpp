@@ -1,13 +1,14 @@
 #include "Command.h"
 
-void Execute(double total, double frame, std::queue<Command> commands) {
+void Execute(double total, double frame, std::queue<Command>& commands) {
 	while (!commands.empty()) {
 		const auto& cmd = commands.front();
-		if (cmd.t <= total) {
-			cmd.fct(frame);
+		if (cmd.end <= total) {
 			commands.pop();
+			continue;
 		}
-		else
-			break;
+		if (cmd.start <= total && cmd.end >= total)
+			cmd.fct(frame);
+		break;
 	}
 }

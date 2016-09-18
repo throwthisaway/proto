@@ -41,6 +41,7 @@
 #include "audio.h"
 #include "Command.h"
 #define OBB_TEST
+static bool sleep = false;
 // TODO::
 // - move calculations from Move to Update
 // - culling after camrea update
@@ -1402,23 +1403,27 @@ struct ProtoX {
 		aabb = Union(Union(body.aabb, turret.aabb),
 			Union(body.aabb.prev, turret.aabb.prev));
 	}
-	float WrapAround(float min, float max) {
-		float dif = body.pos.x - max;
-		if (dif >= 0) {
-			body.pos.x = min + dif;
-			return dif;
-		}
-		dif = body.pos.x - min;
-		if (dif < 0) {
-			body.pos.x = max + dif;
-			return dif;
-		}
+	void ResetVals() {
 		// TODO:: reset preview values
 		body.bbox = body.bbox.val;
 		turret.bbox = turret.bbox.val;
 		body.aabb = body.aabb.val;
 		turret.aabb = turret.aabb.val;
 		aabb = Union(body.aabb, turret.aabb);
+	}
+	float WrapAround(float min, float max) {
+		float dif = body.pos.x - max;
+		if (dif >= 0) {
+			ResetVals();
+			body.pos.x = min + dif;
+			return dif;
+		}
+		dif = body.pos.x - min;
+		if (dif < 0) {
+			ResetVals();
+			body.pos.x = max + dif;
+			return dif;
+		}
 		return 0.f;
 	}
 };
@@ -2380,15 +2385,17 @@ public:
 		p1->commands.push({ total + 2247.2, total + 2964.07, [=](double frame) {p1->Move(frame, 0, 1, 1); } });
 		p1->commands.push({ total + 2964.07, total + 3514.16, [=](double frame) {p1->Move(frame, 0, 0, 1); } });
 		p1->commands.push({ total + 3514.16, total + 3730.95, [=](double frame) {p1->Move(frame, 0, 0, 0); } });
+
 		//{
 		//	auto p1 = AddNPC(0xbeef, { 340.f, -150.f, 0.f }, 0.f);
-		//	p1->commands.push({ total, [=](double frame) {p1->Move(frame, false, false, false); } });
-		//	p1->commands.push({ total + 1694.65, [=](double frame) {p1->Move(frame, 0, 0, 1); } });
-		//	p1->commands.push({ total + 2710.15, [=](double frame) {p1->Move(frame, 1, 0, 1); } });
-		//	p1->commands.push({ total + 3344.39, [=](double frame) {p1->Move(frame, 0, 0, 1); } });
-		//	p1->commands.push({ total + 3494.76, [=](double frame) {p1->Move(frame, 0, 1, 1); } });
-		//	p1->commands.push({ total + 4411.06, [=](double frame) {p1->Move(frame, 0, 0, 1); } });
-		//	p1->commands.push({ total + 4443.45, [=](double frame) {p1->Move(frame, 0, 0, 0); } });
+		//	//p1->commands.push({ total + 700., total + 700.48, [=](double frame) {p1->Move(frame, 0, 0, 0); } });
+		//	p1->commands.push({ total, total + 1373.34, [=](double frame) {p1->Move(frame, 0, 0, 1); } });
+		//	p1->commands.push({ total + 1373.34, total + 2755.94, [=](double frame) {p1->Move(frame, 1, 0, 1); } });
+		//	p1->commands.push({ total + 2755.94, total + 3539.9, [=](double frame) {p1->Move(frame, 0, 0, 1); } });
+		//	p1->commands.push({ total + 3539.9, total + 3789.73, [=](double frame) {p1->Move(frame, 0, 1, 1); } });
+		//	p1->commands.push({ total + 3789.73, total + 4823.01, [=](double frame) {p1->Move(frame, 0, 0, 1); } });
+		//	p1->commands.push({ total + 4823.01, total + 4889.68, [=](double frame) {p1->Move(frame, 0, 0, 0); } });
+
 		//}
 
 	}
@@ -2396,9 +2403,9 @@ public:
 	Scene() : bounds(assets.land.aabb),
 //#ifndef __EMSCRIPTEN__
 #ifdef DEBUG_REL
-#ifndef OBB_TEST
+//#ifndef OBB_TEST
 	player(std::make_unique<ProtoX>(0xdeadbeef, assets.probe, assets.propulsion.layers.size(), glm::vec3{}, missiles)),
-#endif
+//#endif
 #endif
 //#endif
 		renderer(assets, bounds),
@@ -2425,8 +2432,8 @@ public:
 			if (p.second->Cull(camera.vp)) continue;
 			renderer.Draw(camera, *p.second.get());
 			//renderer.Draw(camera, p.second->aabb);
-			//renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::GetConvexHullOfOBBSweep(p.second->body.bbox, p.second->body.bbox.prev), { .3f, 1.f, .3f, 1.f });
-			//renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::GetConvexHullOfOBBSweep(p.second->turret.bbox, p.second->turret.bbox.prev), { 1.f, .3f, .3f, 1.f });
+			//renderer.DrawLines<GL_LINE_STRIP>(camera, GetConvexHullOfOBBSweep(p.second->body.bbox, p.second->body.bbox.prev), { .3f, 1.f, .3f, 1.f });
+			//renderer.DrawLines<GL_LINE_STRIP>(camera, GetConvexHullOfOBBSweep(p.second->turret.bbox, p.second->turret.bbox.prev), { 1.f, .3f, .3f, 1.f });
 
 		//	renderer.Draw(camera, p.second->aabb.Translate(p.second->pos));
 		}
@@ -2434,10 +2441,10 @@ public:
 		if (player) {
 			renderer.Draw(camera, *player.get(), true);
 			//renderer.Draw(camera, player->aabb);
-			//renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::GetConvexHullOfOBBSweep(player->body.bbox, player->body.bbox.prev), { .3f, 1.f, .3f, 1.f });
-			//renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::GetConvexHullOfOBBSweep(player->turret.bbox, player->turret.bbox.prev), { 1.f, .3f, .3f, 1.f });
-			renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::obb1, { .3f, 1.f, .3f, 1.f });
-			renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::obb2, { 1.f, .3f, .3f, 1.f });
+			//renderer.DrawLines<GL_LINE_STRIP>(camera, GetConvexHullOfOBBSweep(player->body.bbox, player->body.bbox.prev), { .3f, 1.f, .3f, 1.f });
+			//renderer.DrawLines<GL_LINE_STRIP>(camera, GetConvexHullOfOBBSweep(player->turret.bbox, player->turret.bbox.prev), { 1.f, .3f, .3f, 1.f });
+			//renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::obb1, { .3f, 1.f, .3f, 1.f });
+			//renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::obb2, { 1.f, .3f, .3f, 1.f });
 		}
 		renderer.Draw(camera, particles);
 		renderer.Draw(camera, debris);
@@ -2486,6 +2493,7 @@ public:
 	}
 	void HitTest(ProtoX& p1, ProtoX& p2, double total) {
 		if (!p1.SkipDeathCheck() && !p2.SkipDeathCheck() && p1.CollisionTest(p2)) {
+			sleep = false;
 			glm::vec3 hit_pos((p1.body.pos.x + p2.body.pos.x) / 2.f, (p1.body.pos.y + p2.body.pos.y) / 2.f, 0.f);
 			p1.Die(hit_pos, camera.vp, debris, particles, assets.debris, p1.vel, total, camera);
 			p2.Die(hit_pos, camera.vp, debris, particles, assets.debris, p2.vel, total, camera);
@@ -2951,7 +2959,8 @@ void main_loop() {
 		globals.scene->Update({ globals.timer.TotalMs(), globals.timer.ElapsedMs() });
 		globals.scene->Render();
 		InputHandler::Reset();
-		//::Sleep(150);
+		if (sleep)
+			::Sleep(150);
 //	}
 //	catch (...) {
 //	LOG_INFO("exception has been thrown\n");

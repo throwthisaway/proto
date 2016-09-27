@@ -12,6 +12,8 @@ rule cpp
   command = ${EMCC_PATH}emcc.bat $cppflags $in -o $out
 rule link
   command = ${EMCC_PATH}emcc.bat $linkflags $in -o $out
+rule zip
+  command = gzip --force --keep $in
 build main.bc: cpp main.cpp
 build MeshLoader.bc: cpp ${MeshLoaderPath}MeshLoader.cpp
 build types.bc: cpp ${MeshLoaderPath}types.cpp
@@ -54,3 +56,6 @@ Palette.bc $
 audio.bc $
 Helpers.bc $
 Command.bc
+build main.js.gz: zip main.js | main.js
+build main.js.mem.gz: zip main.js.mem | main.js
+build main.data.gz: zip main.data | main.js

@@ -2826,7 +2826,6 @@ public:
 		if (!SanitizeMsg<Ctrl>(msg.size()))
 			return;
 		const Ctrl* ctrl = reinterpret_cast<const Ctrl*>(&msg.front());
-		LOG_INFO("@@@%d", ctrl->ctrl);
 		SetCtrl(static_cast<ProtoX::Ctrl>(ctrl->ctrl));
 	}
 	void OnWait(const std::vector<unsigned char>& msg) {
@@ -2834,7 +2833,7 @@ public:
 			return;
 		auto wait = reinterpret_cast<const Wait*>(&msg.front());
 		this->wait = wait->n;
-		LOG_INFO("OnWait: %d", wait->n);
+		//LOG_INFO("OnWait: %d", wait->n);
 	}
 	void Dispatch(const std::vector<unsigned char>& msg, const Time& t) {
 		if (msg.size() < sizeof(size_t))

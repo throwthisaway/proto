@@ -77,7 +77,7 @@ function getSessionIDFromMsg(msg) {
 
 function findAvailableSessionID() {
     var res;
-    for (var session of sessions) {
+    for (var session in sessions) {
         if (!res || session[1].length<res[1].length)
             res = session;
     }
@@ -110,14 +110,19 @@ app.get(release, function (req, res) {
 });
 
 app.get(release + '/main.js', function (req, res) {
-    res.sendFile(__dirname + '/emc_ogl/main.js');
+    res.setHeader('Content-Encoding', 'gzip');
+    res.setHeader('Content-Type', 'application/javascript');
+    res.sendFile(__dirname + '/emc_ogl/main.js.gz');
 });
-
 app.get(release + '/main.js.mem', function (req, res) {
-    res.sendFile(__dirname + '/emc_ogl/main.js.mem');
+    res.setHeader('Content-Encoding', 'gzip');
+    res.setHeader('Content-Type', 'application/javascript');
+    res.sendFile(__dirname + '/emc_ogl/main.js.mem.gz');
 });
 app.get(release + '/main.data', function (req, res) {
-    res.sendFile(__dirname + '/emc_ogl/main.data');
+    res.setHeader('Content-Encoding', 'gzip');
+    res.setHeader('Content-Type', 'application/javascript');
+    res.sendFile(__dirname + '/emc_ogl/main.data.gz');
 });
 
 app.get('/', function (req, res) {

@@ -1,6 +1,6 @@
 var ipaddress = process.env.OPENSHIFT_NODEJS_IP || "127.0.0.1";
 var port      = process.env.OPENSHIFT_NODEJS_PORT || 8080;
-
+var release = '/develop';
 var WebSocketServer = require('ws').Server
 var app = require('express')();
 var http = require('http');
@@ -9,8 +9,9 @@ var sessionIDLen = 5,
     headerLen = 3 + sessionIDLen,
     clientIDLen = 5,
     minPlayers = 4,
-    maxPlayers = 255;
-var sessions = [];
+    maxPlayers = 16,
+    maxSessions = 8;
+var sessions = new Map();
 function ab2strUtf16(buf) {
     return String.fromCharCode.apply(null, new Uint16Array(buf));
 }
@@ -34,10 +35,10 @@ function str2ab(str) {
     return buf;
 }
 function str_and_number2ab(str, num) {
-    var numLen = 1; // 1 byte number size
+    var numLen = 1; // 1 byte number size, 3 byte padding
     var buf = new ArrayBuffer(str.length + numLen);
     var bufView = new Uint8Array(buf);
-    for (var i = 0, strLen = str.length; i < strLen; i++) {
+    for (var i = 0,strLen = str.length; i < strLen; i++) {
         bufView[i] = str.charCodeAt(i);
     }
     bufView[bufView.length - 1] = num;
@@ -66,35 +67,56 @@ function getSessionIDFromMsg(msg) {
     console.log('session init, id: %s', sessionID);
     return sessionID.substr(4, sessionIDLen);
 }
-app.get('/emc_socket', function (req, res) {
-    res.sendFile(__dirname + '/emc_socket/index.html');
-});
+//app.get('/emc_socket', function (req, res) {
+//    res.sendFile(__dirname + '/emc_socket/index.html');
+//});
 
-app.get('/emc_socket/index.js', function (req, res) {
-    res.sendFile(__dirname + '/emc_socket/index.js');
-});
+//app.get('/emc_socket/index.js', function (req, res) {
+//    res.sendFile(__dirname + '/emc_socket/index.js');
+//});
 
-app.get('/develop', function (req, res) {
-    if (req.query.p && sessions[req.query.p] != undefined) {
-        res.sendFile(__dirname + '/emc_ogl/main.html');
-        //  ?p=' + req.query.p);
+function findAvailableSessionID() {
+    var res;
+    for (var session of sessions) {
+        if (!res || session[1].length<res[1].length)
+            res = session;
+    }
+    return (res && res[1].length < maxPlayers) ? res[0] : undefined;
+}
+function redirectToASession(res) {
+    if (id = findAvailableSessionID()) {
+        console.log('found an existing session: ' + id);
+        res.redirect(release + '/?p=' + id);
+    } else if (sessions.size >= maxSessions) {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('All sessions are full. Try again later.')
     } else {
         var sessionID = generateID(sessionIDLen);
-        console.log('starting new session: ' + sessionID)
-        sessions[sessionID] = [];
-        sessions[sessionID].id = sessionID;
-        res.redirect('/develop/?p=' + sessionID);
+        console.log('starting new session: ' + sessionID);
+        var session = [];
+        session.id = sessionID;
+        sessions.set(sessionID, session);
+        res.redirect(release + '/?p=' + sessionID);
     }
+}
+
+app.get(release, function (req, res) {
+    var session;
+    if (req.query.p &&
+        (session = sessions.get(req.query.p)) != undefined &&
+        session.length < maxPlayers) {
+        res.sendFile(__dirname + '/emc_ogl/main.html');//  ?p=' + req.query.p);
+    } else redirectToASession(res);
 });
 
-app.get('/develop/main.js', function (req, res) {
+app.get(release + '/main.js', function (req, res) {
     res.sendFile(__dirname + '/emc_ogl/main.js');
 });
 
-app.get('/develop/main.js.mem', function (req, res) {
+app.get(release + '/main.js.mem', function (req, res) {
     res.sendFile(__dirname + '/emc_ogl/main.js.mem');
 });
-app.get('/develop/main.data', function (req, res) {
+app.get(release + '/main.data', function (req, res) {
     res.sendFile(__dirname + '/emc_ogl/main.data');
 });
 
@@ -163,41 +185,35 @@ function broadcastToSession(sender, session, data) {
 };
 function findClientToCtrl(session) {
     for (i = 0; i < session.length; ++i) {
-        console.log('findClient: ' + session[i].ctrl);
+        //console.log('findClient: ' + session[i].ctrl);
         if (session[i].ctrl === 0) return session[i];
     }
-    console.log('findClient: not found ');
+    //console.log('findClient: not found ');
     return null;
 }
 function findClientByID(session, id) {
     for (i = 0; i < session.length; ++i) {
-        console.log('findClientbyid: ' + session[i].clientID + " " + id);
+       // console.log('findClientbyid: ' + session[i].clientID + " " + id);
         if (session[i].clientID === id) return session[i];
     }
-    console.log('findClientbyid: not found ');
+    //console.log('findClientbyid: not found ');
     return null;
 }
 wss.on('connection', function(ws) {
-    console.log("New connection");
+    //console.log("New connection");
     ws.on('message', function (message, flags) {
         //console.log('received: %s', message);
-        if (String.fromCharCode(message[0], message[1], message[2], message[3]) === 'SESS') {
+        if (message.length>=4 && String.fromCharCode(message[0], message[1], message[2], message[3]) === 'SESS') {
             var sessionID = getSessionIDFromMsg(message);
-            var session = sessions[sessionID]
+            var session = sessions.get(sessionID);
             if (session == undefined) {
-                ws.terminate();
-                return;
-            }
-            if (session.length > maxPlayers) {
-                console.log('session is full, redirect to new session');
-                // TODO:: how to redirect from here
                 ws.terminate();
                 return;
             }
             client = findClientToCtrl(session);
             if (client) {
                 client.ctrl = 1;
-                client.send(str2ab('CTRL1'));
+                client.send(str_and_number2ab('CTRL', 1));
                 ws.ctrl = 2;
                 ws.clientID = client.clientID;
                 ws.send(str2ab("CONN" + client.clientID + "2"));
@@ -217,7 +233,7 @@ wss.on('connection', function(ws) {
             return;
         }
         if (ws.session == undefined) {
-            console.log('invalid session for ws client');
+            console.log('Invalid session for ws client');
             ws.terminate();
             return;
         }
@@ -232,12 +248,13 @@ wss.on('connection', function(ws) {
             ws.session.pop();
             if (client = findClientByID(ws.session, ws.clientID)) {
                 client.ctrl = 0;
-                client.send(str2ab('CTRL0'));
+                client.send(str_and_number2ab('CTRL', 0));
             }
             console.log('session player count: ' + ws.session.length);
             if (ws.session.length < 1) {
-                console.log('deleting session: ' + ws.session.id);
-                delete sessions[ws.session.id];
+                console.log('deleting session: ' + ws.session.id );
+                delete sessions.delete(ws.session.id);
+                console.log(' session count: ' + sessions.size);
             } else  if (ws.session.length < minPlayers)
                 broadcastToSession(null, ws.session, str_and_number2ab('WAIT', minPlayers - ws.session.length));
         }

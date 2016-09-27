@@ -40,18 +40,15 @@
 #include "Palette.h"
 #include "audio.h"
 #include "Command.h"
-#define OBB_TEST
-static bool sleep = false;
+//#define OBB_TEST
+
 // TODO::
 // - move calculations from Move to Update
 // - culling after camrea update
 // - draw debris on top of everything
-// - maximize missile count
 // - fix audio updqate before camera update
 // - culling particles, debris, players, missiles
 // - introduce npc flag, overhaul player_self flag, add npc behaviour
-// - fix aufio sources wraparound source ownership problem.
-// - fix missile ownership after plazer destruction
 //----------------------------------------
 // - colorize player only
 // - display session lost on socket error
@@ -72,7 +69,11 @@ inline glm::vec3 RotateZ(const glm::vec3& v, const glm::vec3& c, float r) {
 	//return{std::cos(r) * (v.x - c.x), std::sin(r) * (v.y - c.y), 0.f };
 	return glm::rotateZ(v - c, r);
 }
-
+template<typename T>
+inline bool SanitizeMsg(size_t size) {
+	//return size + size % 4 == sizeof(T);
+	return true;
+}
 static float NDCToGain(float x) {
 	x = std::abs(x);
 	return 1.f - glm::smoothstep(1.f, 3.f, x);
@@ -2194,8 +2195,10 @@ struct InputHandler {
 		return touchstart_callback(eventType, e, userData);
 	}
 #endif
+	static int count;
 	static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 	{
+		count = action;
 		switch (key) {
 		case GLFW_KEY_LEFT:
 			keys[(size_t)Keys::Left] = action == GLFW_PRESS || action == GLFW_REPEAT;
@@ -2265,6 +2268,7 @@ double InputHandler::x, InputHandler::y, InputHandler::px, InputHandler::py;
 bool InputHandler::update = false;
 std::queue<InputHandler::ButtonClick> InputHandler::event_queue;
 std::function<void(int key, int scancode, int action, int mods)> InputHandler::keyCb;
+int InputHandler::count = 0;
 #ifdef __EMSCRIPTEN__
 std::queue<InputHandler::TouchEvent> InputHandler::touch_event_queue;
 #endif
@@ -2493,7 +2497,6 @@ public:
 	}
 	void HitTest(ProtoX& p1, ProtoX& p2, double total) {
 		if (!p1.SkipDeathCheck() && !p2.SkipDeathCheck() && p1.CollisionTest(p2)) {
-			sleep = false;
 			glm::vec3 hit_pos((p1.body.pos.x + p2.body.pos.x) / 2.f, (p1.body.pos.y + p2.body.pos.y) / 2.f, 0.f);
 			p1.Die(hit_pos, camera.vp, debris, particles, assets.debris, p1.vel, total, camera);
 			p2.Die(hit_pos, camera.vp, debris, particles, assets.debris, p2.vel, total, camera);
@@ -2525,24 +2528,25 @@ public:
 					a = e.touchPoints[0].canvasX >(globals.width * 2 / 3),
 					shoot = e.touchPoints[0].clientY < (globals.height / 2);
 				//LOG_INFO("%d %d %d %d %d %d\n", e.touchPoints[0].clientX, e.touchPoints[0].clientY, globals.width, globals.width / 4, globals.width * 4 / 5, w);
-				player->Move(t, a, d, w);
+				player->Move(t.frame, a, d, w);
 				if (shoot)
 					player->Shoot(missiles, t.frame);
 				touch = true;
 			}
 #endif
-			static bool lt = false, rt = false, bt = false, first = true;
-			static double total = t.total;
-			if (first || inputHandler.keys[(size_t)InputHandler::Keys::A] != lt ||
-			inputHandler.keys[(size_t)InputHandler::Keys::D] != rt ||
-				inputHandler.keys[(size_t)InputHandler::Keys::W] != bt) {
-				lt = inputHandler.keys[(size_t)InputHandler::Keys::A];
-				rt = inputHandler.keys[(size_t)InputHandler::Keys::D];
-				bt = inputHandler.keys[(size_t)InputHandler::Keys::W];
-				LOG_INFO("p1->commands.push({ total + %g, total + %g, [=](double frame) {p1->Move(frame, %d, %d, %d); } });\n", total, t.total, lt, rt, bt);
-				first = false;
-				total = t.total;
-			}
+			// for OBBTest
+			//static bool lt = false, rt = false, bt = false, first = true;
+			//static double total = t.total;
+			//if (first || inputHandler.keys[(size_t)InputHandler::Keys::A] != lt ||
+			//inputHandler.keys[(size_t)InputHandler::Keys::D] != rt ||
+			//	inputHandler.keys[(size_t)InputHandler::Keys::W] != bt) {
+			//	lt = inputHandler.keys[(size_t)InputHandler::Keys::A];
+			//	rt = inputHandler.keys[(size_t)InputHandler::Keys::D];
+			//	bt = inputHandler.keys[(size_t)InputHandler::Keys::W];
+			//	LOG_INFO("p1->commands.push({ total + %g, total + %g, [=](double frame) {p1->Move(frame, %d, %d, %d); } });\n", total, t.total, lt, rt, bt);
+			//	first = false;
+			//	total = t.total;
+			//}
 			if (!touch) {
 				if (inputHandler.update) player->TurretControl(inputHandler.x, inputHandler.px);
 				player->Move(t.frame, inputHandler.keys[(size_t)InputHandler::Keys::A],
@@ -2559,6 +2563,7 @@ public:
 				}
 			}
 			player->Update(t, bounds, particles, debris, true, camera, assets.debris);
+			//player->msg.push_back({ player->body.pos + glm::vec3{0.f, -100.f, 0.f}, 1.f, Text::Align::Left, std::to_string(InputHandler::count) });
 			// TODO:: is this needed? auto d = camera.pos.x + player->body.pos.x;
 			auto res = player->WrapAround(assets.land.layers[0].aabb.l, assets.land.layers[0].aabb.r);
 			camera.Update(t, bounds, player->body.pos, player->vel);
@@ -2724,6 +2729,8 @@ public:
 		messages.push(std::vector<unsigned char>{ msg, msg + (size_t)len });
 	}
 	void OnConn(const std::vector<unsigned char>& msg) {
+		if (!SanitizeMsg<Conn>(msg.size()))
+			return;
 		const Conn* conn = reinterpret_cast<const Conn*>(msg.data());
 		size_t id = ID5(conn->client_id, 0);
 		player = std::make_unique<ProtoX>(id, assets.probe, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), missiles, globals.ws.get());
@@ -2735,6 +2742,8 @@ public:
 		globals.ws->Send((char*)&msg, sizeof(msg));
 	}
 	void OnPlyr(const std::vector<unsigned char>& msg) {
+		if (!SanitizeMsg<Plyr>(msg.size()))
+			return;
 		const Plyr* player = reinterpret_cast<const Plyr*>(&msg.front());
 		if (this->player->id == player->id) {
 			if (this->player->ctrl == ProtoX::Ctrl::Prop) this->player->turret.SetRot(player->turret_rot);
@@ -2765,6 +2774,8 @@ public:
 		proto->pos_invalidated = true;
 	}
 	void OnMisl(const std::vector<unsigned char>& msg) {
+		if (!SanitizeMsg<Misl>(msg.size()))
+			return;
 		const Misl* misl = reinterpret_cast<const Misl*>(&msg.front());
 		ProtoX* proto = nullptr;
 		if (player->id == misl->player_id) proto = player.get();
@@ -2777,6 +2788,8 @@ public:
 		missiles.back().life = misl->life;
 	}
 	void OnScor(const std::vector<unsigned char>& msg, const Time& t) {
+		if (!SanitizeMsg<Scor>(msg.size()))
+			return;
 		if (!player) return;
 		const Scor* scor = reinterpret_cast<const Scor*>(&msg.front());
 		auto it = std::find_if(missiles.begin(), missiles.end(), [=](const Missile& m) {
@@ -2797,6 +2810,8 @@ public:
 		}
 	}
 	void OnKill(const std::vector<unsigned char>& msg, const Asset::Model& debris_model, const Time& t) {
+		if (!SanitizeMsg<Kill>(msg.size()))
+			return;
 		const Kill* kill = reinterpret_cast<const Kill*>(&msg.front());
 		auto clientID = ID5(kill->client_id, 0);
 		auto it = std::find_if(std::begin(players), std::end(players), [&](const auto& p) {
@@ -2808,15 +2823,22 @@ public:
 		p->Die(hit_pos, camera.vp, debris, particles, debris_model, {}, t.total, camera);
 	}
 	void OnCtrl(const std::vector<unsigned char>& msg) {
+		if (!SanitizeMsg<Ctrl>(msg.size()))
+			return;
 		const Ctrl* ctrl = reinterpret_cast<const Ctrl*>(&msg.front());
-		SetCtrl(static_cast<ProtoX::Ctrl>(ctrl->ctrl - 48/*TODO:: eliminate conversion*/));
+		LOG_INFO("@@@%d", ctrl->ctrl);
+		SetCtrl(static_cast<ProtoX::Ctrl>(ctrl->ctrl));
 	}
 	void OnWait(const std::vector<unsigned char>& msg) {
+		if (!SanitizeMsg<Wait>(msg.size()))
+			return;
 		auto wait = reinterpret_cast<const Wait*>(&msg.front());
 		this->wait = wait->n;
 		LOG_INFO("OnWait: %d", wait->n);
 	}
 	void Dispatch(const std::vector<unsigned char>& msg, const Time& t) {
+		if (msg.size() < sizeof(size_t))
+			return;
 		size_t tag = Tag(msg);
 		constexpr size_t conn = Tag("CONN"), // str clientID
 			kill = Tag("KILL"),	// str clientID
@@ -2959,8 +2981,8 @@ void main_loop() {
 		globals.scene->Update({ globals.timer.TotalMs(), globals.timer.ElapsedMs() });
 		globals.scene->Render();
 		InputHandler::Reset();
-		if (sleep)
-			::Sleep(150);
+		//if (sleep)
+		//	::Sleep(150);
 //	}
 //	catch (...) {
 //	LOG_INFO("exception has been thrown\n");

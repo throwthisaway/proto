@@ -1,6 +1,6 @@
 var ipaddress = process.env.OPENSHIFT_NODEJS_IP || "127.0.0.1";
 var port      = process.env.OPENSHIFT_NODEJS_PORT || 8080;
-var release = '/develop';
+var release = '';//'/develop';
 var WebSocketServer = require('ws').Server
 var app = require('express')();
 var http = require('http');
@@ -116,34 +116,26 @@ app.get(release + '/main.js', function (req, res) {
 });
 app.get(release + '/main.js.mem', function (req, res) {
     res.setHeader('Content-Encoding', 'gzip');
-    res.setHeader('Content-Type', 'application/javascript');
+    res.setHeader('Content-Type', 'application/octet-stream');
     res.sendFile(__dirname + '/emc_ogl/main.js.mem.gz');
 });
 app.get(release + '/main.data', function (req, res) {
     res.setHeader('Content-Encoding', 'gzip');
-    res.setHeader('Content-Type', 'application/javascript');
+    res.setHeader('Content-Type', 'application/octet-stream');
     res.sendFile(__dirname + '/emc_ogl/main.data.gz');
 });
 
-app.get('/', function (req, res) {
-    console.log('coming_soon.html visit: ' + new Date().toLocaleString());
-    res.sendFile(__dirname + '/coming_soon.html');
-});
-app.get('/coming_soon.png', function (req, res) {
-    res.sendFile(__dirname + '/coming_soon.png');
-});
+//app.get('/', function (req, res) {
+//    console.log('coming_soon.html visit: ' + new Date().toLocaleString());
+//    res.sendFile(__dirname + '/coming_soon.html');
+//});
+//app.get('/coming_soon.png', function (req, res) {
+//    res.sendFile(__dirname + '/coming_soon.png');
+//});
+
 app.get('/thumbnail4.png', function (req, res) {
     res.sendFile(__dirname + '/thumbnail4.png');
 });
-/*app.use(function(req, res, next) {
-    console.log("Sending compressed index.js");
-  if (req.originalUrl === "/index.js") {
-    req.url = "/emc/index.js.gz";
-    res.setHeader('Content-Encoding', 'gzip');
-    res.setHeader('Content-Type', 'application/javascript');
-  }
-  next();
-});*/
 
 server.listen( port, ipaddress, function() {
     console.log((new Date()) + ' Server is listening on port 8080');

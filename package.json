@@ -1,7 +1,7 @@
 {
-  "name": "Proto-Echo-Server",
-  "version": "1.0.0",
-  "description": "Proto Echo Server",
+  "name": "Prototype-1101",
+  "version": "0.1.0",
+  "description": "Experimental fast protoyping of emscripten-webgl assymetric multiplayer deathmatch",
 
   "engines": {
     "node": ">= 5.5.0",
@@ -15,6 +15,7 @@
   "devDependencies": {},
   "bundleDependencies": [],
 
+  "author": "Andras Kovacs <throwthisaway@outlook.hu>",
   "private": true,
   "main": "server.js"
 }

@@ -47,7 +47,7 @@ function str_and_number2ab(str, num) {
 function generateID(count) {
     var symbols = '1234567890abcdefghijklmnopqrstuvwxyz',
         res = '';
-    for (i = 0; i < count; ++i) {
+    for (var i = 0; i < count; ++i) {
         res += symbols[(Math.random() * symbols.length) | 0];
     }
     return "" + res;
@@ -55,7 +55,7 @@ function generateID(count) {
 function generate0ToOClientID(count) {
     //var symbols = '0123456789:;<=>?@ABCDEFGHIJKLMNO',
     var res = '';
-    for (i = 0; i < count; ++i) {
+    for (var i = 0; i < count; ++i) {
         res += String.fromCharCode((48 + Math.random() * 32) | 0);
     }
     return ""+res;
@@ -84,6 +84,7 @@ function findAvailableSessionID() {
     return (res && res[1].length < maxPlayers) ? res[0] : undefined;
 }
 function redirectToASession(res) {
+    var id;
     if (id = findAvailableSessionID()) {
         console.log('found an existing session: ' + id);
         res.redirect(release + '/?p=' + id);
@@ -181,7 +182,7 @@ function broadcastToSession(sender, session, data) {
     });
 };
 function findClientToCtrl(session) {
-    for (i = 0; i < session.length; ++i) {
+    for (var i = 0; i < session.length; ++i) {
         //console.log('findClient: ' + session[i].ctrl);
         if (session[i].ctrl === 0) return session[i];
     }
@@ -189,7 +190,7 @@ function findClientToCtrl(session) {
     return null;
 }
 function findClientByID(session, id) {
-    for (i = 0; i < session.length; ++i) {
+    for (var i = 0; i < session.length; ++i) {
        // console.log('findClientbyid: ' + session[i].clientID + " " + id);
         if (session[i].clientID === id) return session[i];
     }
@@ -207,7 +208,7 @@ wss.on('connection', function(ws) {
                 ws.terminate();
                 return;
             }
-            client = findClientToCtrl(session);
+            var client = findClientToCtrl(session);
             if (client) {
                 client.ctrl = 1;
                 client.send(str_and_number2ab('CTRL', 1));
@@ -243,6 +244,7 @@ wss.on('connection', function(ws) {
             if (ws.session.length > 1)
                 ws.session[ws.session.indexOf(ws)] = ws.session[ws.session.length - 1];
             ws.session.pop();
+            var client;
             if (client = findClientByID(ws.session, ws.clientID)) {
                 client.ctrl = 0;
                 client.send(str_and_number2ab('CTRL', 0));

@@ -41,7 +41,6 @@
 #include "audio.h"
 #include "Command.h"
 //#define OBB_TEST
-
 // TODO::
 // - decrease score on suicide for other player too
 // - move calculations from Move to Update

@@ -93,11 +93,16 @@ protected:
 		int res = recv(fd, msg, sizeof(msg), 0);
 		if (res == SOCKET_ERROR) {
 			if (errno != EAGAIN)
+			{
 				LOG_ERR(errno, "message_callback errno != EAGAIN");
+				return;
+			}
 			// TODO:: this happens witth errno 20 sometimes assert(errno == EAGAIN);
 		}
 		auto socket = (Socket*)_this;
 		if (socket->session.onMessage) {
+			if (res > 0)
+				socket->received += res;
 			socket->session.onMessage(msg, res);
 		}
 	}
@@ -116,6 +121,7 @@ protected:
 		}
 	}
 public:
+	size_t sent = 0, received = 0;
 	Socket(const Session& session) : session(session), fd(0) {
 #ifdef __EMSCRIPTEN__
 		emscripten_set_socket_error_callback(this, error_callback);
@@ -290,6 +296,7 @@ public:
 //#endif
 		// TODO:: while (sum += res) < len
 		res = ::send(fd, msg, len, 0);
+		sent += len;
 //#ifdef __EMSCRIPTEN__
 //		fcntl(fd, F_SETFL, fd_flags);
 //#else

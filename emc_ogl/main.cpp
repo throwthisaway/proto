@@ -42,7 +42,9 @@
 #include "Command.h"
 //#define OBB_TEST
 // TODO::
+// - on die send kill
 // - decrease score on suicide for other player too
+//-------------------------------------
 // - move calculations from Move to Update
 // - culling after camrea update
 // - draw debris on top of everything
@@ -116,7 +118,8 @@ struct {
 		camera_z = -10.f,
 		missile_start_offset_y = 1.f * scale,
 		foreground_pos_x_ratio = 1.f,
-		player_fade_out_time = 3500.f; // ms;
+		player_fade_out_time = 3500.f, // ms;
+		msg_interval = 0.f; //ms
 	const size_t max_missile = 3;
 	int ab = a;
 	const glm::vec4 radar_player_color{ 1.f, 1.f, 1.f, 1.f }, radar_enemy_color{ 1.f, .5f, .5f, 1.f };
@@ -995,6 +998,7 @@ struct ProtoX {
 	std::vector<Missile>& missiles;
 	size_t missile_count = globals.max_missile;
 	std::queue<Command> commands;
+	float msg_interval = 0.f;
 	struct Body {
 		glm::vec3 pos;
 		float rot;
@@ -1394,7 +1398,9 @@ struct ProtoX {
 				//LOG_INFO("%g %g %g %g\n", f.x, f.y, f.z, body.rot);
 				//LOG_INFO("%g\n",body.rot);
 			}
-			if (ws) {
+			msg_interval += t.frame;
+			if (ws && (globals.msg_interval == 0.f || msg_interval>=globals.msg_interval)) {
+				msg_interval -= globals.msg_interval;
 				Plyr player{ Tag("PLYR"), id, body.pos.x, body.pos.y, turret.rot, invincible, vel.x, vel.y, body.rot, left.on, right.on, bottom.on };
 				globals.ws->Send((char*)&player, sizeof(Plyr));
 			}
@@ -2296,6 +2302,11 @@ public:
 	//GLuint uTexSize;
 	std::queue<std::vector<unsigned char>> messages;
 	int wait = 0;
+
+	float update = 0.f;
+	size_t _sent = 0.f, _rec = 0.f;
+	Val<size_t> sent, received;
+
 //#ifndef __EMSCRIPTEN__
 //	void* operator new(size_t i)
 //	{
@@ -2413,7 +2424,8 @@ public:
 #endif
 //#endif
 		renderer(assets, bounds),
-		overlay(camera) {
+		overlay(camera),
+		sent(_sent), received(_rec) {
 		const auto size = renderer.rt.GetCurrentRes();
 		SetHudVp(size.x, size.y);
 		//texts.push_back(Text{ {}, 1.f, Text::Align::Center, "A !\"'()&%$#0123456789:;<=>?AMKXR" });
@@ -2509,6 +2521,16 @@ public:
 		if (inputHandler.keys[(size_t)InputHandler::Keys::Right])
 			camera.Translate(float(scroll_speed * t.frame), 0.f, 0.f);
 		texts.clear();
+		if (globals.ws) {
+			update += t.frame;
+			if (update >= 1000.f) {
+				update -= 1000.f;
+				sent = globals.ws->sent;
+				received = globals.ws->received;	
+			}
+			texts.push_back({ { 380.f, 300.f, 0.f }, 1.f, Text::Align::Right, std::to_string(sent.val - sent.prev) + ":" + std::to_string(received.val - received.prev) });
+			//texts.push_back({ { 380.f, 300.f, 0.f }, 1.f, Text::Align::Right, std::to_string(globals.ws->sent) + ":" + std::to_string(globals.ws->received) });
+		}
 		if (wait > 0) {
 			std::stringstream ss;
 			ss << "WAITING FOR " << wait << " MORE PLAYER" << ((wait == 1) ? "" : "S");

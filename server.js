@@ -10,7 +10,7 @@ var sessionIDLen = 5,
     clientIDLen = 5,
     minPlayers = 4,
     maxPlayers = 16,
-    maxSessions = 8;
+    maxSessions = 1;
 var sessions = new Map();
 function ab2strUtf16(buf) {
     return String.fromCharCode.apply(null, new Uint16Array(buf));
@@ -77,7 +77,7 @@ function getSessionIDFromMsg(msg) {
 
 function findAvailableSessionID() {
     var res;
-    for (var session in sessions) {
+    for (var session of sessions) {
         if (!res || session[1].length<res[1].length)
             res = session;
     }

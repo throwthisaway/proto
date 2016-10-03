@@ -10,7 +10,7 @@ var sessionIDLen = 5,
     clientIDLen = 5,
     minPlayers = 4,
     maxPlayers = 16,
-    maxSessions = 1;
+    maxSessions = 8;
 var sessions = new Map();
 function ab2strUtf16(buf) {
     return String.fromCharCode.apply(null, new Uint16Array(buf));

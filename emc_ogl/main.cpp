@@ -44,7 +44,7 @@
 // TODO::
 // - on die send kill
 // - decrease score on suicide for other player too
-// -------------------------------------
+//-------------------------------------
 // - move calculations from Move to Update
 // - culling after camrea update
 // - draw debris on top of everything

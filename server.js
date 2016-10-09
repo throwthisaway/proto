@@ -4,7 +4,20 @@ var release = '';//'/develop';
 var WebSocketServer = require('ws').Server
 var app = require('express')();
 var http = require('http');
+//var redis = require('redis');
 var server = http.createServer(app);
+//var dispatcher = redis.createClient();
+//var subscriber = redis.createClient();
+
+//subscriber.subscribe('dispatch');
+//subscriber.on('message', function (channel, data) {
+
+//    console.log('>>>>>%s', data);
+//    //for (var i = 0; i < clients.length; ++i) {
+//        //clients[i].write(msg);
+//    //}
+//});
+
 var sessionIDLen = 5,
     headerLen = 3 + sessionIDLen,
     clientIDLen = 5,
@@ -201,8 +214,9 @@ wss.on('connection', function(ws) {
     //console.log("New connection");
     ws.on('message', function (message, flags) {
         //console.log('received: %s', message);
-        if (message.length>=4 && String.fromCharCode(message[0], message[1], message[2], message[3]) === 'SESS') {
+        if (message.length >= 4 && String.fromCharCode(message[0], message[1], message[2], message[3]) === 'SESS') {
             var sessionID = getSessionIDFromMsg(message);
+            //dispatcher.publish('dispatch',  message );
             var session = sessions.get(sessionID);
             if (session == undefined) {
                 ws.terminate();

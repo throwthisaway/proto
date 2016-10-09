@@ -1,6 +1,7 @@
 MeshLoaderPath = ..\..\MeshLoader\
 MeshExportPath = ..\..\MeshExport\
-EMCC_PATH=f:\Programs\Emscripten\emscripten\1.35.0\
+#EMCC_PATH=f:\Programs\Emscripten\emscripten\1.35.0\
+EMCC_PATH=f:\Programs\Emscripten\emscripten\incoming\
 
 debug = -s DEMANGLE_SUPPORT=1 -s ALLOW_MEMORY_GROWTH=1
 release = -O3 -s NO_EXIT_RUNTIME=1

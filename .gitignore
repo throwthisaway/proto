@@ -11,3 +11,4 @@ node_modules/
 *.bc
 *.VC.db
 /emc_openal
+/vs/packages/redis-64.3.0.503

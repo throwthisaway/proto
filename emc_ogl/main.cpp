@@ -119,7 +119,7 @@ struct {
 		missile_start_offset_y = 1.f * scale,
 		foreground_pos_x_ratio = 1.f,
 		player_fade_out_time = 3500.f, // ms;
-		msg_interval = 0.f; //ms
+		msg_interval = 100.f; //ms
 	const size_t max_missile = 3;
 	int ab = a;
 	const glm::vec4 radar_player_color{ 1.f, 1.f, 1.f, 1.f }, radar_enemy_color{ 1.f, .5f, .5f, 1.f };
@@ -1376,8 +1376,7 @@ struct ProtoX {
 						n{ 0.f, 1.f, 0.f };
 					const auto vec = glm::reflect(vel, n);
 					Die(hit_pos, cam.vp, debris, particles, debris_model, vec, t.total, cam);
-					--score;
-					Kill(id, id, score, hit_pos, vec);
+					Kill(id, 0, --score, hit_pos, vec);
 				}
 				else {
 					body.rot = 0.f;
@@ -2510,8 +2509,12 @@ public:
 	void HitTest(ProtoX& p1, ProtoX& p2, double total) {
 		if (!p1.SkipDeathCheck() && !p2.SkipDeathCheck() && p1.CollisionTest(p2)) {
 			glm::vec3 hit_pos((p1.body.pos.x + p2.body.pos.x) / 2.f, (p1.body.pos.y + p2.body.pos.y) / 2.f, 0.f);
-			p1.Die(hit_pos, camera.vp, debris, particles, assets.debris, p1.vel, total, camera);
+			p1.Die( hit_pos, camera.vp, debris, particles, assets.debris, p1.vel, total, camera);
+			p1.Kill(p2.id, 0, std::numeric_limits<int>::max(), hit_pos, p1.vel);
 			p2.Die(hit_pos, camera.vp, debris, particles, assets.debris, p2.vel, total, camera);
+			// p1 because p2 has no ws...
+			p1.Kill(p1.id, 0, std::numeric_limits<int>::max(), hit_pos, p2.vel);
+			
 		}
 	}
 	void Update(const Time& t) {
@@ -2687,8 +2690,7 @@ public:
 					if (!p.second->hit && !p.second->killed && p.second->invincible == 0.f && m.HitTest(p.second->aabb/*.Translate(p.second->body.pos)*/, hit_pos)) {
 						const glm::vec3 vec{ std::cos(m.rot), std::sin(m.rot), 0.f };
 						p.second->Die(hit_pos, camera.vp, debris, particles, assets.debris, vec, (double)t.total, camera);
-						++player->score;
-						player->Kill(p.second->id, m.id, player->score, hit_pos, vec);
+						player->Kill(p.second->id, m.id, ++player->score, hit_pos, vec);
 						m.remove = true;
 						break;
 					}
@@ -2814,13 +2816,15 @@ public:
 			return;
 		if (!player) return;
 		const Scor* scor = reinterpret_cast<const Scor*>(&msg.front());
-		auto it = std::find_if(missiles.begin(), missiles.end(), [=](const Missile& m) {
-			return m.owner->id == scor->owner_id && m.id == scor->missile_id;});
-		if (it != missiles.end()) {
-			it->owner->score = scor->score;
-			RemoveMissile(*it);
+		if (scor->missile_id) {
+			auto it = std::find_if(missiles.begin(), missiles.end(), [=](const Missile& m) {
+				return m.owner->id == scor->owner_id && m.id == scor->missile_id; });
+			if (it != missiles.end()) {
+				if (std::numeric_limits<int>::max() != scor->score) it->owner->score = scor->score;
+				RemoveMissile(*it);
+			}
 		}
-		if (scor->owner_id == player->id && player->ctrl == ProtoX::Ctrl::Prop) player->score = scor->score;
+		if (std::numeric_limits<int>::max() != scor->score && scor->owner_id == player->id && player->ctrl == ProtoX::Ctrl::Prop) player->score = scor->score;
 		const glm::vec3 hit_pos(scor->x, scor->y, 0.f),
 			missile_vec{ scor->vec_x, scor->vec_y, 0.f };
 		if (scor->target_id == player->id)
@@ -2836,9 +2840,7 @@ public:
 			return;
 		const Kill* kill = reinterpret_cast<const Kill*>(&msg.front());
 		auto clientID = ID5(kill->client_id, 0);
-		auto it = std::find_if(std::begin(players), std::end(players), [&](const auto& p) {
-			return p.second->id == clientID;
-		});
+		auto it = players.find(clientID);
 		if (it == std::end(players)) return;
 		auto& p = it->second;
 		auto hit_pos = p->body.pos + glm::vec3{ p->aabb.r - p->aabb.l, p->aabb.t - p->aabb.b, 0.f };

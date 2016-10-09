@@ -99,6 +99,9 @@
     <ClInclude Include="..\..\emc_ogl\Socket.h" />
     <ClInclude Include="..\..\emc_ogl\Timer.h" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{DE93DCEE-D835-438C-A0C2-565C0C4463F9}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>

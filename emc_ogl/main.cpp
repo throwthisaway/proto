@@ -42,9 +42,6 @@
 #include "Command.h"
 //#define OBB_TEST
 // TODO::
-// - on die send kill
-// - decrease score on suicide for other player too
-//-------------------------------------
 // - move calculations from Move to Update
 // - culling after camrea update
 // - draw debris on top of everything
@@ -1223,6 +1220,7 @@ struct ProtoX {
 	}
 	void SetInvincibility() {
 		invincible = globals.invincibility;
+		visible = 1.f;
 		e_invinciblity = std::shared_ptr<Envelope>(
 			new Blink(visible, invincible, globals.timer.TotalMs(), globals.invincibility_blink_rate, 0.f));
 		globals.envelopes.push_back(e_invinciblity);
@@ -1316,6 +1314,7 @@ struct ProtoX {
 			invincible -= (float)t.frame;
 			if (invincible <= 0.f) {
 				invincible = 0.f;
+				visible = true;
 			}
 		}
 		else if (hit) {
@@ -2824,7 +2823,7 @@ public:
 				RemoveMissile(*it);
 			}
 		}
-		if (std::numeric_limits<int>::max() != scor->score && scor->owner_id == player->id && player->ctrl == ProtoX::Ctrl::Prop) player->score = scor->score;
+		if (std::numeric_limits<int>::max() != scor->score && scor->owner_id == player->id/* && player->ctrl == ProtoX::Ctrl::Prop*/) player->score = scor->score;
 		const glm::vec3 hit_pos(scor->x, scor->y, 0.f),
 			missile_vec{ scor->vec_x, scor->vec_y, 0.f };
 		if (scor->target_id == player->id)
@@ -2850,6 +2849,7 @@ public:
 		if (!SanitizeMsg<Ctrl>(msg.size()))
 			return;
 		const Ctrl* ctrl = reinterpret_cast<const Ctrl*>(&msg.front());
+		LOG_INFO(">>>>onctrl");
 		SetCtrl(static_cast<ProtoX::Ctrl>(ctrl->ctrl));
 	}
 	void OnWait(const std::vector<unsigned char>& msg) {

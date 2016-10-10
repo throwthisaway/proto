@@ -42,11 +42,16 @@
 #include "Command.h"
 //#define OBB_TEST
 // TODO::
+// - prop send onplyr only
+// - turret send TRRT msg for rotation
+// - send onplyr 33ms
+// - interpolate between onplyr msg
+//-----------------------------
 // - move calculations from Move to Update
 // - culling after camrea update
-// - draw debris on top of everything
 // - fix audio updqate before camera update
-// - culling particles, debris, players, missiles
+// - draw debris on top of everything
+// - check what's remaining, generalize: culling particles, debris, players, missiles update and draw
 // - introduce npc flag, overhaul player_self flag, add npc behaviour
 //----------------------------------------
 // - colorize player only
@@ -118,7 +123,6 @@ struct {
 		player_fade_out_time = 3500.f, // ms;
 		msg_interval = 100.f; //ms
 	const size_t max_missile = 3;
-	int ab = a;
 	const glm::vec4 radar_player_color{ 1.f, 1.f, 1.f, 1.f }, radar_enemy_color{ 1.f, .5f, .5f, 1.f };
 	const gsl::span<const glm::vec4, gsl::dynamic_range>& palette = pal, &grey_palette = grey_pal;
 	Timer timer;
@@ -781,6 +785,16 @@ struct Plyr {
 	const float x, y, turret_rot, invincible, vx, vy, rot;
 	const bool prop_left, prop_right, prop_bottom;
 };
+struct Prop {
+	const size_t tag, id;
+	const float x, y, invincible, vx, vy, rot;
+	const bool prop_left, prop_right, prop_bottom;
+};
+struct Trrt {
+	const size_t tag, id;
+	const float rot;
+};
+
 struct Misl {
 	const size_t tag, player_id, missile_id;
 	const float x, y, rot, vel, life, vx, vy;
@@ -996,6 +1010,7 @@ struct ProtoX {
 	size_t missile_count = globals.max_missile;
 	std::queue<Command> commands;
 	float msg_interval = 0.f;
+	bool ctrl_changed = false; // ctrl method has been changed so send invincibility on next Prop or Plyr
 	struct Body {
 		glm::vec3 pos;
 		float rot;
@@ -1057,7 +1072,7 @@ struct ProtoX {
 		}
 	}left, bottom, right;
 	struct Turret {
-		const float rot = 0.f;
+		Val<float> rot = 0.f;
 		const float rest_rot = glm::half_pi<float>(),
 			min_rot = -glm::radians(45.f) - rest_rot,
 			max_rot = glm::radians(225.f) - rest_rot;
@@ -1072,8 +1087,7 @@ struct ProtoX {
 			aabb(TransformAABB(layer.aabb, GetModel(m))),
 			bbox(TransformBBox(layer.aabb, GetModel(m))){}
 		void SetRot(const float rot) {
-			prev_rot = this->rot;
-			const_cast<float&>(this->rot) = std::min(max_rot, std::max(min_rot, rot));
+			this->rot = std::min(max_rot, std::max(min_rot, rot));
 		}
 		void Update(const Time& t, const glm::mat4& parent) {
 			const auto m = GetModel(parent);
@@ -1084,11 +1098,6 @@ struct ProtoX {
 		glm::mat4 GetModel(const glm::mat4& m) const {
 			return ::GetModel(m, {}, rot, layer.pivot);
 		}
-	private:
-		float prev_rot = 0.f;
-		/*auto GetPrevModel(const glm::mat4& m) const {
-			return ::GetModel(m, {}, prev_rot, layer.pivot);
-		}*/
 	}turret;
 	ProtoX(const size_t id, const Asset::Model& model, size_t frame_count, const glm::vec3& pos, std::vector<Missile>& missiles, Client* ws = nullptr) : id(id),
 		aabb(model.aabb),
@@ -1218,8 +1227,11 @@ struct ProtoX {
 		if (bt) val += force_b;
 		f = glm::rotateZ(val, body.rot);
 	}
-	void SetInvincibility() {
-		invincible = globals.invincibility;
+	inline void SetInvincibility() {
+		SetInvincibility(globals.invincibility);
+	}
+	void SetInvincibility(float invincibility) {
+		invincible = invincibility;
 		visible = 1.f;
 		e_invinciblity = std::shared_ptr<Envelope>(
 			new Blink(visible, invincible, globals.timer.TotalMs(), globals.invincibility_blink_rate, 0.f));
@@ -1227,6 +1239,7 @@ struct ProtoX {
 	}
 	void SetCtrl(Ctrl ctrl) {
 		SetInvincibility();
+		ctrl_changed = true;
 		this->ctrl = ctrl;
 		pos_invalidated = false;
 	}
@@ -1398,9 +1411,21 @@ struct ProtoX {
 			}
 			msg_interval += t.frame;
 			if (ws && (globals.msg_interval == 0.f || msg_interval>=globals.msg_interval)) {
+				auto invincible = (ctrl_changed) ? this->invincible : 0.f;	ctrl_changed = false; //send once
 				msg_interval -= globals.msg_interval;
-				Plyr player{ Tag("PLYR"), id, body.pos.x, body.pos.y, turret.rot, invincible, vel.x, vel.y, body.rot, left.on, right.on, bottom.on };
-				globals.ws->Send((char*)&player, sizeof(Plyr));
+				if (ctrl == Ctrl::Full) {
+					Plyr player{ Tag("PLYR"), id, body.pos.x, body.pos.y, turret.rot, invincible, vel.x, vel.y, body.rot, left.on, right.on, bottom.on };
+					globals.ws->Send((char*)&player, sizeof(Plyr));
+				}
+				else if (ctrl == Ctrl::Prop) {
+					Prop prop{ Tag("PROP"), id, body.pos.x, body.pos.y, invincible, vel.x, vel.y, body.rot, left.on, right.on, bottom.on };
+					globals.ws->Send((char*)&prop, sizeof(Prop));
+				}
+				else if (ctrl == Ctrl::Turret && turret.rot.prev != turret.rot.val) {
+					turret.rot = turret.rot.val;
+					Trrt trrt{ Tag("TRRT"), id, turret.rot };
+					globals.ws->Send((char*)&trrt, sizeof(Trrt));
+				}
 			}
 		}
 		body.Update(t);
@@ -1431,6 +1456,16 @@ struct ProtoX {
 		}
 		return 0.f;
 	}
+
+	template<typename T> void FromPropOrPLyrMsg(const T* msg) {
+		pos_invalidated = true;
+		body.pos.x = msg->x; body.pos.y = msg->y;
+		body.rot = msg->rot;
+		vel.x = msg->vx; vel.y = msg->vy;
+		left.on = msg->prop_left; right.on = msg->prop_right;  bottom.on = msg->prop_bottom;
+		if (msg->invincible > 0.f) SetInvincibility(msg->invincible); // set once
+	}
+
 };
 std::vector<glm::vec3> ProtoX::obb1, ProtoX::obb2;
 void GenerateSquare(float x, float y, float s, std::vector<glm::vec3>& data) {
@@ -2764,37 +2799,48 @@ public:
 		std::copy(std::begin(globals.sessionID), std::end(globals.sessionID), msg.sessionID);
 		globals.ws->Send((char*)&msg, sizeof(msg));
 	}
+	void OnTrrt(const std::vector<unsigned char>& msg) {
+		if (!SanitizeMsg<Trrt>(msg.size()))
+			return;
+		const Trrt* turret = reinterpret_cast<const Trrt*>(&msg.front());
+		if (turret->id == player->id) {
+			player->turret.rot = turret->rot;
+			return;
+		}
+		auto it = players.find(turret->id);
+		if (it == players.end()) return;
+		it->second->turret.rot = turret->rot;
+	}
+	ProtoX* GetOrCreatePlayer(size_t id, float x, float y) {
+		auto it = players.find(id);
+		ProtoX * proto;
+		if (it == players.end()) {
+			auto ptr = std::make_unique<ProtoX>(id, assets.probe, assets.propulsion.layers.size(), glm::vec3{ x, y, 0.f }, missiles);
+			proto = ptr.get();
+			players[id] = std::move(ptr);
+		}
+		else proto = it->second.get();
+		return proto;
+	}
+	void OnProp(const std::vector<unsigned char>& msg) {
+		if (!SanitizeMsg<Prop>(msg.size()))
+			return;
+		const Prop* propulsion = reinterpret_cast<const Prop*>(&msg.front());
+		if (propulsion->id == player->id) {
+			player->FromPropOrPLyrMsg(propulsion);
+			return;
+		}
+		auto* proto = GetOrCreatePlayer(propulsion->id, propulsion->x, propulsion->y);
+		proto->FromPropOrPLyrMsg(propulsion);
+	}
+
 	void OnPlyr(const std::vector<unsigned char>& msg) {
 		if (!SanitizeMsg<Plyr>(msg.size()))
 			return;
 		const Plyr* player = reinterpret_cast<const Plyr*>(&msg.front());
-		if (this->player->id == player->id) {
-			if (this->player->ctrl == ProtoX::Ctrl::Prop) this->player->turret.SetRot(player->turret_rot);
-			else if (this->player->ctrl == ProtoX::Ctrl::Turret) {
-				this->player->pos_invalidated = true;
-				this->player->body.pos.x = player->x; this->player->body.pos.y = player->y;
-				this->player->body.rot = player->rot;
-				this->player->vel.x = player->vx; this->player->vel.y = player->vy;
-				this->player->left.on = player->prop_left; this->player->right.on = player->prop_right;  this->player->bottom.on = player->prop_bottom;
-			}
-			return;
-		}
-		auto it = players.find(player->id);
-		ProtoX * proto;
-		if (it == players.end()) {
-			auto ptr = std::make_unique<ProtoX>(player->id, assets.probe, assets.propulsion.layers.size(), glm::vec3{ player->x, player->y, 0.f }, missiles);
-			proto = ptr.get();
-			players[player->id] = std::move(ptr);
-		}
-		else {
-			proto = it->second.get();
-			proto->body.pos.x = player->x; proto->body.pos.y = player->y;
-		}
-		proto->body.rot = player->rot;
-		proto->turret.SetRot(player->turret_rot); proto->invincible = player->invincible;
-		proto->vel.x = player->vx; proto->vel.y = player->vy;
-		proto->left.on = player->prop_left; proto->right.on = player->prop_right;  proto->bottom.on = player->prop_bottom;
-		proto->pos_invalidated = true;
+		auto* proto = GetOrCreatePlayer(player->id, player->x, player->y);
+		proto->FromPropOrPLyrMsg(player);
+		proto->turret.SetRot(player->turret_rot);
 	}
 	void OnMisl(const std::vector<unsigned char>& msg) {
 		if (!SanitizeMsg<Misl>(msg.size()))
@@ -2849,7 +2895,6 @@ public:
 		if (!SanitizeMsg<Ctrl>(msg.size()))
 			return;
 		const Ctrl* ctrl = reinterpret_cast<const Ctrl*>(&msg.front());
-		LOG_INFO(">>>>onctrl");
 		SetCtrl(static_cast<ProtoX::Ctrl>(ctrl->ctrl));
 	}
 	void OnWait(const std::vector<unsigned char>& msg) {
@@ -2869,13 +2914,21 @@ public:
 			misl = Tag("MISL"), // clientID, pos.x, pos.y, v.x, v.y
 			scor = Tag("SCOR"), // clientID, clientID
 			ctrl = Tag("CTRL"), // other str clientID , upper = '1' / lower = '0'
-			wait = Tag("WAIT");	// n - number to wait for
+			wait = Tag("WAIT"),	// n - number to wait for
+			prop = Tag("PROP"), // propulsion main body control
+			trrt = Tag("TRRT"); // turret rotation control
 		switch (tag) {
 		case conn:
 			OnConn(msg);
 			break;
 		case plyr:
 			OnPlyr(msg);
+			break;
+		case trrt:
+			OnTrrt(msg);
+			break;
+		case prop:
+			OnProp(msg);
 			break;
 		case misl:
 			OnMisl(msg);

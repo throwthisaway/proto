@@ -780,15 +780,24 @@ struct Sess{
 	size_t tag;
 	char sessionID[5];
 };
+struct Invi {
+	const size_t tag, id;
+	const float invincibility;
+};
+struct Stat {
+	const size_t tag, id;
+	const float x, y;
+	const int score;
+};
 struct Plyr {
 	const size_t tag, id;
-	const float x, y, turret_rot, invincible, vx, vy, rot;
-	const bool prop_left, prop_right, prop_bottom;
+	const float x, y, turret_rot, vx, vy, rot;
+	const uint8_t prop;
 };
 struct Prop {
 	const size_t tag, id;
-	const float x, y, invincible, vx, vy, rot;
-	const bool prop_left, prop_right, prop_bottom;
+	const float x, y, vx, vy, rot;
+	const uint8_t prop;
 };
 struct Trrt {
 	const size_t tag, id;
@@ -990,6 +999,7 @@ struct ProtoX {
 		rot_max_speed = .003f, //rad/ms
 		rot_inc = .000005f, // rad/ms*ms
 		safe_rot = glm::radians(35.f);
+	const uint8_t prop_left = 1, prop_right = 2, prop_bottom = 4;
 	// state...
 	float invincible, fade_out, visible = 1.f, blink = 1.f;
 	double hit_time;
@@ -1010,7 +1020,6 @@ struct ProtoX {
 	size_t missile_count = globals.max_missile;
 	std::queue<Command> commands;
 	float msg_interval = 0.f;
-	bool ctrl_changed = false; // ctrl method has been changed so send invincibility on next Prop or Plyr
 	struct Body {
 		glm::vec3 pos;
 		float rot;
@@ -1236,10 +1245,10 @@ struct ProtoX {
 		e_invinciblity = std::shared_ptr<Envelope>(
 			new Blink(visible, invincible, globals.timer.TotalMs(), globals.invincibility_blink_rate, 0.f));
 		globals.envelopes.push_back(e_invinciblity);
+		SendInvincibility();
 	}
 	void SetCtrl(Ctrl ctrl) {
 		SetInvincibility();
-		ctrl_changed = true;
 		this->ctrl = ctrl;
 		pos_invalidated = false;
 	}
@@ -1411,14 +1420,13 @@ struct ProtoX {
 			}
 			msg_interval += t.frame;
 			if (ws && (globals.msg_interval == 0.f || msg_interval>=globals.msg_interval)) {
-				auto invincible = (ctrl_changed) ? this->invincible : 0.f;	ctrl_changed = false; //send once
 				msg_interval -= globals.msg_interval;
 				if (ctrl == Ctrl::Full) {
-					Plyr player{ Tag("PLYR"), id, body.pos.x, body.pos.y, turret.rot, invincible, vel.x, vel.y, body.rot, left.on, right.on, bottom.on };
+					Plyr player{ Tag("PLYR"), id, body.pos.x, body.pos.y, turret.rot, vel.x, vel.y, body.rot, ToProp()};
 					globals.ws->Send((char*)&player, sizeof(Plyr));
 				}
 				else if (ctrl == Ctrl::Prop) {
-					Prop prop{ Tag("PROP"), id, body.pos.x, body.pos.y, invincible, vel.x, vel.y, body.rot, left.on, right.on, bottom.on };
+					Prop prop{ Tag("PROP"), id, body.pos.x, body.pos.y, vel.x, vel.y, body.rot, ToProp() };
 					globals.ws->Send((char*)&prop, sizeof(Prop));
 				}
 				else if (ctrl == Ctrl::Turret && turret.rot.prev != turret.rot.val) {
@@ -1462,10 +1470,33 @@ struct ProtoX {
 		body.pos.x = msg->x; body.pos.y = msg->y;
 		body.rot = msg->rot;
 		vel.x = msg->vx; vel.y = msg->vy;
-		left.on = msg->prop_left; right.on = msg->prop_right;  bottom.on = msg->prop_bottom;
-		if (msg->invincible > 0.f) SetInvincibility(msg->invincible); // set once
+		FromProp(msg->prop);
 	}
-
+	void SendInvincibility() {
+		if (!ws) return;
+		Invi msg{ Tag("INVI"), id, invincible};
+		ws->Send((const char*)&msg, sizeof(msg));
+	}
+	void SendStat() {
+		if (!ws) return;
+		Stat msg{ Tag("STAT"), id, body.pos.x, body.pos.y, score };
+		ws->Send((const char*)&msg, sizeof(msg));
+	}
+	uint8_t ToProp() {
+		uint8_t res = 0;
+		if (left.on)
+			res |= prop_left;
+		if (right.on)
+			res |= prop_right;
+		if (bottom.on)
+			res |= prop_bottom;
+		return res;
+	}
+	void FromProp(uint8_t prop) {
+		left.on = (prop & prop_left) > 0;
+		right.on = (prop & prop_right) > 0;
+		bottom.on = (prop & prop_bottom) > 0;
+	}
 };
 std::vector<glm::vec3> ProtoX::obb1, ProtoX::obb2;
 void GenerateSquare(float x, float y, float s, std::vector<glm::vec3>& data) {
@@ -2668,6 +2699,7 @@ public:
 				renderer.clearColor = { 0.f, 0.f, 0.f, 1.f };
 				SetCtrl(ctrl);
 				player->score = score;
+				player->SendStat();
 			}
 		}
 		for (const auto& e : globals.envelopes) {
@@ -2842,6 +2874,22 @@ public:
 		proto->FromPropOrPLyrMsg(player);
 		proto->turret.SetRot(player->turret_rot);
 	}
+	void OnInvi(const std::vector<unsigned char>& msg) {
+		if (!SanitizeMsg<Invi>(msg.size()))
+			return;
+		const Invi* invi = reinterpret_cast<const Invi*>(&msg.front());
+		auto it = players.find(invi->id);
+		if (it == players.end()) return;
+		it->second->SetInvincibility(invi->invincibility);
+	}
+	void OnStat(const std::vector<unsigned char>& msg) {
+		if (!SanitizeMsg<Stat>(msg.size()))
+			return;
+		const Stat* stat = reinterpret_cast<const Stat*>(&msg.front());
+		if (player && player->id == stat->id) return; // don't add our other self to the players list
+		auto* proto = GetOrCreatePlayer(stat->id, stat->x, stat->y);
+		proto->score = stat->score;
+	}
 	void OnMisl(const std::vector<unsigned char>& msg) {
 		if (!SanitizeMsg<Misl>(msg.size()))
 			return;
@@ -2916,7 +2964,9 @@ public:
 			ctrl = Tag("CTRL"), // other str clientID , upper = '1' / lower = '0'
 			wait = Tag("WAIT"),	// n - number to wait for
 			prop = Tag("PROP"), // propulsion main body control
-			trrt = Tag("TRRT"); // turret rotation control
+			trrt = Tag("TRRT"), // turret rotation control
+			stat = Tag("STAT"), // sent on player init to share score
+			invi = Tag("INVI"); // sent when invincibility timer should be set
 		switch (tag) {
 		case conn:
 			OnConn(msg);
@@ -2944,6 +2994,12 @@ public:
 			break;
 		case wait:
 			OnWait(msg);
+			break;
+		case stat:
+			OnStat(msg);
+			break;
+		case invi:
+			OnInvi(msg);
 			break;
 		}
 	}

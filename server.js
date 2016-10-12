@@ -213,9 +213,6 @@ function findClientByID(session, id) {
 wss.on('connection', function(ws) {
     //console.log("New connection");
     ws.on('message', function (message, flags) {
-        if (message.length >= 4 && String.fromCharCode(message[0], message[1], message[2], message[3]) === 'SCOR') {
-            console.log(message);
-        }
         //console.log('received: %s', message);
         if (message.length >= 4 && String.fromCharCode(message[0], message[1], message[2], message[3]) === 'SESS') {
             var sessionID = getSessionIDFromMsg(message);

@@ -784,18 +784,16 @@ struct Invi {
 	const size_t tag, id;
 	const float invincibility;
 };
-struct Stat {
-	const size_t tag, id;
-	const float x, y;
-	const int score;
-};
+
 struct Plyr {
 	const size_t tag, id;
+	const int score;
 	const float x, y, turret_rot, vx, vy, rot;
 	const uint8_t prop;
 };
 struct Prop {
 	const size_t tag, id;
+	const int score;
 	const float x, y, vx, vy, rot;
 	const uint8_t prop;
 };
@@ -810,7 +808,7 @@ struct Misl {
 };
 struct Scor {
 	const size_t tag, owner_id, target_id, missile_id;
-	const int score;
+	const int score_dif;
 	const float x, y, vec_x, vec_y;
 };
 struct Kill {
@@ -989,7 +987,7 @@ struct Debris {
 };
 struct ProtoX {
 	const size_t id;
-	AABB aabb;
+	AABB aabb; // in view coordinates
 	Client *ws;
 	const float max_vel = .3f,
 		m = 500.f,
@@ -1131,9 +1129,9 @@ struct ProtoX {
 	/*auto GetPrevModel() const {
 		return ::GetModel({}, prev_pos, prev_rot, layer.pivot);
 	}*/
-	void Kill(size_t id, size_t missile_id, int score, const glm::vec3& hit_pos, const glm::vec3& missile_vec) {
+	void Kill(size_t id, size_t missile_id, int score_dif, const glm::vec3& hit_pos, const glm::vec3& missile_vec) {
 		if (!ws) return;
-		Scor msg{ Tag("SCOR"), this->id, id, missile_id, score, hit_pos.x, hit_pos.y, missile_vec.x, missile_vec.y };
+		Scor msg{ Tag("SCOR"), this->id, id, missile_id, score_dif, hit_pos.x, hit_pos.y, missile_vec.x, missile_vec.y };
 		ws->Send((const char*)&msg, sizeof(msg));
 	}
 	bool Cull(const glm::mat4& vp) {
@@ -1397,7 +1395,8 @@ struct ProtoX {
 						n{ 0.f, 1.f, 0.f };
 					const auto vec = glm::reflect(vel, n);
 					Die(hit_pos, cam.vp, debris, particles, debris_model, vec, t.total, cam);
-					Kill(id, 0, --score, hit_pos, vec);
+					--score;
+					Kill(id, 0, 0, hit_pos, vec);
 				}
 				else {
 					body.rot = 0.f;
@@ -1422,11 +1421,11 @@ struct ProtoX {
 			if (ws && (globals.msg_interval == 0.f || msg_interval>=globals.msg_interval)) {
 				msg_interval -= globals.msg_interval;
 				if (ctrl == Ctrl::Full) {
-					Plyr player{ Tag("PLYR"), id, body.pos.x, body.pos.y, turret.rot, vel.x, vel.y, body.rot, ToProp()};
+					Plyr player{ Tag("PLYR"), id, score, body.pos.x, body.pos.y, turret.rot, vel.x, vel.y, body.rot, ToProp()};
 					globals.ws->Send((char*)&player, sizeof(Plyr));
 				}
 				else if (ctrl == Ctrl::Prop) {
-					Prop prop{ Tag("PROP"), id, body.pos.x, body.pos.y, vel.x, vel.y, body.rot, ToProp() };
+					Prop prop{ Tag("PROP"), id, score, body.pos.x, body.pos.y, vel.x, vel.y, body.rot, ToProp() };
 					globals.ws->Send((char*)&prop, sizeof(Prop));
 				}
 				else if (ctrl == Ctrl::Turret && turret.rot.prev != turret.rot.val) {
@@ -1470,16 +1469,12 @@ struct ProtoX {
 		body.pos.x = msg->x; body.pos.y = msg->y;
 		body.rot = msg->rot;
 		vel.x = msg->vx; vel.y = msg->vy;
+		score = msg->score;
 		FromProp(msg->prop);
 	}
 	void SendInvincibility() {
 		if (!ws) return;
 		Invi msg{ Tag("INVI"), id, invincible};
-		ws->Send((const char*)&msg, sizeof(msg));
-	}
-	void SendStat() {
-		if (!ws) return;
-		Stat msg{ Tag("STAT"), id, body.pos.x, body.pos.y, score };
 		ws->Send((const char*)&msg, sizeof(msg));
 	}
 	uint8_t ToProp() {
@@ -2575,10 +2570,10 @@ public:
 		if (!p1.SkipDeathCheck() && !p2.SkipDeathCheck() && p1.CollisionTest(p2)) {
 			glm::vec3 hit_pos((p1.body.pos.x + p2.body.pos.x) / 2.f, (p1.body.pos.y + p2.body.pos.y) / 2.f, 0.f);
 			p1.Die( hit_pos, camera.vp, debris, particles, assets.debris, p1.vel, total, camera);
-			p1.Kill(p2.id, 0, std::numeric_limits<int>::max(), hit_pos, p1.vel);
+			p1.Kill(p2.id, 0, 0, hit_pos, p1.vel);
 			p2.Die(hit_pos, camera.vp, debris, particles, assets.debris, p2.vel, total, camera);
 			// p1 because p2 has no ws...
-			p1.Kill(p1.id, 0, std::numeric_limits<int>::max(), hit_pos, p2.vel);
+			p1.Kill(p1.id, 0, 0, hit_pos, p2.vel);
 			
 		}
 	}
@@ -2619,8 +2614,12 @@ public:
 					shoot = e.touchPoints[0].clientY < (globals.height / 2);
 				//LOG_INFO("%d %d %d %d %d %d\n", e.touchPoints[0].clientX, e.touchPoints[0].clientY, globals.width, globals.width / 4, globals.width * 4 / 5, w);
 				player->Move(t.frame, a, d, w);
-				if (shoot)
+				if (shoot) {
 					player->Shoot(missiles, t.frame);
+					//for (const auto& p : players) {
+					//	LOG_INFO(">>>> %d", p.second->score);
+					//}
+				}
 				touch = true;
 			}
 #endif
@@ -2699,7 +2698,6 @@ public:
 				renderer.clearColor = { 0.f, 0.f, 0.f, 1.f };
 				SetCtrl(ctrl);
 				player->score = score;
-				player->SendStat();
 			}
 		}
 		for (const auto& e : globals.envelopes) {
@@ -2741,22 +2739,20 @@ public:
 			
 		
 			for (auto& m : missiles){
-				//invincible players can't kill
-				if (m.owner->invincible > 0.f) {
-					continue;
-				}
-				// TODO:: test all hits or just ours?
-				if (m.owner != player.get()) {
+				//
+				if (m.owner->invincible > 0.f /*invincible players can't kill*/ ||
+					m.owner->ctrl == ProtoX::Ctrl::Prop /*register the hit only once*/ ||
+					m.owner != player.get()/*only ours*/) {
 					continue;
 				}
 				bool last = false;
 				for (const auto& p : players) {
-					// if (m.owner != p.second.get()) continue;
 					glm::vec3 hit_pos;
-					if (!p.second->hit && !p.second->killed && p.second->invincible == 0.f && m.HitTest(p.second->aabb/*.Translate(p.second->body.pos)*/, hit_pos)) {
+					if (!p.second->SkipDeathCheck() && m.HitTest(p.second->aabb, hit_pos)) {
 						const glm::vec3 vec{ std::cos(m.rot), std::sin(m.rot), 0.f };
 						p.second->Die(hit_pos, camera.vp, debris, particles, assets.debris, vec, (double)t.total, camera);
-						player->Kill(p.second->id, m.id, ++player->score, hit_pos, vec);
+						++player->score;
+						player->Kill(p.second->id, m.id, 1, hit_pos, vec);
 						m.remove = true;
 						break;
 					}
@@ -2850,6 +2846,7 @@ public:
 			auto ptr = std::make_unique<ProtoX>(id, assets.probe, assets.propulsion.layers.size(), glm::vec3{ x, y, 0.f }, missiles);
 			proto = ptr.get();
 			players[id] = std::move(ptr);
+			// TODO:: remove getorcreate in favor of stat?
 		}
 		else proto = it->second.get();
 		return proto;
@@ -2882,14 +2879,6 @@ public:
 		if (it == players.end()) return;
 		it->second->SetInvincibility(invi->invincibility);
 	}
-	void OnStat(const std::vector<unsigned char>& msg) {
-		if (!SanitizeMsg<Stat>(msg.size()))
-			return;
-		const Stat* stat = reinterpret_cast<const Stat*>(&msg.front());
-		if (player && player->id == stat->id) return; // don't add our other self to the players list
-		auto* proto = GetOrCreatePlayer(stat->id, stat->x, stat->y);
-		proto->score = stat->score;
-	}
 	void OnMisl(const std::vector<unsigned char>& msg) {
 		if (!SanitizeMsg<Misl>(msg.size()))
 			return;
@@ -2913,11 +2902,13 @@ public:
 			auto it = std::find_if(missiles.begin(), missiles.end(), [=](const Missile& m) {
 				return m.owner->id == scor->owner_id && m.id == scor->missile_id; });
 			if (it != missiles.end()) {
-				if (std::numeric_limits<int>::max() != scor->score) it->owner->score = scor->score;
+				it->owner->score += scor->score_dif;
 				RemoveMissile(*it);
 			}
 		}
-		if (std::numeric_limits<int>::max() != scor->score && scor->owner_id == player->id/* && player->ctrl == ProtoX::Ctrl::Prop*/) player->score = scor->score;
+		/*else if (scor->owner_id == player->id) {
+			player->score += scor->score_dif;
+		}*/
 		const glm::vec3 hit_pos(scor->x, scor->y, 0.f),
 			missile_vec{ scor->vec_x, scor->vec_y, 0.f };
 		if (scor->target_id == player->id)
@@ -2965,7 +2956,6 @@ public:
 			wait = Tag("WAIT"),	// n - number to wait for
 			prop = Tag("PROP"), // propulsion main body control
 			trrt = Tag("TRRT"), // turret rotation control
-			stat = Tag("STAT"), // sent on player init to share score
 			invi = Tag("INVI"); // sent when invincibility timer should be set
 		switch (tag) {
 		case conn:
@@ -2994,9 +2984,6 @@ public:
 			break;
 		case wait:
 			OnWait(msg);
-			break;
-		case stat:
-			OnStat(msg);
 			break;
 		case invi:
 			OnInvi(msg);

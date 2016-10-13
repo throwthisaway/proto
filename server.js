@@ -7,7 +7,7 @@ var http = require('http');
 //var redis = require('redis');
 var server = http.createServer(app);
 //var dispatcher = redis.createClient();
-//var subscriber = redis.createClient();
+//var subscriber = redis.createClient(); 
 
 //subscriber.subscribe('dispatch');
 //subscriber.on('message', function (channel, data) {

@@ -1,0 +1,29 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta charset="utf-8" />
+    <title>WebRTC Test</title>
+    <script type="text/javascript" src="adapter.js"></script>
+    <script type="text/javascript" src="webrtcpeer.js"></script>
+</head>
+<body>
+    <script type="text/javascript">
+        function str2ab(str) {
+            var buf = new ArrayBuffer(str.length);
+            var bufView = new Uint8Array(buf);
+            for (var i = 0, strLen = str.length; i < strLen; i++) {
+                bufView[i] = str.charCodeAt(i);
+            }
+            return buf;
+        }
+        function sendClick(){
+            WebRTCPeer.send(str2ab(">>>>>>>>>>sdfsdfsdfasdfas"));
+        }
+        WebRTCPeer.init(window.location.hostname + ':' + window.location.port);
+    </script>
+    <div id="button">
+        <button id="send" type="button" onclick="sendClick()">Send</button>
+    </div>
+</body>
+</html>

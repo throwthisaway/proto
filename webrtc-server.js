@@ -16,29 +16,38 @@ app.get('/adapter.js', function (req, res) {
     res.sendFile(__dirname + '/webrtc/adapter.js');
 });
 
-var wss;
-if (ipaddress === "127.0.0.1") {
-    wss = new WebSocketServer({
-        server: server,
-        //port: 8000,
-        autoAcceptConnections: false
-    });
-} else {
-    wss = new WebSocketServer({
-        server: server,
-        autoAcceptConnections: false
-    });
+function ab2str(buf) {
+    return String.fromCharCode.apply(null, new Uint8Array(buf));
 }
+
+var wss = new WebSocketServer({
+    server: server,
+    //port: 8000,
+    autoAcceptConnections: false
+});
+function broadcastMessage(sender, message) {
+    for (var i = 0; i < clients.length; ++i) {
+        if (clients[i] === sender) continue;
+        console.log('>>>broadcast ' + i);
+        try {
+            clients[i].send(message);
+        } catch (err) {
+            console.log('client unexpectedly closed: ' + err.message);
+        }
+    }
+}
+
 wss.on('connection', function (ws) {
     clients.push(ws);
     ws.on('message', function (message, flags) {
-        for (var i = 0; i < clients.length; ++i) {
-            if (clients[i] == ws) continue;
-            ws.send(message);
-        }
+        console.log('\n>>>onmessage' + message);
+        //var data = JSON.parse(message);
+        //if (data.type === "recv")
+        broadcastMessage(ws, message)
     });
     ws.on('close', function (code, message) {
         console.log('Client disconnected ' + code + ' ' + message);
+        clients.splice(clients.indexOf(ws), 1);
     });
 });
 

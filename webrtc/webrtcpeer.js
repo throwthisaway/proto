@@ -39,7 +39,7 @@ var WebRTCPeer = function () {
 
     function gotSendDescription(desc) {
         sendConn.setLocalDescription(desc);
-        console.log('Offer from localConnection \n' + desc.sdp);
+        console.log('gotSendDescription \n' + desc.sdp);
         ws.send(JSON.stringify({ 'type': 'recv', 'sdp': desc }));
     }
 
@@ -51,7 +51,7 @@ var WebRTCPeer = function () {
 
     function gotRecvDescription(desc) {
         recvConn.setLocalDescription(desc);
-        console.log('Answer from remoteConnection \n' + desc.sdp);
+        console.log('gotRecvDescription \n' + desc.sdp);
         ws.send(JSON.stringify({ 'type': 'send', 'sdp': desc}));
     }
 
@@ -85,6 +85,11 @@ var WebRTCPeer = function () {
                   gotRecvDescription,
                   onCreateSessionDescriptionError
                 );
+                if (sendChannel.readyState != 'open')
+                    sendConn.createOffer().then(
+                       gotSendDescription,
+                       onCreateSessionDescriptionError
+                     );
             } else {
                 console.log('onwsmessage-remote-addicecandidate');
                 recvConn.addIceCandidate(new RTCIceCandidate(incoming.candidate)).then(

@@ -1,4 +1,5 @@
 'use strict';
+//chrome://webrtc-internals/
 function ab2str(buf) {
     return String.fromCharCode.apply(null, new Uint8Array(buf));
 }
@@ -29,7 +30,7 @@ var WebRTCPeer = function () {
         var readyState = sendChannel.readyState;
         console.log('Send channel state is: ' + readyState);
         if (readyState === 'open') { }
-        else /*close*/{ }
+        else  if (readyState === 'close') { onCloseCb(); }
     }
 
     function onAddIceCandidateSuccess() {
@@ -52,6 +53,7 @@ var WebRTCPeer = function () {
     function onReceiveChannelStateChange() {
         var readyState = receiveChannel.readyState;
         console.log('Receive channel state is: ' + readyState);
+        if (readyState === 'close') { onCloseCb(); }
     }
 
     function onReceiveChannelCb(e) {
@@ -63,11 +65,22 @@ var WebRTCPeer = function () {
         receiveChannel.onclose = onReceiveChannelStateChange;
         recvSize = 0;
     }
+    function onCloseCb() {
+        console.log('onclose');
+        if (sendChannel)
+            sendChannel.close();
+        if (receiveChannel)
+            receiveChannel.close();
+        conn.close();
+        conn = null;
+        offerSent = false;
+    }
     function init() {
-        if (conn) return;
+        //if (conn) return;
         conn = new RTCPeerConnection(servers, pcConstraint);
         conn.ondatachannel = onReceiveChannelCb;
         conn.onicecandidate = iceCb;
+        conn.onclose = onCloseCb;
         var dataChannelParams = { ordered: false };
         sendChannel = conn.createDataChannel('sendDataChannel', dataChannelParams);
         sendChannel.binaryType = 'arraybuffer';
@@ -80,15 +93,18 @@ var WebRTCPeer = function () {
         if (incoming.type === 'connect') {
             offerSent = true;
             init();
+            console.log('offer');
             conn.createOffer().then(
                 gotDescription,
                 onCreateSessionDescriptionError
               );
         } else if (incoming.sdp) {
             console.log('onwsmessage-setdesc');
-            init();
+            if (!offerSent)
+                init();
             conn.setRemoteDescription(new RTCSessionDescription(incoming.sdp));
             if (!offerSent) {
+                console.log('answer');
                 conn.createAnswer().then(
                     gotDescription,
                     onCreateSessionDescriptionError

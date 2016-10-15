@@ -3,7 +3,7 @@ function ab2str(buf) {
     return String.fromCharCode.apply(null, new Uint8Array(buf));
 }
 var WebRTCPeer = function () {
-    var sendConn, recvConn, sendChannel, receiveChannel, servers = null, pcConstraint = null
+    var conn, sendChannel, receiveChannel, servers = null, pcConstraint = null
     var ws;
     var recvSize = 0;
     function onAddIceCandidateSuccess() { console.log('onAddIceCandidateSuccess'); }
@@ -12,10 +12,16 @@ var WebRTCPeer = function () {
         console.log('Failed to add Ice Candidate: ' + error.toString());
     }
 
-    function iceSendCb(e) {
+    function iceCb(e) {
         if (!e.candidate) return;
-        ws.send(JSON.stringify({ 'type': 'recv', 'candidate': e.candidate }));
+        ws.send(JSON.stringify({ 'candidate': e.candidate }));
         console.log('Send ICE candidate: \n' + e.candidate.candidate);
+    }
+
+    function gotDescription(desc) {
+        conn.setLocalDescription(desc);
+        console.log('gotDescription \n' + desc.sdp);
+        ws.send(JSON.stringify({ 'sdp': desc }));
     }
 
     function onSendChannelStateChange() {
@@ -37,24 +43,6 @@ var WebRTCPeer = function () {
         console.log('Failed to create session description: ' + error.toString());
     }
 
-    function gotSendDescription(desc) {
-        sendConn.setLocalDescription(desc);
-        console.log('gotSendDescription \n' + desc.sdp);
-        ws.send(JSON.stringify({ 'type': 'recv', 'sdp': desc }));
-    }
-
-    function iceRecvCb(e) {
-        if (!e.candidate) return;
-        ws.send(JSON.stringify({ 'type': 'send', 'candidate': e.candidate }));
-        console.log('Recv ICE candidate: \n' + e.candidate.candidate);
-    }
-
-    function gotRecvDescription(desc) {
-        recvConn.setLocalDescription(desc);
-        console.log('gotRecvDescription \n' + desc.sdp);
-        ws.send(JSON.stringify({ 'type': 'send', 'sdp': desc}));
-    }
-
     function onReceiveMsgCb(e) {
         recvSize += e.data.length;
         console.log('Received: ' + ab2str(e.data));
@@ -74,41 +62,38 @@ var WebRTCPeer = function () {
         receiveChannel.onclose = onReceiveChannelStateChange;
         recvSize = 0;
     }
-
+    function init() {
+        if (conn) return;
+        conn = new RTCPeerConnection(servers, pcConstraint);
+        conn.ondatachannel = onReceiveChannelCb;
+        conn.onicecandidate = iceCb;
+        var dataChannelParams = { ordered: false };
+        sendChannel = conn.createDataChannel('sendDataChannel', dataChannelParams);
+        sendChannel.binaryType = 'arraybuffer';
+        sendChannel.onopen = onSendChannelStateChange;
+        sendChannel.onclose = onSendChannelStateChange;
+    }
     function onWSMessage(e) {
         var incoming = JSON.parse(e.data);
-        if (incoming.type === 'recv') {
-            if (incoming.sdp) {
-                console.log('onwsmessage-remote-setdesc');
-                recvConn.setRemoteDescription(new RTCSessionDescription(incoming.sdp));
-                recvConn.createAnswer().then(
-                  gotRecvDescription,
-                  onCreateSessionDescriptionError
-                );
-                if (sendChannel.readyState != 'open')
-                    sendConn.createOffer().then(
-                       gotSendDescription,
-                       onCreateSessionDescriptionError
-                     );
-            } else {
-                console.log('onwsmessage-remote-addicecandidate');
-                recvConn.addIceCandidate(new RTCIceCandidate(incoming.candidate)).then(
-                  onAddIceCandidateSuccess,
-                  onAddIceCandidateError
-                );
-            }
-        } else if (incoming.type === 'send') {
-            if (incoming.sdp) {
-                console.log('onwsmessage-send-setdesc');
-                sendConn.setRemoteDescription(new RTCSessionDescription(incoming.sdp));
-            }
-            else {
-                console.log('onwsmessage-send-addicecandidate');
-                sendConn.addIceCandidate(new RTCIceCandidate(incoming.candidate)).then(
-                  onAddIceCandidateSuccess,
-                  onAddIceCandidateError
-                );
-            }
+        if (incoming.type === 'connect') {
+            conn.createOffer().then(
+                gotDescription,
+                onCreateSessionDescriptionError
+              );
+        } else if (incoming.sdp) {
+            console.log('onwsmessage-setdesc');
+            conn.setRemoteDescription(new RTCSessionDescription(incoming.sdp));
+            conn.createAnswer().then(
+                gotDescription,
+                onCreateSessionDescriptionError
+            );
+        }
+        else {
+            console.log('onwsmessage-addicecandidate');
+            conn.addIceCandidate(new RTCIceCandidate(incoming.candidate)).then(
+                onAddIceCandidateSuccess,
+                onAddIceCandidateError
+            );
         }
     }
 
@@ -117,6 +102,7 @@ var WebRTCPeer = function () {
             ws = new WebSocket('ws://' + url);
             ws.onopen = function () {
                 console.log('ws-onopen');
+                ws.send(JSON.stringify({'type' : 'connect'}));
             };
 
             ws.onerror = function (error) {
@@ -126,23 +112,7 @@ var WebRTCPeer = function () {
             ws.onmessage = function (e) {
                 onWSMessage(e);
             };
-
-            sendConn = new RTCPeerConnection(servers, pcConstraint);
-            var dataChannelParams = { ordered: false };
-            sendChannel = sendConn.createDataChannel('sendDataChannel', dataChannelParams);
-            sendChannel.binaryType = 'arraybuffer';
-            sendChannel.onopen = onSendChannelStateChange;
-            sendChannel.onclose = onSendChannelStateChange;
-            sendConn.onicecandidate = iceSendCb;
-
-            recvConn = new RTCPeerConnection(servers, pcConstraint);
-            recvConn.onicecandidate = iceRecvCb;
-            recvConn.ondatachannel = onReceiveChannelCb;
-
-            sendConn.createOffer().then(
-                gotSendDescription,
-                onCreateSessionDescriptionError
-              );
+            init();
         },
         send: function(data) {
             sendChannel.send(data);

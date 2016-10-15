@@ -73,9 +73,11 @@ var WebRTCPeer = function () {
         sendChannel.onopen = onSendChannelStateChange;
         sendChannel.onclose = onSendChannelStateChange;
     }
+    var offerSent = false;
     function onWSMessage(e) {
         var incoming = JSON.parse(e.data);
         if (incoming.type === 'connect') {
+            offerSent = true;
             conn.createOffer().then(
                 gotDescription,
                 onCreateSessionDescriptionError
@@ -83,10 +85,12 @@ var WebRTCPeer = function () {
         } else if (incoming.sdp) {
             console.log('onwsmessage-setdesc');
             conn.setRemoteDescription(new RTCSessionDescription(incoming.sdp));
-            conn.createAnswer().then(
-                gotDescription,
-                onCreateSessionDescriptionError
-            );
+            if (!offerSent) {
+                conn.createAnswer().then(
+                    gotDescription,
+                    onCreateSessionDescriptionError
+                );
+            }
         }
         else {
             console.log('onwsmessage-addicecandidate');

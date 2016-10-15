@@ -6,6 +6,7 @@ var WebRTCPeer = function () {
     var conn, sendChannel, receiveChannel, servers = null, pcConstraint = null
     var ws;
     var recvSize = 0;
+    var offerSent = false;
     function onAddIceCandidateSuccess() { console.log('onAddIceCandidateSuccess'); }
 
     function onAddIceCandidateError(error) {
@@ -73,17 +74,19 @@ var WebRTCPeer = function () {
         sendChannel.onopen = onSendChannelStateChange;
         sendChannel.onclose = onSendChannelStateChange;
     }
-    var offerSent = false;
+
     function onWSMessage(e) {
         var incoming = JSON.parse(e.data);
         if (incoming.type === 'connect') {
             offerSent = true;
+            init();
             conn.createOffer().then(
                 gotDescription,
                 onCreateSessionDescriptionError
               );
         } else if (incoming.sdp) {
             console.log('onwsmessage-setdesc');
+            init();
             conn.setRemoteDescription(new RTCSessionDescription(incoming.sdp));
             if (!offerSent) {
                 conn.createAnswer().then(
@@ -116,7 +119,6 @@ var WebRTCPeer = function () {
             ws.onmessage = function (e) {
                 onWSMessage(e);
             };
-            init();
         },
         send: function(data) {
             sendChannel.send(data);

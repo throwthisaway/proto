@@ -1,5 +1,12 @@
 'use strict';
+// TODO:: error handling
+// TODO:: close handling
 //chrome://webrtc-internals/
+var debug = true;
+function debugOut(msg) {
+    if (debug)
+        console.log(msg);
+}
 function ab2str(buf) {
     return String.fromCharCode.apply(null, new Uint8Array(buf));
 }
@@ -7,64 +14,65 @@ var createConnection = function () {
     var ws, remoteID, clientID;
     var recvSize = 0;
     var conn, sendChannel, receiveChannel, servers = null, pcConstraint = null;
+    var onMessageCb = null, onCloseCb = null;
 
-    function onAddIceCandidateSuccess() { console.log('onAddIceCandidateSuccess'); }
+    function onAddIceCandidateSuccess() { debugOut('onAddIceCandidateSuccess'); }
 
     function onAddIceCandidateError(error) {
-        console.log('Failed to add Ice Candidate: ' + error.toString());
+        debugOut('Failed to add Ice Candidate: ' + error.toString());
     }
 
     function iceCb(e) {
         if (!e.candidate) return;
-        // TODO::
         ws.send(JSON.stringify({ 'targetID': remoteID, 'originID': clientID, 'candidate': e.candidate }));
-        console.log('Send ICE candidate: \n' + e.candidate.candidate);
+        debugOut('Send ICE candidate: \n' + e.candidate.candidate);
     }
 
     function gotOfferDescription(desc) {
         conn.setLocalDescription(desc);
-        console.log('gotOfferDescription \n' + desc.sdp);
+        debugOut('gotOfferDescription \n' + desc.sdp);
         ws.send(JSON.stringify({ 'offer': { 'targetID': remoteID, 'originID': clientID, 'sdp': desc } }));
     }
 
     function gotAnswerDescription(desc) {
         conn.setLocalDescription(desc);
-        console.log('gotAnswerDescription \n' + desc.sdp);
+        debugOut('gotAnswerDescription \n' + desc.sdp);
         ws.send(JSON.stringify({ 'answer': { 'targetID': remoteID, 'originID': clientID, 'sdp': desc } }));
     }
 
     function onSendChannelStateChange() {
         var readyState = sendChannel.readyState;
-        console.log('Send channel state is: ' + readyState);
+        debugOut('Send channel state is: ' + readyState);
         if (readyState === 'open') { }
         else if (readyState === 'close') { onCloseCb(); }
     }
 
     function onAddIceCandidateSuccess() {
-        console.log('AddIceCandidate success.');
+        debugOut('AddIceCandidate success.');
     }
 
     function onAddIceCandidateError(error) {
-        console.log('Failed to add Ice Candidate: ' + error.toString());
+        debugOut('Failed to add Ice Candidate: ' + error.toString());
     }
 
     function onCreateSessionDescriptionError(error) {
-        console.log('Failed to create session description: ' + error.toString());
+        debugOut('Failed to create session description: ' + error.toString());
     }
 
     function onReceiveMsgCb(e) {
         recvSize += e.data.length;
-        console.log('Received: ' + ab2str(e.data));
+        debugOut('Received: ' + ab2str(e.data));
+        if (onMessageCb) onMessageCb(remoteID, e.data);
     }
 
     function onReceiveChannelStateChange() {
         var readyState = receiveChannel.readyState;
-        console.log('Receive channel state is: ' + readyState);
+        debugOut('Receive channel state is: ' + readyState);
         if (readyState === 'close') { onCloseCb(); }
     }
 
     function onReceiveChannelCb(e) {
-        console.log('Receive Channel Callback');
+        debugOut('Receive Channel Callback');
         receiveChannel = e.channel;
         receiveChannel.binaryType = 'arraybuffer';
         receiveChannel.onmessage = onReceiveMsgCb;
@@ -73,21 +81,27 @@ var createConnection = function () {
         recvSize = 0;
     }
 
-    function onCloseCb() {
-        console.log('onclose');
+    function close() {
         if (sendChannel)
             sendChannel.close();
         if (receiveChannel)
             receiveChannel.close();
         conn.close();
         conn = null;
-        offerSent = false;
+        if (onCloseCb) onCloseCb(remoteID);
     }
 
-    function init(_ws, _remoteID, _clientID) {
+    function onCloseCb() {
+        debugOut('onclose');
+        close();
+    }
+
+    function init(_ws, _remoteID, _clientID, _onMessageCb, _onCloseCb) {
         ws = _ws;
         remoteID = _remoteID;
         clientID = _clientID;
+        onMessageCb = _onMessageCb;
+        onCloseCb = _onCloseCb;
         conn = new RTCPeerConnection(servers, pcConstraint);
         conn.ondatachannel = onReceiveChannelCb;
         conn.onicecandidate = iceCb;
@@ -101,11 +115,11 @@ var createConnection = function () {
 
     function send(data) {
         sendChannel.send(data);
-        console.log('Sent Data: ' + ab2str(data));
+        debugOut('Sent Data: ' + ab2str(data));
     }
 
     function handleOffer(sdp) {
-        console.log('handleOffer');
+        debugOut('handleOffer');
         conn.setRemoteDescription(new RTCSessionDescription(sdp));
         conn.createAnswer().then(
             gotAnswerDescription,
@@ -114,7 +128,7 @@ var createConnection = function () {
     }
 
     function handleAnswer(sdp) {
-        console.log('handleAnswer');
+        debugOut('handleAnswer');
         conn.setRemoteDescription(new RTCSessionDescription(sdp));
     }
 
@@ -136,52 +150,65 @@ var createConnection = function () {
         handleOffer: handleOffer,
         handleAnswer: handleAnswer,
         sendOffer: sendOffer,
-        handleIceCandidate: handleIceCandidate
-        /* TODO:: onmessage(), onclose, etc*/
+        handleIceCandidate: handleIceCandidate,
+        close: close
     };
 }
 
 var WebRTCPeer = function () {
     var ws;
-    var offerSent = false;
-
-    var clientID = Math.random();
+    var clientID;
     var connections = new Map();
-
+    var onMessageCb = null, onCloseCb = null;
+    function onMessage(remoteID, data) {
+        if (onMessageCb) onMessageCb(remoteID, data);
+    }
+    function onClose(remoteID) {
+        connections.delete(remoteID);
+        if (onCloseCb) onCloseCb(remoteID);
+    }
     function onWSMessage(e) {
         var msg = JSON.parse(e.data);
         if (msg.connect) {
             var conn = createConnection();
             connections.set(msg.connect, conn);
-            conn.init(ws, msg.connect, clientID);
+            conn.init(ws, msg.connect, clientID, onMessage, onClose);
             conn.sendOffer();
         } else if (msg.offer) {
-            console.log('onwsmessage-on-offer');
+            debugOut('onwsmessage-on-offer');
             var conn = createConnection();
             connections.set(msg.offer.originID, conn);
-            conn.init(ws, msg.offer.originID, clientID/*same as  msg.offer.targetID*/);
+            conn.init(ws, msg.offer.originID, clientID/*same as  msg.offer.targetID*/, onMessage, onClose);
             conn.handleOffer(msg.offer.sdp);
         } else if (msg.answer) {
-            console.log('onwsmessage-on-answer');
+            debugOut('onwsmessage-on-answer');
             var conn = connections.get(msg.answer.originID);
             if (conn) conn.handleAnswer(msg.answer.sdp);
         } else if (msg.candidate) {
-            console.log('onwsmessage-addicecandidate');
+            debugOut('onwsmessage-addicecandidate');
             var conn = connections.get(msg.originID);
             if (conn) conn.handleIceCandidate(msg.candidate);
+        } else if (msg.close) {
+            var conn = connections.get(msg.close);
+            if (conn) conn.close();
+            connections.delete(msg.close);
         }
     }
 
+    function setOnMessage(cb) { onMessageCb = cb; }
+    function setOnClose(cb) { onCloseCb = cb; }
+
     return {
-        init: function (url) {
+        init: function (url, _clientID) {
+            clientID = _clientID;
             ws = new WebSocket('ws://' + url);
             ws.onopen = function () {
-                console.log('ws-onopen');
+                debugOut('ws-onopen');
                 ws.send(JSON.stringify({'connect' : clientID}));
             };
 
             ws.onerror = function (error) {
-                console.log('ws-error ' + error);
+                debugOut('ws-error ' + error);
             };
 
             ws.onmessage = function (e) {
@@ -192,6 +219,9 @@ var WebRTCPeer = function () {
             for (var client of connections.values()) {
                 client.send(data);
             }
-        }
+        },
+        setOnMessage: setOnMessage,
+        setOnClose: setOnClose
+        // TODO:: onError
     };
 }();

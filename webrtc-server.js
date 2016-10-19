@@ -5,6 +5,11 @@ var app = require('express')();
 var http = require('http');
 var server = http.createServer(app);
 var clients = new Map();
+var debug = true;
+function debugOut(msg) {
+    if (debug)
+        console.log(msg);
+}
 app.get('/', function (req, res) {
     res.sendFile(__dirname + '/webrtc/webrtc.html');
 });
@@ -25,12 +30,20 @@ var wss = new WebSocketServer({
     //port: 8000,
     autoAcceptConnections: false
 });
+
+function close(ws, remoteID){
+    debugOut("closing " + remoteID)
+    clients.delete(remoteID);
+    broadcastMessage(ws, JSON.stringify({'close': remoteID}));
+}
+
 function broadcastMessage(sender, message) {
-    for (var client of clients.values()) {
+    for (var [key, client] of clients.entries()) {
         if (client === sender) continue;
         try {
             client.send(message);
         } catch (err) {
+            close(sender, key);
             console.log('client unexpectedly closed: ' + err.message);
         }
     }
@@ -48,37 +61,38 @@ wss.on('connection', function (ws) {
             broadcastMessage(ws, message)
             clients.set(msg.connect, ws);
         }else if (msg.offer) {
-            console.log(">>>>>offer from " + msg.offer.originID);
+            debugOut(">>>>>offer from " + msg.offer.originID);
             var client = clients.get(msg.offer.targetID);
             if (client) {
                 client.send(message);
-                console.log(">>>>>offer sent to " + msg.offer.targetID);
+                debugOut(">>>>>offer sent to " + msg.offer.targetID);
             }
         }else if (msg.answer) {
-            console.log(">>>>>answer from " + msg.answer.originID);
+            debugOut(">>>>>answer from " + msg.answer.originID);
             var client = clients.get(msg.answer.targetID);
             if (client) {
                 client.send(message);
-                console.log(">>>>>answer sent to" + msg.answer.targetID);
+                debugOut(">>>>>answer sent to" + msg.answer.targetID);
             }
         }else if (msg.candidate) {
-            console.log(">>>>>icecandidate from " + msg.originID);
+            debugOut(">>>>>icecandidate from " + msg.originID);
             var client = clients.get(msg.targetID);
             if (client) {
                 client.send(message);
-                console.log(">>>>>icecandidate sent to " + msg.targetID);
+                debugOut(">>>>>icecandidate sent to " + msg.targetID);
             }
         }
     });
     ws.on('close', function (code, message) {
-        console.log('Client disconnected ' + code + ' ' + message);
         for (var [key, value] of clients.entries()) {
             if (value === ws) {
-                clients.delete(key);
+                debugOut("delete " + key);
+                close(ws, key);
                 break;
-            }
         }
-        console.log('Client count ' + clients.size);
+        debugOut('Client disconnected, count ' + clients.size + ' ' + code + ' ' + message);
+    }
+     
     });
 });
 

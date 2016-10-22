@@ -54,6 +54,7 @@
     <ClCompile Include="..\..\emc_ogl\shader\VBlur7x.cpp" />
     <ClCompile Include="..\..\emc_ogl\shader\VBlur9x.cpp" />
     <ClCompile Include="..\..\emc_ogl\Timer.cpp" />
+    <ClCompile Include="..\..\emc_ogl\WebRTC.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\MeshLoader\Deserialize.h" />
@@ -79,6 +80,7 @@
     <ClInclude Include="..\..\emc_ogl\Palette.h" />
     <ClInclude Include="..\..\emc_ogl\RT.h" />
     <ClInclude Include="..\..\emc_ogl\SAT.h" />
+    <ClInclude Include="..\..\emc_ogl\Session.h" />
     <ClInclude Include="..\..\emc_ogl\shader\BloomPass1.h" />
     <ClInclude Include="..\..\emc_ogl\shader\BloomPass2.h" />
     <ClInclude Include="..\..\emc_ogl\shader\Color.h" />
@@ -98,6 +100,7 @@
     <ClInclude Include="..\..\emc_ogl\shader\VBlur9x.h" />
     <ClInclude Include="..\..\emc_ogl\Socket.h" />
     <ClInclude Include="..\..\emc_ogl\Timer.h" />
+    <ClInclude Include="..\..\emc_ogl\WebRTC.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

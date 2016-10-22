@@ -29,17 +29,18 @@
 #include "../../MeshLoader/Tga.h"
 #include "../../MeshLoader/File.h"
 #include "Exception.h"
-#include "Shader/Simple.h"
-#include "Shader/Color.h"
-#include "Shader/ColorPosAttrib.h"
+#include "shader/Simple.h"
+#include "shader/Color.h"
+#include "shader/ColorPosAttrib.h"
 //#include "Shader/Texture.h"
-#include "Shader/TextureColorMod.h"
+#include "shader/TextureColorMod.h"
 #include "RT.h"
 #include "SAT.h"
 #include "Envelope.h"
 #include "Palette.h"
 #include "audio.h"
 #include "Command.h"
+#include "WebRTC.h"
 //#define OBB_TEST
 // TODO:: 
 // - prop send onplyr only
@@ -87,10 +88,20 @@ static GLFWwindow * window;
 static std::random_device rd;
 static std::mt19937 mt(rd());
 
+std::string GenWebRTCId() {
+	const auto len = 8u;
+	std::string res;
+	std::uniform_int_distribution<> dist(65, 122);
+	for (auto i = 0u; i < len; ++i)
+		res += (char)dist(mt);
+	return res;
+}
+
 class Scene;
 class Envelope;
 
 static const glm::vec3 g(0.f, -.1f, 0.f);/* m/ms2 */
+using Comm = WebRTC;
 struct {
 #ifdef DEBUG_REL
 	const float invincibility = 1000.f;
@@ -127,14 +138,15 @@ struct {
 	const gsl::span<const glm::vec4, gsl::dynamic_range>& palette = pal, &grey_palette = grey_pal;
 	Timer timer;
 	std::string host = "localhost";
-	unsigned short port = 8000;
+	unsigned short port = 8080;
 	int width = 1024, height = 768;
 	std::string sessionID;
 	std::unique_ptr<Audio> audio;
 	std::unique_ptr<Randomizer<std::array<ALuint, Audio::PEW_COUNT>>> randomizer;
 	std::unique_ptr<Scene> scene;
-	std::unique_ptr<Client> ws;
+	std::unique_ptr<Comm> ws;
 	std::vector<std::weak_ptr<Envelope>> envelopes;
+	//std::unique_ptr<WebRTC> wrtc;
 }globals;
 
 static void ReadMeshFile(const char* fname, MeshLoader::Mesh& mesh) {
@@ -988,7 +1000,7 @@ struct Debris {
 struct ProtoX {
 	const size_t id;
 	AABB aabb; // in view coordinates
-	Client *ws;
+	Comm *ws;
 	const float max_vel = .3f,
 		m = 500.f,
 		force = .2f,
@@ -1106,7 +1118,7 @@ struct ProtoX {
 			return ::GetModel(m, {}, rot, layer.pivot);
 		}
 	}turret;
-	ProtoX(const size_t id, const Asset::Model& model, size_t frame_count, const glm::vec3& pos, std::vector<Missile>& missiles, Client* ws = nullptr) : id(id),
+	ProtoX(const size_t id, const Asset::Model& model, size_t frame_count, const glm::vec3& pos, std::vector<Missile>& missiles, Comm* ws = nullptr) : id(id),
 		aabb(model.aabb),
 		ws(ws),
 		left({ 88.f, 3.f, 0.f }, glm::radians(55.f), 1.f, frame_count, 1.f, .3f),
@@ -3077,8 +3089,9 @@ int main(int argc, char** argv) {
 		std::bind(&Scene::OnClose, globals.scene.get()),
 		std::bind(&Scene::OnError, globals.scene.get(),std::placeholders::_1, std::placeholders::_2),
 		std::bind(&Scene::OnMessage, globals.scene.get(),std::placeholders::_1, std::placeholders::_2) };
-	globals.ws = std::make_unique<Client>(globals.host.c_str(), 8000, session);
+	//globals.ws = std::make_unique<Client>(globals.host.c_str(), 8000, session);
 	// void emscripten_set_main_loop(em_callback_func func, int fps, int simulate_infinite_loop);
+	globals.ws = std::make_unique<WebRTC>(globals.host.c_str(), globals.port, GenWebRTCId().c_str(), session);
 	emscripten_set_main_loop(main_loop, 0/*60*/, 1);
 #else
 	do {

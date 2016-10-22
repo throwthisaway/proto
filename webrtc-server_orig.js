@@ -6,95 +6,19 @@ var http = require('http');
 var server = http.createServer(app);
 var clients = new Map();
 var debug = true;
-var release = '';//'/develop';
-var sessionIDLen = 5,
-    headerLen = 3 + sessionIDLen,
-    clientIDLen = 5,
-    minPlayers = 4,
-    maxPlayers = 16,
-    maxSessions = 8;
-var sessions = new Map();
-
 function debugOut(msg) {
     if (debug)
         console.log(msg);
 }
-//app.get('/', function (req, res) {
-//    res.sendFile(__dirname + '/webrtc/webrtc.html');
-//});
-//app.get('/webrtcpeer.js', function (req, res) {
-//    res.sendFile(__dirname + '/webrtc/webrtcpeer.js');
-//});
-
-//app.get('/adapter.js', function (req, res) {
-//    res.sendFile(__dirname + '/webrtc/adapter.js');
-//});
-
-function generateID(count) {
-    var symbols = '1234567890abcdefghijklmnopqrstuvwxyz',
-        res = '';
-    for (var i = 0; i < count; ++i) {
-        res += symbols[(Math.random() * symbols.length) | 0];
-    }
-    return "" + res;
-}
-function findAvailableSessionID() {
-    var res;
-    for (var session of sessions) {
-        if (!res || session[1].length<res[1].length)
-            res = session;
-    }
-    return (res && res[1].length < maxPlayers) ? res[0] : undefined;
-}
-function redirectToASession(res) {
-    var id;
-    if (id = findAvailableSessionID()) {
-        console.log('found an existing session: ' + id);
-        res.redirect(release + '/?p=' + id);
-    } else if (sessions.size >= maxSessions) {
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.end('All sessions are full. Try again later.')
-    } else {
-        var sessionID = generateID(sessionIDLen);
-        console.log('starting new session: ' + sessionID);
-        var session = [];
-        session.id = sessionID;
-        sessions.set(sessionID, session);
-        res.redirect(release + '/?p=' + sessionID);
-    }
-}
-
-app.get('/webrtc/webrtcpeer.js', function (req, res) {
+app.get('/', function (req, res) {
+    res.sendFile(__dirname + '/webrtc/webrtc.html');
+});
+app.get('/webrtcpeer.js', function (req, res) {
     res.sendFile(__dirname + '/webrtc/webrtcpeer.js');
 });
 
-app.get('/webrtc/adapter.js', function (req, res) {
+app.get('/adapter.js', function (req, res) {
     res.sendFile(__dirname + '/webrtc/adapter.js');
-});
-
-app.get(release, function (req, res) {
-    var session;
-    if (req.query.p &&
-        (session = sessions.get(req.query.p)) != undefined &&
-        session.length < maxPlayers) {
-        res.sendFile(__dirname + '/emc_ogl/main.html');//  ?p=' + req.query.p);
-    } else redirectToASession(res);
-});
-
-app.get(release + '/main.js', function (req, res) {
-    res.setHeader('Content-Encoding', 'gzip');
-    res.setHeader('Content-Type', 'application/javascript');
-    res.sendFile(__dirname + '/emc_ogl/main.js.gz');
-});
-app.get(release + '/main.js.mem', function (req, res) {
-    res.setHeader('Content-Encoding', 'gzip');
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.sendFile(__dirname + '/emc_ogl/main.js.mem.gz');
-});
-app.get(release + '/main.data', function (req, res) {
-    res.setHeader('Content-Encoding', 'gzip');
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.sendFile(__dirname + '/emc_ogl/main.data.gz');
 });
 
 function ab2str(buf) {

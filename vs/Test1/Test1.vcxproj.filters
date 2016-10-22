@@ -126,6 +126,9 @@
     <ClCompile Include="..\..\emc_ogl\Command.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\emc_ogl\WebRTC.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\MeshLoader\Deserialize.h">
@@ -252,6 +255,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\emc_ogl\Command.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\emc_ogl\WebRTC.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\emc_ogl\Session.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

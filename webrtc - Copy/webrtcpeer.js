@@ -3,41 +3,18 @@
 // TODO:: close handling
 //chrome://webrtc-internals/
 var debug = true;
-var clientIDLen = 5;
 function debugOut(msg) {
     if (debug)
         console.log(msg);
 }
-function str2ab(str) {
-    var buf = new ArrayBuffer(str.length);
-    var bufView = new Uint8Array(buf);
-    for (var i = 0, strLen = str.length; i < strLen; i++) {
-        bufView[i] = str.charCodeAt(i);
-    }
-    return buf;
-}
 function ab2str(buf) {
     return String.fromCharCode.apply(null, new Uint8Array(buf));
 }
-function generate0ToOClientID(count) {
-    //var symbols = '0123456789:;<=>?@ABCDEFGHIJKLMNO',
-    var res = '';
-    for (var i = 0; i < count; ++i) {
-        res += String.fromCharCode((48 + Math.random() * 32) | 0);
-    }
-    return "" + res;
-}
-
 var createConnection = function () {
     var ws, remoteID, clientID;
     var recvSize = 0;
     var conn, sendChannel, receiveChannel, servers = null, pcConstraint = null;
-
-    function Connected() {
-        if (sendChannel && sendChannel.readyState === 'open' &&
-           receiveChannel && receiveChannel.readyState === 'open')
-            WebRTCPeer.connected(remoteID);
-    }
+    var onMessageCb = null, onCloseCb = null;
 
     function onAddIceCandidateSuccess() { debugOut('onAddIceCandidateSuccess'); }
 
@@ -66,8 +43,8 @@ var createConnection = function () {
     function onSendChannelStateChange() {
         var readyState = sendChannel.readyState;
         debugOut('Send channel state is: ' + readyState);
-        if (readyState === 'open') { Connected(); }
-        else if (readyState === 'close') { close(); }
+        if (readyState === 'open') { }
+        else if (readyState === 'close') { onCloseCb(); }
     }
 
     function onAddIceCandidateSuccess() {
@@ -85,14 +62,13 @@ var createConnection = function () {
     function onReceiveMsgCb(e) {
         recvSize += e.data.length;
         debugOut('Received: ' + ab2str(e.data));
-        WebRTCPeer.onmessage(remoteID, e.data);
+        if (onMessageCb) onMessageCb(remoteID, e.data);
     }
 
     function onReceiveChannelStateChange() {
         var readyState = receiveChannel.readyState;
         debugOut('Receive channel state is: ' + readyState);
-        if (readyState === 'open') { Connected(); }
-        else if (readyState === 'close') { close(); }
+        if (readyState === 'close') { onCloseCb(); }
     }
 
     function onReceiveChannelCb(e) {
@@ -112,17 +88,24 @@ var createConnection = function () {
             receiveChannel.close();
         conn.close();
         conn = null;
-        WebRTCPeer.close(remoteID);
+        if (onCloseCb) onCloseCb(remoteID);
     }
 
-    function init(_ws, _remoteID, _clientID) {
+    function onCloseCb() {
+        debugOut('onclose');
+        close();
+    }
+
+    function init(_ws, _remoteID, _clientID, _onMessageCb, _onCloseCb) {
         ws = _ws;
         remoteID = _remoteID;
         clientID = _clientID;
+        onMessageCb = _onMessageCb;
+        onCloseCb = _onCloseCb;
         conn = new RTCPeerConnection(servers, pcConstraint);
         conn.ondatachannel = onReceiveChannelCb;
         conn.onicecandidate = iceCb;
-        conn.onclose = close;
+        conn.onclose = onCloseCb;
         var dataChannelParams = { ordered: false };
         sendChannel = conn.createDataChannel('sendDataChannel', dataChannelParams);
         sendChannel.binaryType = 'arraybuffer';
@@ -175,24 +158,27 @@ var createConnection = function () {
 var WebRTCPeer = function () {
     var ws;
     var clientID;
-    var cpp = null;
     var connections = new Map();
+    var onMessageCb = null, onCloseCb = null;
     function onMessage(remoteID, data) {
         if (onMessageCb) onMessageCb(remoteID, data);
     }
-
+    function onClose(remoteID) {
+        connections.delete(remoteID);
+        if (onCloseCb) onCloseCb(remoteID);
+    }
     function onWSMessage(e) {
         var msg = JSON.parse(e.data);
         if (msg.connect) {
             var conn = createConnection();
             connections.set(msg.connect, conn);
-            conn.init(ws, msg.connect, clientID);
+            conn.init(ws, msg.connect, clientID, onMessage, onClose);
             conn.sendOffer();
         } else if (msg.offer) {
             debugOut('onwsmessage-on-offer');
             var conn = createConnection();
             connections.set(msg.offer.originID, conn);
-            conn.init(ws, msg.offer.originID, clientID/*same as msg.offer.targetID*/);
+            conn.init(ws, msg.offer.originID, clientID/*same as  msg.offer.targetID*/, onMessage, onClose);
             conn.handleOffer(msg.offer.sdp);
         } else if (msg.answer) {
             debugOut('onwsmessage-on-answer');
@@ -209,10 +195,12 @@ var WebRTCPeer = function () {
         }
     }
 
+    function setOnMessage(cb) { onMessageCb = cb; }
+    function setOnClose(cb) { onCloseCb = cb; }
+
     return {
-        init: function (url, _clientID, _cpp) {
+        init: function (url, _clientID) {
             clientID = _clientID;
-            cpp = _cpp;
             ws = new WebSocket('ws://' + url);
             ws.onopen = function () {
                 debugOut('ws-onopen');
@@ -227,22 +215,13 @@ var WebRTCPeer = function () {
                 onWSMessage(e);
             };
         },
-        close: function(remoteID){
-            connections.delete(remoteID);
-            if (cpp) cpp.OnClose();
-        },
         send: function (data) {
             for (var client of connections.values()) {
                 client.send(data);
             }
         },
-        connected: function (remoteID) {
-            var conn = connections.get(remoteID);
-            var clientID = generate0ToOClientID(clientIDLen);
-            conn.send(str2ab("CONN" + clientID + "0"));
-            /*TODO::*/
-        },
-        onmessage: function (remoteID, data) { if (cpp) cpp.OnMessage(data); }
+        setOnMessage: setOnMessage,
+        setOnClose: setOnClose
         // TODO:: onError
     };
 }();

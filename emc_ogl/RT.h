@@ -1,17 +1,17 @@
 #pragma once
 #include <glm/glm.hpp>
 #include "Helpers.h"
-#include "Shader/CRTShader.h"
-#include "Shader/VBlur7x.h"
-#include "Shader/HBlur7x.h"
-#include "Shader/VBlur9x.h"
-#include "Shader/HBlur9x.h"
-#include "Shader/Contrast.h"
-#include "Shader/Spherical.h"
+#include "shader/CRTShader.h"
+#include "shader/VBlur7x.h"
+#include "shader/HBlur7x.h"
+#include "shader/VBlur9x.h"
+#include "shader/HBlur9x.h"
+#include "shader/Contrast.h"
+#include "shader/Spherical.h"
 //#include "Shader/BloomPass1.h"
 //#include "Shader/BloomPass2.h"
-#include "Shader/CombineMAdd.h"
-#include "Shader/Highlight.h"
+#include "shader/CombineMAdd.h"
+#include "shader/Highlight.h"
 class RT {
 	static const size_t	COUNT = 3;
 	const int width, height;

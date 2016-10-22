@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <vector>
+#include "Session.h"
 #ifdef __EMSCRIPTEN__
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -20,7 +21,8 @@
 #else
 #include <Winsock2.h>
 #include <ws2tcpip.h>
-#include <tuple>
+//#include <tuple>
+
 #pragma comment(lib, "Ws2_32.lib")
 #endif
 #undef min
@@ -30,11 +32,6 @@
 #define INVALID_SOCKET -1
 #define SOCKET_ERROR -1
 #endif
-struct Session {
-	std::function<void()> onOpen, onClose;
-	std::function<void(int, const char*)> onError;
-	std::function<void(const char*, int)> onMessage;
-};
 class Socket {
 protected:
 	const Session session;

@@ -28,7 +28,7 @@ function generate0ToOClientID(count) {
     return "" + res;
 }
 
-var createConnection = function () {
+var createConnection = function (initial) {
     var ws, remoteID, clientID;
     var recvSize = 0;
     var conn, sendChannel, receiveChannel, servers = null, pcConstraint = null;
@@ -36,7 +36,7 @@ var createConnection = function () {
     function Connected() {
         if (sendChannel && sendChannel.readyState === 'open' &&
            receiveChannel && receiveChannel.readyState === 'open')
-            WebRTCPeer.connected(remoteID);
+            WebRTCPeer.connected(remoteID, initial);
     }
 
     function onAddIceCandidateSuccess() { debugOut('onAddIceCandidateSuccess'); }
@@ -84,7 +84,7 @@ var createConnection = function () {
 
     function onReceiveMsgCb(e) {
         recvSize += e.data.length;
-        debugOut('Received: ' + ab2str(e.data));
+        //debugOut('Received: ' + ab2str(e.data));
         WebRTCPeer.onmessage(remoteID, e.data);
     }
 
@@ -131,8 +131,9 @@ var createConnection = function () {
     }
 
     function send(data) {
-        sendChannel.send(data);
-        debugOut('Sent Data: ' + ab2str(data));
+        if (sendChannel.readyState == 'open')
+            sendChannel.send(data);
+        //debugOut('Sent Data: ' + ab2str(data));
     }
 
     function handleOffer(sdp) {
@@ -168,7 +169,8 @@ var createConnection = function () {
         handleAnswer: handleAnswer,
         sendOffer: sendOffer,
         handleIceCandidate: handleIceCandidate,
-        close: close
+        close: close,
+        initial: initial
     };
 }
 
@@ -177,20 +179,19 @@ var WebRTCPeer = function () {
     var clientID;
     var cpp = null;
     var connections = new Map();
-    function onMessage(remoteID, data) {
-        if (onMessageCb) onMessageCb(remoteID, data);
-    }
 
     function onWSMessage(e) {
         var msg = JSON.parse(e.data);
-        if (msg.connect) {
-            var conn = createConnection();
+        if (msg.session) {
+            if (cpp) cpp.WSOnMessage(msg.session);
+        } else if (msg.connect) {
+            var conn = createConnection(true);
             connections.set(msg.connect, conn);
             conn.init(ws, msg.connect, clientID);
             conn.sendOffer();
         } else if (msg.offer) {
             debugOut('onwsmessage-on-offer');
-            var conn = createConnection();
+            var conn = createConnection(false);
             connections.set(msg.offer.originID, conn);
             conn.init(ws, msg.offer.originID, clientID/*same as msg.offer.targetID*/);
             conn.handleOffer(msg.offer.sdp);
@@ -216,7 +217,7 @@ var WebRTCPeer = function () {
             ws = new WebSocket('ws://' + url);
             ws.onopen = function () {
                 debugOut('ws-onopen');
-                ws.send(JSON.stringify({'connect' : clientID}));
+                if (cpp) cpp.OnOpen();
             };
 
             ws.onerror = function (error) {
@@ -227,7 +228,7 @@ var WebRTCPeer = function () {
                 onWSMessage(e);
             };
         },
-        close: function(remoteID){
+        close: function (remoteID) {
             connections.delete(remoteID);
             if (cpp) cpp.OnClose();
         },
@@ -236,13 +237,18 @@ var WebRTCPeer = function () {
                 client.send(data);
             }
         },
-        connected: function (remoteID) {
-            var conn = connections.get(remoteID);
-            var clientID = generate0ToOClientID(clientIDLen);
-            conn.send(str2ab("CONN" + clientID + "0"));
+        wsSend: function (data) {
+            ws.send(JSON.stringify({ 'session': ab2str(data) }));
+        },
+        connected: function (remoteID, initial) {
+            if (cpp) cpp.OnConnect(initial);
+            //var conn = connections.get(remoteID);
+            //var clientID = generate0ToOClientID(clientIDLen);
+            //conn.send(str2ab("CONN" + clientID + "0"));
             /*TODO::*/
         },
-        onmessage: function (remoteID, data) { if (cpp) cpp.OnMessage(data); }
+        onmessage: function (remoteID, data) { if (cpp) cpp.OnMessage(data); },
+        rtcConnect: function () { ws.send(JSON.stringify({ 'connect': clientID })); }
         // TODO:: onError
     };
 }();

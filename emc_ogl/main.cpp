@@ -88,6 +88,15 @@ static GLFWwindow * window;
 static std::random_device rd;
 static std::mt19937 mt(rd());
 
+size_t GenPlayerID() {
+	const size_t len = 4;
+	std::uniform_int_distribution<> dist(0, 255);
+	size_t res = 0;
+	for (size_t i = 0; i < len; ++i) {
+		res |= (unsigned char)dist(mt) << (i << 3);
+	}
+	return res;
+}
 std::string GenWebRTCId() {
 	const auto len = 8u;
 	std::string res;
@@ -2371,7 +2380,7 @@ public:
 	//GLuint uvbuffer;
 	//GLuint texID;
 	//GLuint uTexSize;
-	std::queue<std::vector<unsigned char>> messages;
+	std::queue<std::vector<unsigned char>> messages, wsMessages;
 	int wait = 0;
 
 	float update = 0.f;
@@ -2487,13 +2496,13 @@ public:
 	}
 #endif
 	Scene() : bounds(assets.land.aabb),
-//#ifndef __EMSCRIPTEN__
+		//#ifndef __EMSCRIPTEN__
 #ifdef DEBUG_REL
-//#ifndef OBB_TEST
-	player(std::make_unique<ProtoX>(0xdeadbeef, assets.probe, assets.propulsion.layers.size(), glm::vec3{}, missiles)),
-//#endif
+		//#ifndef OBB_TEST
+		player(std::make_unique<ProtoX>(0xdeadbeef, assets.probe, assets.propulsion.layers.size(), glm::vec3{}, missiles)),
+		//#endif
 #endif
-//#endif
+		//#endif
 		renderer(assets, bounds),
 		overlay(camera),
 		sent(_sent), received(_rec) {
@@ -2547,7 +2556,19 @@ public:
 		renderer.RenderHUD(hud, bounds, player.get(), players);
 		renderer.PostRender();
 	}
-
+	void OnConnect(bool initial) {
+		//// send ctrl query
+		//if (initial && player && player->ctrl == ProtoX::Ctrl::Full) {
+		//	Ctrl msg{ Tag("CTRL"), player->id, 0u, 0 };
+		//	globals.ws->Send((const char*)&msg, sizeof(msg));
+		//}
+	}
+	void CreatePlayer(size_t id) {
+		player = std::make_unique<ProtoX>(id,
+			assets.probe,
+			assets.propulsion.layers.size(),
+			RandomizePos(assets.probe.aabb), missiles, globals.ws.get());
+	}
 	bool RemoveMissile(Missile& m) {
 		if (&m != &missiles.back()) {
 			++m.owner->missile_count;
@@ -2705,7 +2726,7 @@ public:
 			if (player->killed) {
 				auto ctrl = player->ctrl;
 				auto score = player->score;
-				player = std::make_unique<ProtoX>(player->id, assets.probe, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), missiles, globals.ws.get());
+				CreatePlayer(player->id);
 				camera.SetPos(player->body.pos.x, player->body.pos.y, globals.camera_z);
 				renderer.clearColor = { 0.f, 0.f, 0.f, 1.f };
 				SetCtrl(ctrl);
@@ -2826,9 +2847,27 @@ public:
 		//std::lock_guard<std::mutex> lock(msgMutex);
 		messages.push(std::vector<unsigned char>{ msg, msg + (size_t)len });
 	}
+	void WSOnMessage(const char* msg, int len) {
+		//LOG_INFO("OnMessage thread id: %d", std::hash<std::thread::id>()(std::this_thread::get_id()));
+		//std::lock_guard<std::mutex> lock(msgMutex);
+		wsMessages.push(std::vector<unsigned char>{ msg, msg + (size_t)len });
+	}
+	//struct Ctrl {
+	//	const size_t tag, sourceId, targetId;
+	//	const char ctrl;
+	//};
+	//void OnConn(const std::vector<unsigned char>& msg) {
+	//	if (!SanitizeMsg<Conn>(msg.size()))
+	//		return;
+	//	const Conn* conn = reinterpret_cast<const Conn*>(msg.data());
+	//	size_t id = ID5(conn->client_id, 0);
+	//	CreatePlayer(id);
+	//	player->ctrl = static_cast<ProtoX::Ctrl>(conn->ctrl - 48/*TODO:: eliminate conversion*/);
+	//}
 	void OnConn(const std::vector<unsigned char>& msg) {
 		if (!SanitizeMsg<Conn>(msg.size()))
 			return;
+		globals.ws->RTCConnect();
 		const Conn* conn = reinterpret_cast<const Conn*>(msg.data());
 		size_t id = ID5(conn->client_id, 0);
 		player = std::make_unique<ProtoX>(id, assets.probe, assets.propulsion.layers.size(), RandomizePos(assets.probe.aabb), missiles, globals.ws.get());
@@ -2837,7 +2876,7 @@ public:
 	void SendSessionID() {
 		Sess msg{ Tag("SESS") };
 		std::copy(std::begin(globals.sessionID), std::end(globals.sessionID), msg.sessionID);
-		globals.ws->Send((char*)&msg, sizeof(msg));
+		globals.ws->WSSend((char*)&msg, sizeof(msg));
 	}
 	void OnTrrt(const std::vector<unsigned char>& msg) {
 		if (!SanitizeMsg<Trrt>(msg.size()))
@@ -2942,17 +2981,35 @@ public:
 		auto hit_pos = p->body.pos + glm::vec3{ p->aabb.r - p->aabb.l, p->aabb.t - p->aabb.b, 0.f };
 		p->Die(hit_pos, camera.vp, debris, particles, debris_model, {}, t.total, camera);
 	}
+	//void OnCtrl(const std::vector<unsigned char>& msg) {
+	//	if (!SanitizeMsg<Ctrl>(msg.size()))
+	//		return;
+	//	const Ctrl* ctrl = reinterpret_cast<const Ctrl*>(&msg.front());
+	//	if (player && player->ctrl == ProtoX::Ctrl::Full && ctrl->ctrl == 0/*query*/) {
+	//		Ctrl msg{ Tag("CTRL"), player->id, ctrl->sourceId, static_cast<char>(ProtoX::Ctrl::Turret) };
+	//		globals.ws->Send((const char*)&msg, sizeof(msg));
+	//	}
+	//	else if (player && player->id == ctrl->targetId && player->ctrl == ProtoX::Ctrl::Full && ctrl->ctrl == static_cast<char>(ProtoX::Ctrl::Turret)/*answer*/) {
+	//		SetCtrl(static_cast<ProtoX::Ctrl>(ctrl->ctrl));
+	//		Ctrl msg{ Tag("CTRL"), player->id, ctrl->sourceId, static_cast<char>(ProtoX::Ctrl::Prop) };
+	//		globals.ws->Send((const char*)&msg, sizeof(msg));
+	//	}
+	//	else if(player && player->id == ctrl->targetId && player->ctrl == ProtoX::Ctrl::Full && ctrl->ctrl == static_cast<char>(ProtoX::Ctrl::Prop)/*response*/) {
+	//		SetCtrl(static_cast<ProtoX::Ctrl>(ctrl->ctrl));
+	//	}
+	//	
+	//}
 	void OnCtrl(const std::vector<unsigned char>& msg) {
 		if (!SanitizeMsg<Ctrl>(msg.size()))
 			return;
 		const Ctrl* ctrl = reinterpret_cast<const Ctrl*>(&msg.front());
-		SetCtrl(static_cast<ProtoX::Ctrl>(ctrl->ctrl));
+		SetCtrl(static_cast<ProtoX::Ctrl>(ctrl->ctrl - 48));
 	}
 	void OnWait(const std::vector<unsigned char>& msg) {
 		if (!SanitizeMsg<Wait>(msg.size()))
 			return;
 		auto wait = reinterpret_cast<const Wait*>(&msg.front());
-		this->wait = wait->n;
+		this->wait = wait->n - 48;
 		//LOG_INFO("OnWait: %d", wait->n);
 	}
 	void Dispatch(const std::vector<unsigned char>& msg, const Time& t) {
@@ -3003,8 +3060,11 @@ public:
 		}
 	}
 	void ProcessMessages(const Time& t) {
-		//LOG_INFO("ProcessMessage thread id: %d", std::hash<std::thread::id>()(std::this_thread::get_id()));
-		//std::lock_guard<std::mutex> lock(msgMutex);
+		while (wsMessages.size()) {
+			auto& msg = wsMessages.front();
+			Dispatch(msg, t);
+			wsMessages.pop();
+		}
 		while (messages.size()) {
 			auto& msg = messages.front();
 			Dispatch(msg, t);
@@ -3071,6 +3131,7 @@ int main(int argc, char** argv) {
 		LOG_INFO("main loop exception: %s\n", ex.what());
 		throw;
 	}
+
 #ifdef __EMSCRIPTEN__
 	auto ret = emscripten_set_touchstart_callback(0, 0, 1, InputHandler::touchstart_callback);
 	if (ret < 0)
@@ -3087,13 +3148,20 @@ int main(int argc, char** argv) {
 
 	Session session = { std::bind(&Scene::OnOpen, globals.scene.get()),
 		std::bind(&Scene::OnClose, globals.scene.get()),
+		std::bind(&Scene::OnConnect, globals.scene.get(),std::placeholders::_1),
 		std::bind(&Scene::OnError, globals.scene.get(),std::placeholders::_1, std::placeholders::_2),
-		std::bind(&Scene::OnMessage, globals.scene.get(),std::placeholders::_1, std::placeholders::_2) };
+		std::bind(&Scene::OnMessage, globals.scene.get(),std::placeholders::_1, std::placeholders::_2),
+		std::bind(&Scene::WSOnMessage, globals.scene.get(),std::placeholders::_1, std::placeholders::_2)};
+
 	//globals.ws = std::make_unique<Client>(globals.host.c_str(), 8000, session);
 	// void emscripten_set_main_loop(em_callback_func func, int fps, int simulate_infinite_loop);
 	globals.ws = std::make_unique<WebRTC>(globals.host.c_str(), globals.port, GenWebRTCId().c_str(), session);
+//#endif
+//	globals.scene->CreatePlayer(GenPlayerID());
+//#ifdef __EMSCRIPTEN__
 	emscripten_set_main_loop(main_loop, 0/*60*/, 1);
 #else
+
 	do {
 		main_loop();
 		glfwSwapBuffers(window);

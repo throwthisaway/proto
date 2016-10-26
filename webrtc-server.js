@@ -4,7 +4,7 @@ var WebSocketServer = require('ws').Server
 var app = require('express')();
 var http = require('http');
 var server = http.createServer(app);
-var clients = new Map();
+
 var debug = true;
 var release = '';//'/develop';
 var sessionIDLen = 5,
@@ -13,6 +13,7 @@ var sessionIDLen = 5,
     minPlayers = 4,
     maxPlayers = 16,
     maxSessions = 8;
+var clients = new Map();
 var sessions = new Map();
 
 function debugOut(msg) {
@@ -29,7 +30,38 @@ function debugOut(msg) {
 //app.get('/adapter.js', function (req, res) {
 //    res.sendFile(__dirname + '/webrtc/adapter.js');
 //});
-
+function ab2strUtf16(buf) {
+    return String.fromCharCode.apply(null, new Uint16Array(buf));
+}
+function ab2str(buf) {
+    return String.fromCharCode.apply(null, new Uint8Array(buf));
+}
+function str2abUtf16(str) {
+    var buf = new ArrayBuffer(str.length * 2); // 2 bytes for each char
+    var bufView = new Uint16Array(buf);
+    for (var i = 0, strLen = str.length; i < strLen; i++) {
+        bufView[i] = str.charCodeAt(i);
+    }
+    return buf;
+}
+function str2ab(str) {
+    var buf = new ArrayBuffer(str.length);
+    var bufView = new Uint8Array(buf);
+    for (var i = 0, strLen = str.length; i < strLen; i++) {
+        bufView[i] = str.charCodeAt(i);
+    }
+    return buf;
+}
+function str_and_number2ab(str, num) {
+    var numLen = 1; // 1 byte number size, 3 byte padding
+    var buf = new ArrayBuffer(str.length + numLen);
+    var bufView = new Uint8Array(buf);
+    for (var i = 0,strLen = str.length; i < strLen; i++) {
+        bufView[i] = str.charCodeAt(i);
+    }
+    bufView[bufView.length - 1] = num;
+    return buf;
+}
 function generateID(count) {
     var symbols = '1234567890abcdefghijklmnopqrstuvwxyz',
         res = '';
@@ -37,6 +69,20 @@ function generateID(count) {
         res += symbols[(Math.random() * symbols.length) | 0];
     }
     return "" + res;
+}
+function generate0ToOClientID(count) {
+    //var symbols = '0123456789:;<=>?@ABCDEFGHIJKLMNO',
+    var res = '';
+    for (var i = 0; i < count; ++i) {
+        res += String.fromCharCode((48 + Math.random() * 32) | 0);
+    }
+    return ""+res;
+}
+function getSessionIDFromMsg(msg) {
+    if (msg.length < 4 + sessionIDLen)
+        return undefined
+    console.log('session init, id: %s', msg);
+    return msg.substr(4, sessionIDLen);
 }
 function findAvailableSessionID() {
     var res;
@@ -96,45 +142,122 @@ app.get(release + '/main.data', function (req, res) {
     res.setHeader('Content-Type', 'application/octet-stream');
     res.sendFile(__dirname + '/emc_ogl/main.data.gz');
 });
+app.get('/thumbnail4.png', function (req, res) {
+    res.sendFile(__dirname + '/thumbnail4.png');
+});
 
-function ab2str(buf) {
-    return String.fromCharCode.apply(null, new Uint8Array(buf));
+function broadcastStringToSession(sender, session, data) {
+    session.forEach(function each(client) {
+        try{
+            if (client != sender)
+                sendSessionStringMessage(client, data);
+        } catch(err) {
+            console.log('client unexpectedly closed: ' + err.message); }
+    });
+};
+function broadcastToSession(sender, session, data) {
+    session.forEach(function each(client) {
+        try{
+            if (client != sender)
+                client.send(data);
+        } catch(err) {
+            console.log('client unexpectedly closed: ' + err.message); }
+    });
+};
+function findClientToCtrl(session) {
+    for (var i = 0; i < session.length; ++i) {
+        //console.log('findClient: ' + session[i].ctrl);
+        if (session[i].ctrl === 0) return session[i];
+    }
+    //console.log('findClient: not found ');
+    return null;
+}
+function findClientByID(session, id) {
+    for (var i = 0; i < session.length; ++i) {
+        // console.log('findClientbyid: ' + session[i].clientID + " " + id);
+        if (session[i].clientID === id) return session[i];
+    }
+    //console.log('findClientbyid: not found ');
+    return null;
+}
+function sendSessionStringMessage(ws, str){
+    ws.send(JSON.stringify({'session': str}));
+}
+function handleSessionStringMessage(ws, message){
+    debugOut(message);
+    if (message.indexOf('SESS') === 0) {
+        var sessionID = getSessionIDFromMsg(message);
+        var session = sessions.get(sessionID);
+        if (session == undefined) {
+            debugOut('Can\'t find session ' + sessionID);
+            ws.terminate();
+            return;
+        }
+        var client = findClientToCtrl(session);
+        if (client) {
+            client.ctrl = 1;
+            sendSessionStringMessage(client, 'CTRL1');
+            ws.ctrl = 2;
+            ws.clientID = client.clientID;
+            sendSessionStringMessage(ws, "CONN" + client.clientID + "2");
+        } else {
+            ws.ctrl = 0;
+            ws.clientID = generate0ToOClientID(clientIDLen);
+            sendSessionStringMessage(ws, "CONN" + ws.clientID + "0");
+        }
+        session.push(ws);
+        ws.session = session;
+        console.log('session player count: ' + session.length);
+
+        if (session.length < minPlayers)
+            broadcastStringToSession(null, session, 'WAIT' + ab2str([48 + minPlayers - session.length]));
+        else
+            broadcastStringToSession(null, session, str2ab('WAIT0'));
+        return;
+    }
+    if (ws.session == undefined) {
+        console.log('Invalid session for ws client');
+        ws.terminate();
+        return;
+    }
+    //broadcastToSession(ws, ws.session, message);
 }
 
+function close(ws, remoteID){
+    debugOut("closing " + remoteID)
+    clients.delete(remoteID);
+    broadcastToSession(ws, ws.session, JSON.stringify({'close': remoteID}));
+}
+
+//function broadcastMessage(sender, message) {
+//    for (var [key, client] of clients.entries()) {
+//        if (client === sender) continue;
+//        try {
+//            client.send(message);
+//        } catch (err) {
+//            close(sender, key);
+//            console.log('client unexpectedly closed: ' + err.message);
+//        }
+//    }
+//}
+
+// {'connect': '7fea5'}
+// {'offer': {'originID': '7fea5', 'targetID': '8e9c3', 'sdp': '...'}}
+// {'answer': {'targetID': '7fea5','sdp': '...'}}
+// {'targetID': '8e9c3', 'originID': originID, 'candidate': '...'}}
 var wss = new WebSocketServer({
     server: server,
     //port: 8000,
     autoAcceptConnections: false
 });
-
-function close(ws, remoteID){
-    debugOut("closing " + remoteID)
-    clients.delete(remoteID);
-    broadcastMessage(ws, JSON.stringify({'close': remoteID}));
-}
-
-function broadcastMessage(sender, message) {
-    for (var [key, client] of clients.entries()) {
-        if (client === sender) continue;
-        try {
-            client.send(message);
-        } catch (err) {
-            close(sender, key);
-            console.log('client unexpectedly closed: ' + err.message);
-        }
-    }
-}
-// {'connect': '7fea5'}
-// {'offer': {'originID': '7fea5', 'targetID': '8e9c3', 'sdp': '...'}}
-// {'answer': {'targetID': '7fea5','sdp': '...'}}
-
-// {'targetID': '8e9c3', 'originID': originID, 'candidate': '...'}}
 wss.on('connection', function (ws) {
     ws.on('message', function (message, flags) {
         var msg = JSON.parse(message);
-        if (msg.connect) {
-            // broadcast connect request to everyone else
-            broadcastMessage(ws, message)
+        if (msg.session){
+            handleSessionStringMessage(ws, msg.session);
+        } else if (msg.connect) {
+            // broadcast connect request to everyone else in the session
+            broadcastToSession(ws, ws.session, message);
             clients.set(msg.connect, ws);
         }else if (msg.offer) {
             debugOut(">>>>>offer from " + msg.offer.originID);
@@ -160,15 +283,34 @@ wss.on('connection', function (ws) {
         }
     });
     ws.on('close', function (code, message) {
+        if (ws.session) {
+            broadcastStringToSession(ws, ws.session, 'KILL' + ws.clientID);
+            if (ws.session.length > 1)
+                ws.session[ws.session.indexOf(ws)] = ws.session[ws.session.length - 1];
+            ws.session.pop();
+            var client;
+            if (client = findClientByID(ws.session, ws.clientID)) {
+                client.ctrl = 0;
+                client.send('CTRL0');
+            }
+            debugOut('session player count: ' + ws.session.length);
+            if (ws.session.length < 1) {
+                debugOut('deleting session: ' + ws.session.id );
+                delete sessions.delete(ws.session.id);
+                debugOut(' session count: ' + sessions.size);
+            } else  if (ws.session.length < minPlayers)
+                broadcastStringToSession(null, ws.session, 'WAIT', ab2str([48+minPlayers - ws.session.length]));
+        }
+        debugOut('Client ' + ws.clientID + ' disconnected ' + code + ' ' + message);
+
         for (var [key, value] of clients.entries()) {
-            if (value === ws) {
-                debugOut("delete " + key);
-                close(ws, key);
-                break;
+             if (value === ws) {
+                 debugOut("delete " + key);
+                 close(ws, key);
+                 break;
+             }
         }
         debugOut('Client disconnected, count ' + clients.size + ' ' + code + ' ' + message);
-    }
-     
     });
 });
 

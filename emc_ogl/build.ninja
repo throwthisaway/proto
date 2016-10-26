@@ -3,10 +3,10 @@ MeshExportPath = ..\..\MeshExport\
 #EMCC_PATH=f:\Programs\Emscripten\emscripten\1.35.0\
 EMCC_PATH=f:\Programs\Emscripten\emscripten\incoming\
 
-debug = -s DEMANGLE_SUPPORT=1 -s ALLOW_MEMORY_GROWTH=1 -v 
+debug = -s DEMANGLE_SUPPORT=1 -s ALLOW_MEMORY_GROWTH=1 -v -s ASSERTIONS=1
 release = -O3 -s NO_EXIT_RUNTIME=1 -s ALLOW_MEMORY_GROWTH=1
 # -s ALLOW_MEMORY_GROWTH=1
-build_config = $release
+build_config = $debug
 cppflags = -s USE_GLFW=3 -s NO_EXIT_RUNTIME=1 -DGLM $build_config -std=c++14 -I..\..\..\3rdparty\glm -I..\..\..\3rdparty\GSL\include -i${MeshLoaderPath} -i${MeshExportPath}MeshCommon -i${MeshExportPath}MeshView2005\Img
 linkflags = -s USE_GLFW=3 -s NO_EXIT_RUNTIME=1 $build_config --bind --preload-file asset
 rule cpp

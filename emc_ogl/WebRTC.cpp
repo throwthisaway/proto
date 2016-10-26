@@ -33,7 +33,7 @@ using namespace emscripten;
 //	}
 //};
 
-WebRTC* passThrough(unsigned int ptr) {
+WebRTC* passThrough(size_t ptr) {
 	return reinterpret_cast<WebRTC*>(ptr);
 }
 WebRTC::WebRTC(const char * hostname, unsigned short port, const char *id, const Session& session) : session(session) {
@@ -41,7 +41,7 @@ WebRTC::WebRTC(const char * hostname, unsigned short port, const char *id, const
 	EM_ASM_({
 		var hostname = Module.UTF8ToString($0);
 		var id = Module.UTF8ToString($2);
-		console.log('>>>>>> ' + hostname + ' ' + $1 + ' ' + id + ' ' + $3);
+		//console.log('>>>>>> ' + hostname + ' ' + $1 + ' ' + id + ' ' + $3);
 		WebRTCPeer.init(hostname + ':' + $1, id, new Module.WebRTC($3));
 	}, hostname, port, id, this);
 #endif
@@ -55,23 +55,49 @@ void WebRTC::Send(const char* msg, size_t len) {
 	}, msg, len);
 #endif
 }
+void WebRTC::WSSend(const char* msg, size_t len) {
+#ifdef __EMSCRIPTEN__
+	EM_ASM_({
+		var buffer = new Uint8Array(Module.HEAPU8.buffer, $0, $1);
+		WebRTCPeer.wsSend(buffer);
+	}, msg, len);
+#endif
+}
 void WebRTC::OnMessage(const std::string& str) {
-	LOG_INFO(">>>>>>OnMessage");
 	received += str.size();
 	session.onMessage(str.c_str(), str.size());
 }
+
+void WebRTC::WSOnMessage(const std::string& str) {
+	session.wsOnMessage(str.c_str(), str.size());
+}
+
 void WebRTC::OnClose() {
-	LOG_INFO(">>>>>>OnClose");
+	session.onClose();
+}
+void WebRTC::OnOpen() {
+	session.onOpen();
 }
 void WebRTC::OnError() {
 	LOG_INFO(">>>>>>OnError");
+}
+void WebRTC::OnConnect(bool initial) {
+	session.onConnect(initial);
+}
+void WebRTC::RTCConnect() {
+#ifdef __EMSCRIPTEN__
+	EM_ASM(WebRTCPeer.rtcConnect());
+#endif
 }
 #ifdef __EMSCRIPTEN__
 EMSCRIPTEN_BINDINGS(WebRTC_Binding) {
 	class_<WebRTC>("WebRTC")
 		.constructor(&passThrough, allow_raw_pointers())
 		.function("OnMessage", &WebRTC::OnMessage, allow_raw_pointers())
+		.function("WSOnMessage", &WebRTC::WSOnMessage, allow_raw_pointers())
 		.function("OnClose", &WebRTC::OnClose)
-		.function("OnError", &WebRTC::OnError);
+		.function("OnError", &WebRTC::OnError)
+		.function("OnConnect", &WebRTC::OnConnect)
+		.function("OnOpen", &WebRTC::OnOpen);
 }
 #endif

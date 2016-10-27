@@ -247,11 +247,18 @@ function close(ws, remoteID){
 // {'offer': {'originID': '7fea5', 'targetID': '8e9c3', 'sdp': '...'}}
 // {'answer': {'targetID': '7fea5','sdp': '...'}}
 // {'targetID': '8e9c3', 'originID': originID, 'candidate': '...'}}
-var wss = new WebSocketServer({
-    server: server,
-    //port: 8000,
-    autoAcceptConnections: false
-});
+var wss;
+if (ipaddress === "127.0.0.1") {
+    wss = new WebSocketServer({
+        server: server,
+        port: 8000,
+        autoAcceptConnections: false });
+} else {
+    wss = new WebSocketServer({
+        server: server,
+        autoAcceptConnections: false
+    });
+}
 wss.on('connection', function (ws) {
     ws.on('message', function (message, flags) {
         var msg = JSON.parse(message);

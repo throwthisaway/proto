@@ -48,7 +48,7 @@ var createConnection = function (initial) {
     }
 
     function iceCb(e) {
-        debugOutRTC('Send ICE candidate: \n' + e.candidate.candidate);
+        debugOutRTC('Send ICE candidate: \n' + e.candidate);
         if (!e.candidate) return;
         ws.send(JSON.stringify({ 'targetID': remoteID, 'originID': clientID, 'candidate': e.candidate }));
     }

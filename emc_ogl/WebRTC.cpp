@@ -75,6 +75,9 @@ void WebRTC::WSOnMessage(const std::string& str) {
 void WebRTC::OnClose() {
 	session.onClose();
 }
+void WebRTC::WSOnClose() {
+	session.wsOnClose();
+}
 void WebRTC::OnOpen() {
 	session.onOpen();
 }
@@ -94,10 +97,11 @@ EMSCRIPTEN_BINDINGS(WebRTC_Binding) {
 	class_<WebRTC>("WebRTC")
 		.constructor(&passThrough, allow_raw_pointers())
 		.function("OnMessage", &WebRTC::OnMessage, allow_raw_pointers())
-		.function("WSOnMessage", &WebRTC::WSOnMessage, allow_raw_pointers())
 		.function("OnClose", &WebRTC::OnClose)
 		.function("OnError", &WebRTC::OnError)
 		.function("OnConnect", &WebRTC::OnConnect)
-		.function("OnOpen", &WebRTC::OnOpen);
+		.function("OnOpen", &WebRTC::OnOpen)
+		.function("WSOnMessage", &WebRTC::WSOnMessage, allow_raw_pointers())
+		.function("WSOnClose", &WebRTC::WSOnClose);
 }
 #endif

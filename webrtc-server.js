@@ -5,7 +5,7 @@ var app = require('express')();
 var http = require('http');
 var server = http.createServer(app);
 
-var debug = true;
+var debug = true, debugRTC = false;
 var release = '';//'/develop';
 var sessionIDLen = 5,
     headerLen = 3 + sessionIDLen,
@@ -16,9 +16,11 @@ var sessionIDLen = 5,
 var clients = new Map();
 var sessions = new Map();
 
+function debugOutRTC(msg) {
+    debugRTC && debugOut(msg);
+}
 function debugOut(msg) {
-    if (debug)
-        console.log(msg);
+    debug && console.log(msg);
 }
 //app.get('/', function (req, res) {
 //    res.sendFile(__dirname + '/webrtc/webrtc.html');
@@ -212,7 +214,7 @@ function handleSessionStringMessage(ws, message){
         if (session.length < minPlayers)
             broadcastStringToSession(null, session, 'WAIT' + ab2str([48 + minPlayers - session.length]));
         else
-            broadcastStringToSession(null, session, str2ab('WAIT0'));
+            broadcastStringToSession(null, session, 'WAIT0');
         return;
     }
     if (ws.session == undefined) {
@@ -224,7 +226,7 @@ function handleSessionStringMessage(ws, message){
 }
 
 function close(ws, remoteID){
-    debugOut("closing " + remoteID)
+    //debugOut("closing " + remoteID)
     clients.delete(remoteID);
     broadcastToSession(ws, ws.session, JSON.stringify({'close': remoteID}));
 }
@@ -260,57 +262,56 @@ wss.on('connection', function (ws) {
             broadcastToSession(ws, ws.session, message);
             clients.set(msg.connect, ws);
         }else if (msg.offer) {
-            debugOut(">>>>>offer from " + msg.offer.originID);
+            debugOutRTC(">>>offer from " + msg.offer.originID);
             var client = clients.get(msg.offer.targetID);
             if (client) {
                 client.send(message);
-                debugOut(">>>>>offer sent to " + msg.offer.targetID);
+                debugOutRTC(">>>offer sent to " + msg.offer.targetID);
             }
         }else if (msg.answer) {
-            debugOut(">>>>>answer from " + msg.answer.originID);
+            debugOutRTC(">>>answer from " + msg.answer.originID);
             var client = clients.get(msg.answer.targetID);
             if (client) {
                 client.send(message);
-                debugOut(">>>>>answer sent to" + msg.answer.targetID);
+                debugOutRTC(">>>answer sent to" + msg.answer.targetID);
             }
         }else if (msg.candidate) {
-            debugOut(">>>>>icecandidate from " + msg.originID);
+            debugOutRTC(">>>icecandidate from " + msg.originID);
             var client = clients.get(msg.targetID);
             if (client) {
                 client.send(message);
-                debugOut(">>>>>icecandidate sent to " + msg.targetID);
+                debugOutRTC(">>>icecandidate sent to " + msg.targetID);
             }
         }
     });
     ws.on('close', function (code, message) {
         if (ws.session) {
-            broadcastStringToSession(ws, ws.session, 'KILL' + ws.clientID);
+            if (ws.ctrl == 0)
+                broadcastStringToSession(ws, ws.session, 'KILL' + ws.clientID);
             if (ws.session.length > 1)
                 ws.session[ws.session.indexOf(ws)] = ws.session[ws.session.length - 1];
             ws.session.pop();
+            // check for other client to reset control
             var client;
             if (client = findClientByID(ws.session, ws.clientID)) {
                 client.ctrl = 0;
-                client.send('CTRL0');
+                sendSessionStringMessage(client, 'CTRL0');
             }
-            debugOut('session player count: ' + ws.session.length);
             if (ws.session.length < 1) {
-                debugOut('deleting session: ' + ws.session.id );
                 delete sessions.delete(ws.session.id);
-                debugOut(' session count: ' + sessions.size);
+               // debugOut('deleting session: ' + ws.session.id + ' session count: ' + sessions.size);
             } else  if (ws.session.length < minPlayers)
-                broadcastStringToSession(null, ws.session, 'WAIT', ab2str([48+minPlayers - ws.session.length]));
+                broadcastStringToSession(null, ws.session, 'WAIT' + ab2str([48+minPlayers - ws.session.length]));
         }
-        debugOut('Client ' + ws.clientID + ' disconnected ' + code + ' ' + message);
+        //debugOut('Client ' + ws.clientID + ' disconnected ' + code + ' ' + message);
 
         for (var [key, value] of clients.entries()) {
              if (value === ws) {
-                 debugOut("delete " + key);
                  close(ws, key);
                  break;
              }
         }
-        debugOut('Client disconnected, count ' + clients.size + ' ' + code + ' ' + message);
+        //debugOut('Client disconnected, count ' + clients.size + ' ' + code + ' ' + message);
     });
 });
 

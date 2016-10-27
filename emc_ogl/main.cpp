@@ -141,7 +141,7 @@ struct {
 		missile_start_offset_y = 1.f * scale,
 		foreground_pos_x_ratio = 1.f,
 		player_fade_out_time = 3500.f, // ms;
-		msg_interval = 100.f; //ms
+		msg_interval = 0.f; //ms
 	const size_t max_missile = 3;
 	const glm::vec4 radar_player_color{ 1.f, 1.f, 1.f, 1.f }, radar_enemy_color{ 1.f, .5f, .5f, 1.f };
 	const gsl::span<const glm::vec4, gsl::dynamic_range>& palette = pal, &grey_palette = grey_pal;
@@ -1280,8 +1280,8 @@ struct ProtoX {
 		hit = killed = false;
 	}
 	bool SkipDeathCheck() const { return invincible > 0.f || hit || killed; }
-	void Die(const glm::vec3& hit_pos, const glm::mat4& vp, std::list<Debris>& debris, std::list<Particles>& particles, const Asset::Model& debris_model, glm::vec3 vec, double hit_time, const Camera& cam) {
-		if (SkipDeathCheck()) return;
+	void Die(const glm::vec3& hit_pos, const glm::mat4& vp, std::list<Debris>& debris, std::list<Particles>& particles, const Asset::Model& debris_model, glm::vec3 vec, double hit_time, const Camera& cam, bool force_onkill = false) {
+		if (!force_onkill && SkipDeathCheck()) return;
 		hit = true;
 		this->hit_time = hit_time;
 	//	this->hit_pos = RotateZ(hit_pos, body.pos, -body.rot);
@@ -2979,7 +2979,7 @@ public:
 		if (it == std::end(players)) return;
 		auto& p = it->second;
 		auto hit_pos = p->body.pos + glm::vec3{ p->aabb.r - p->aabb.l, p->aabb.t - p->aabb.b, 0.f };
-		p->Die(hit_pos, camera.vp, debris, particles, debris_model, {}, t.total, camera);
+		p->Die(hit_pos, camera.vp, debris, particles, debris_model, {}, t.total, camera, true);
 	}
 	//void OnCtrl(const std::vector<unsigned char>& msg) {
 	//	if (!SanitizeMsg<Ctrl>(msg.size()))
@@ -3147,6 +3147,7 @@ int main(int argc, char** argv) {
 		LOG_ERR(ret, "emscripten_set_touchcancel_callback failed");
 
 	Session session = { std::bind(&Scene::OnOpen, globals.scene.get()),
+		std::bind(&Scene::OnClose, globals.scene.get()),
 		std::bind(&Scene::OnClose, globals.scene.get()),
 		std::bind(&Scene::OnConnect, globals.scene.get(),std::placeholders::_1),
 		std::bind(&Scene::OnError, globals.scene.get(),std::placeholders::_1, std::placeholders::_2),

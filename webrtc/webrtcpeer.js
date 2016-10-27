@@ -2,11 +2,13 @@
 // TODO:: error handling
 // TODO:: close handling
 //chrome://webrtc-internals/
-var debug = true;
+var debug = true, debugRTC = false;
 var clientIDLen = 5;
+function debugOutRTC(msg) {
+    debugRTC && debugOut(msg);
+}
 function debugOut(msg) {
-    if (debug)
-        console.log(msg);
+    debug && console.log(msg);
 }
 function str2ab(str) {
     var buf = new ArrayBuffer(str.length);
@@ -39,64 +41,63 @@ var createConnection = function (initial) {
             WebRTCPeer.connected(remoteID, initial);
     }
 
-    function onAddIceCandidateSuccess() { debugOut('onAddIceCandidateSuccess'); }
+    function onAddIceCandidateSuccess() { debugOutRTC('onAddIceCandidateSuccess'); }
 
     function onAddIceCandidateError(error) {
-        debugOut('Failed to add Ice Candidate: ' + error.toString());
+        debugOutRTC('Failed to add Ice Candidate: ' + error.toString());
     }
 
     function iceCb(e) {
+        debugOutRTC('Send ICE candidate: \n' + e.candidate.candidate);
         if (!e.candidate) return;
         ws.send(JSON.stringify({ 'targetID': remoteID, 'originID': clientID, 'candidate': e.candidate }));
-        debugOut('Send ICE candidate: \n' + e.candidate.candidate);
     }
 
     function gotOfferDescription(desc) {
+        debugOutRTC('gotOfferDescription \n' + desc.sdp);
         conn.setLocalDescription(desc);
-        debugOut('gotOfferDescription \n' + desc.sdp);
         ws.send(JSON.stringify({ 'offer': { 'targetID': remoteID, 'originID': clientID, 'sdp': desc } }));
     }
 
     function gotAnswerDescription(desc) {
+        debugOutRTC('gotAnswerDescription \n' + desc.sdp);
         conn.setLocalDescription(desc);
-        debugOut('gotAnswerDescription \n' + desc.sdp);
         ws.send(JSON.stringify({ 'answer': { 'targetID': remoteID, 'originID': clientID, 'sdp': desc } }));
     }
 
     function onSendChannelStateChange() {
         var readyState = sendChannel.readyState;
-        debugOut('Send channel state is: ' + readyState);
+        debugOutRTC('Send channel state is: ' + readyState);
         if (readyState === 'open') { Connected(); }
         else if (readyState === 'close') { close(); }
     }
 
     function onAddIceCandidateSuccess() {
-        debugOut('AddIceCandidate success.');
+        debugOutRTC('AddIceCandidate success.');
     }
 
     function onAddIceCandidateError(error) {
-        debugOut('Failed to add Ice Candidate: ' + error.toString());
+        debugOutRTC('Failed to add Ice Candidate: ' + error.toString());
     }
 
     function onCreateSessionDescriptionError(error) {
-        debugOut('Failed to create session description: ' + error.toString());
+        debugOutRTC('Failed to create session description: ' + error.toString());
     }
 
     function onReceiveMsgCb(e) {
         recvSize += e.data.length;
-        //debugOut('Received: ' + ab2str(e.data));
         WebRTCPeer.onmessage(remoteID, e.data);
     }
 
     function onReceiveChannelStateChange() {
         var readyState = receiveChannel.readyState;
-        debugOut('Receive channel state is: ' + readyState);
+        debugOutRTC('Receive channel state is: ' + readyState);
         if (readyState === 'open') { Connected(); }
         else if (readyState === 'close') { close(); }
     }
 
     function onReceiveChannelCb(e) {
-        debugOut('Receive Channel Callback');
+        debugOutRTC('Receive Channel Callback');
         receiveChannel = e.channel;
         receiveChannel.binaryType = 'arraybuffer';
         receiveChannel.onmessage = onReceiveMsgCb;
@@ -133,11 +134,10 @@ var createConnection = function (initial) {
     function send(data) {
         if (sendChannel.readyState == 'open')
             sendChannel.send(data);
-        //debugOut('Sent Data: ' + ab2str(data));
     }
 
     function handleOffer(sdp) {
-        debugOut('handleOffer');
+        debugOutRTC('handleOffer');
         conn.setRemoteDescription(new RTCSessionDescription(sdp));
         conn.createAnswer().then(
             gotAnswerDescription,
@@ -146,7 +146,7 @@ var createConnection = function (initial) {
     }
 
     function handleAnswer(sdp) {
-        debugOut('handleAnswer');
+        debugOutRTC('handleAnswer');
         conn.setRemoteDescription(new RTCSessionDescription(sdp));
     }
 
@@ -190,17 +190,17 @@ var WebRTCPeer = function () {
             conn.init(ws, msg.connect, clientID);
             conn.sendOffer();
         } else if (msg.offer) {
-            debugOut('onwsmessage-on-offer');
+            debugOutRTC('onwsmessage-on-offer');
             var conn = createConnection(false);
             connections.set(msg.offer.originID, conn);
             conn.init(ws, msg.offer.originID, clientID/*same as msg.offer.targetID*/);
             conn.handleOffer(msg.offer.sdp);
         } else if (msg.answer) {
-            debugOut('onwsmessage-on-answer');
+            debugOutRTC('onwsmessage-on-answer');
             var conn = connections.get(msg.answer.originID);
             if (conn) conn.handleAnswer(msg.answer.sdp);
         } else if (msg.candidate) {
-            debugOut('onwsmessage-addicecandidate');
+            debugOutRTC('onwsmessage-addicecandidate');
             var conn = connections.get(msg.originID);
             if (conn) conn.handleIceCandidate(msg.candidate);
         } else if (msg.close) {
@@ -216,21 +216,23 @@ var WebRTCPeer = function () {
             cpp = _cpp;
             ws = new WebSocket('ws://' + url);
             ws.onopen = function () {
-                debugOut('ws-onopen');
-                if (cpp) cpp.OnOpen();
+                //debugOut('ws-onopen');
+                cpp && cpp.OnOpen();
             };
 
             ws.onerror = function (error) {
                 debugOut('ws-error ' + error);
             };
-
+            ws.onclose = function(code, message){
+                cpp && cpp.WSOnClose();
+            },
             ws.onmessage = function (e) {
                 onWSMessage(e);
             };
         },
         close: function (remoteID) {
             connections.delete(remoteID);
-            if (cpp) cpp.OnClose();
+            cpp && cpp.OnClose();
         },
         send: function (data) {
             for (var client of connections.values()) {

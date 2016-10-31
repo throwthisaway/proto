@@ -1306,7 +1306,7 @@ struct ProtoX {
 		globals.audio->Enqueue(Audio::Command::ID::Start, die, glm::clamp(ndc.x, -1.f, 1.f), ::NDCToGain(ndc.x));
 	}
 	bool IsInRestingPos(const AABB& bounds) const {
-		return body.pos.y + body.layer.aabb.b <= bounds.b + ground_level;
+		return aabb.b - ground_level <= bounds.b;
 	}
 
 	//auto GenBBoxEdgesCCW() {
@@ -1418,7 +1418,7 @@ struct ProtoX {
 
 			// ground constraint
 			if (IsInRestingPos(bounds)) {
-				body.pos.y = bounds.b + ground_level - body.layer.aabb.b;
+				body.pos.y += bounds.b - aabb.b + ground_level;
 				if (std::abs(body.rot) > safe_rot && invincible <= 0.f) {
 					glm::vec3 hit_pos = body.pos + glm::vec3{ 0.f, body.layer.aabb.b, 0.f },
 						n{ 0.f, 1.f, 0.f };
@@ -1429,10 +1429,10 @@ struct ProtoX {
 				}
 				else {
 					body.rot = 0.f;
-					if (std::abs(vel.y) < 0.001f)
+					if (std::abs(vel.y) < 0.02f)
 						vel.y = 0.f;
 					else
-						vel = { 0.f, -vel.y / 2.f, 0.f };
+						vel = { 0.f, -vel.y / 1.2f, 0.f };
 				}
 			}
 			else if (turret.layer.aabb.t + body.pos.y >= bounds.t) {

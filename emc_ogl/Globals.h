@@ -5,8 +5,8 @@
 
 #define EMSCRIPTEN_LOG_CONSOLE
 //#define VAO_SUPPORT
-//#define DEBUG_REL
-#define MAX_NPC 0
+#define DEBUG_REL
+#define MAX_NPC 20
 #define CLIENTID_LEN 5
 //#define LINE_RENDER
 #define LINE_WIDTH 3.f

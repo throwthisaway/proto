@@ -141,7 +141,9 @@ struct {
 		missile_start_offset_y = 1.f * scale,
 		foreground_pos_x_ratio = 1.f,
 		player_fade_out_time = 3500.f, // ms;
-		msg_interval = 0.f; //ms
+		msg_interval = 0.f, //ms
+		max_scale = 3.5f,
+		scale_inc = 1.2f; 
 	const size_t max_missile = 3;
 	const glm::vec4 radar_player_color{ 1.f, 1.f, 1.f, 1.f }, radar_enemy_color{ 1.f, .5f, .5f, 1.f };
 	const gsl::span<const glm::vec4, gsl::dynamic_range>& palette = pal, &grey_palette = grey_pal;
@@ -809,7 +811,7 @@ struct Invi {
 struct Plyr {
 	const size_t tag, id;
 	const int score;
-	const float x, y, turret_rot, vx, vy, rot;
+	const float x, y, turret_rot, vx, vy, rot, scale;
 	const uint8_t prop;
 };
 struct Prop {
@@ -1041,11 +1043,11 @@ struct ProtoX {
 	float msg_interval = 0.f;
 	struct Body {
 		glm::vec3 pos;
-		float rot;
+		float rot, scale;
 		const Asset::Layer& layer;
 		Val<AABB> aabb;
 		Val<OBB> bbox;
-		Body(const glm::vec3& pos, float rot, const Asset::Layer& layer) : pos(pos), rot(rot), layer(layer),
+		Body(const glm::vec3& pos, float rot, const Asset::Layer& layer) : pos(pos), rot(rot), scale(1.f), layer(layer),
 			aabb(TransformAABB(layer.aabb, GetModel())),
 			bbox(TransformBBox(layer.aabb, GetModel())) {}
 		void Update(const Time& t) {
@@ -1053,7 +1055,7 @@ struct ProtoX {
 			bbox = TransformBBox(layer.aabb, GetModel());
 		}
 		glm::mat4 GetModel() const {
-			return ::GetModel({}, pos, rot, layer.pivot);
+			return ::GetModel({}, pos, rot, layer.pivot, scale);
 		}
 	}body;
 	std::vector<Text> msg;
@@ -1146,6 +1148,12 @@ struct ProtoX {
 		auto it = std::partition(std::begin(missiles), std::end(missiles), [this](const Missile& m) {
 			return m.owner != this; });
 		missiles.erase(it, std::end(missiles));
+	}
+	void Enlarge() {
+		body.scale = std::min(body.scale * globals.scale_inc, globals.max_scale);
+	}
+	void SetScale(float scale = 1.f) {
+		body.scale = scale;
 	}
 	/*auto GetPrevModel() const {
 		return ::GetModel({}, prev_pos, prev_rot, layer.pivot);
@@ -1442,7 +1450,7 @@ struct ProtoX {
 			if (ws && (globals.msg_interval == 0.f || msg_interval>=globals.msg_interval)) {
 				msg_interval -= globals.msg_interval;
 				if (ctrl == Ctrl::Full) {
-					Plyr player{ Tag("PLYR"), id, score, body.pos.x, body.pos.y, turret.rot, vel.x, vel.y, body.rot, ToProp()};
+					Plyr player{ Tag("PLYR"), id, score, body.pos.x, body.pos.y, turret.rot, vel.x, vel.y, body.rot, body.scale, ToProp()};
 					globals.ws->Send((char*)&player, sizeof(Plyr));
 				}
 				else if (ctrl == Ctrl::Prop) {
@@ -2785,6 +2793,7 @@ public:
 						const glm::vec3 vec{ std::cos(m.rot), std::sin(m.rot), 0.f };
 						p.second->Die(hit_pos, camera.vp, debris, particles, assets.debris, vec, (double)t.total, camera);
 						++player->score;
+						player->Enlarge();
 						player->Kill(p.second->id, m.id, 1, hit_pos, vec);
 						m.remove = true;
 						break;
@@ -2921,6 +2930,7 @@ public:
 		auto* proto = GetOrCreatePlayer(player->id, player->x, player->y);
 		proto->FromPropOrPLyrMsg(player);
 		proto->turret.SetRot(player->turret_rot);
+		proto->SetScale(player->scale);
 	}
 	void OnInvi(const std::vector<unsigned char>& msg) {
 		if (!SanitizeMsg<Invi>(msg.size()))

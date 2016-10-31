@@ -43,6 +43,7 @@
 #include "WebRTC.h"
 //#define OBB_TEST
 // TODO:: 
+// - framerate independent resting pos
 // - prop send onplyr only
 // - turret send TRRT msg for rotation
 // - send onplyr 33ms
@@ -142,7 +143,7 @@ struct {
 		foreground_pos_x_ratio = 1.f,
 		player_fade_out_time = 3500.f, // ms;
 		msg_interval = 0.f, //ms
-		max_scale = 3.5f,
+		max_player_scale = 2.f,// 3.5f,
 		scale_inc = 1.2f; 
 	const size_t max_missile = 3;
 	const glm::vec4 radar_player_color{ 1.f, 1.f, 1.f, 1.f }, radar_enemy_color{ 1.f, .5f, .5f, 1.f };
@@ -416,7 +417,7 @@ namespace Asset {
 		std::vector<Img::ImgData> images;
 		size_t masks_image_index;
 		std::vector<Model*> models;
-		Model probe, propulsion, land, missile, debris, text, debug, radar, mouse, wsad, foreground;
+		Model probe, propulsion, land, missile, debris, text, debug, radar, mouse, wsad, foreground, spacebar;
 		Assets() {
 #ifdef __EMSCRIPTEN__
 #define PATH_PREFIX ""
@@ -528,7 +529,12 @@ namespace Asset {
 				foreground = Reconstruct(mesh, globals.scale);
 				models.push_back(&foreground);
 			}
-			
+			{
+				MeshLoader::Mesh mesh;
+				ReadMeshFile(PATH_PREFIX"asset//spacebar.mesh", mesh);
+				spacebar = Reconstruct(mesh, globals.scale);
+				models.push_back(&spacebar);
+			}
 			{
 				const std::vector<glm::vec3> vertices{ { 0.f, 0.f, 0.f },
 				{  0.5f, 0.f, 0.f },
@@ -854,6 +860,9 @@ struct Text {
 	Align align;
 	std::string str;
 };
+struct Splt {
+	const size_t tag, id;
+};
 struct Particles {
 	static GLuint vbo;
 	static GLsizei vertex_count;
@@ -1150,7 +1159,8 @@ struct ProtoX {
 		missiles.erase(it, std::end(missiles));
 	}
 	void Enlarge() {
-		body.scale = std::min(body.scale * globals.scale_inc, globals.max_scale);
+		if (ctrl == Ctrl::Full) return;
+		body.scale = std::min(body.scale * globals.scale_inc, globals.max_player_scale);
 	}
 	/*auto GetPrevModel() const {
 		return ::GetModel({}, prev_pos, prev_rot, layer.pivot);
@@ -1352,7 +1362,15 @@ struct ProtoX {
 	//	res.push_back(turret.bbox.prev[0]);
 	//	return res;
 	//}
-
+	inline bool CanSplit() {
+		return ctrl != Ctrl::Full && body.scale >= globals.max_player_scale;
+	}
+	void Split(float x_displacement) {
+		SetInvincibility();
+		SetCtrl(ProtoX::Ctrl::Full);
+		body.scale = 1.f;
+		body.pos.x += (body.layer.aabb.r - body.layer.aabb.l) * x_displacement;
+	}
 	void Update(const Time& t, const AABB& bounds, std::list<Particles>& particles, std::list<Debris>& debris, bool player_self, const Camera& cam, const Asset::Model& debris_model) {
 		Execute(t.total, t.frame, commands);
 		msg.clear();
@@ -1426,7 +1444,7 @@ struct ProtoX {
 				}
 				else {
 					body.rot = 0.f;
-					if (std::abs(vel.y) < 0.02f)
+					if (std::abs(vel.y) < 0.04f)
 						vel.y = 0.f;
 					else
 						vel = { 0.f, -vel.y / 1.2f, 0.f };
@@ -1494,7 +1512,8 @@ struct ProtoX {
 		pos_invalidated = true;
 		body.pos.x = msg->x; body.pos.y = msg->y;
 		body.rot = msg->rot;
-		body.scale = msg->scale;
+		if (ctrl != Ctrl::Full)
+			body.scale = msg->scale;
 		vel.x = msg->vx; vel.y = msg->vy;
 		score = msg->score;
 		FromProp(msg->prop);
@@ -1553,7 +1572,8 @@ struct Renderer {
 		VBO_WSAD = 12,
 		VBO_EDGES = 13,
 		VBO_FOREGROUND = 14,
-		VBO_COUNT = 15;
+		VBO_SPACEBAR = 15,
+		VBO_COUNT = 16;
 	GLuint vbo[VBO_COUNT];
 	std::vector<GLuint> tex;
 	glm::vec4 clearColor;
@@ -1570,7 +1590,7 @@ struct Renderer {
 		GLuint id;
 		float factor = 1.f;
 		const Asset::Model* model;
-	}wsad_decal, mouse_decal;
+	}wsad_decal, mouse_decal, spacebar_decal;
 	struct StarField {
 		size_t count_per_layer;
 		AABB bounds;
@@ -1817,6 +1837,13 @@ struct Renderer {
 			glBindBuffer(GL_ARRAY_BUFFER, wsad_decal.id = vbo[VBO_WSAD]);
 			wsad_decal.model = &assets.wsad;
 			glBufferData(GL_ARRAY_BUFFER, assets.wsad.vertices.size() * sizeof(wsad_decal.model->vertices[0]), &wsad_decal.model->vertices.front(), GL_STATIC_DRAW);
+			glBindBuffer(GL_ARRAY_BUFFER, 0);
+		}
+		{
+			// spacebar
+			glBindBuffer(GL_ARRAY_BUFFER, spacebar_decal.id = vbo[VBO_SPACEBAR]);
+			spacebar_decal.model = &assets.spacebar;
+			glBufferData(GL_ARRAY_BUFFER, assets.spacebar.vertices.size() * sizeof(spacebar_decal.model->vertices[0]), &spacebar_decal.model->vertices.front(), GL_STATIC_DRAW);
 			glBindBuffer(GL_ARRAY_BUFFER, 0);
 		}
 	}
@@ -2250,7 +2277,7 @@ struct Renderer {
 };
 
 struct InputHandler {
-	enum class Keys{Left, Right, W, A, D, Count};
+	enum class Keys{Left, Right, W, A, D, Space, Count};
 	enum class ButtonClick{LB, RB, MB};
 	static std::function<void(int key, int scancode, int action, int mods)> keyCb;
 	static bool keys[(size_t)Keys::Count];
@@ -2306,6 +2333,9 @@ struct InputHandler {
 			break;
 		case GLFW_KEY_D:
 			keys[(size_t)Keys::D] = action == GLFW_PRESS || action == GLFW_REPEAT;
+			break;
+		case GLFW_KEY_SPACE:
+			keys[(size_t)Keys::Space] = action == GLFW_PRESS || action == GLFW_REPEAT;
 			break;
 		}
 		if (keyCb) keyCb(key, scancode, action, mods);
@@ -2452,7 +2482,7 @@ public:
 			GenerateNPC();
 		}
 	}
-	std::shared_ptr<Envelope> e_wsad_blink, e_mouse_blink;
+	std::shared_ptr<Envelope> e_wsad_blink, e_mouse_blink, e_spacebar_blink;
 	void SetCtrl(ProtoX::Ctrl ctrl) {
 		if (!player) return;
 		player->SetCtrl(ctrl);
@@ -2522,6 +2552,8 @@ public:
 		GenerateNPCs();
 #endif
 		inputHandler.keyCb = std::bind(&Scene::KeyCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
+		e_spacebar_blink = std::shared_ptr<Envelope>(new Blink(renderer.spacebar_decal.factor, 0., globals.timer.ElapsedMs(), globals.blink_rate, globals.blink_ratio));
+		globals.envelopes.push_back(e_spacebar_blink);
 	}
 	void Render() {
 		renderer.PreRender();
@@ -2556,6 +2588,8 @@ public:
 				renderer.Draw(overlay, renderer.wsad_decal.id, { -globals.width / 2.f, -globals.height / 2.f, 0.f }, *renderer.wsad_decal.model, renderer.wsad_decal.factor);
 			if (player->ctrl == ProtoX::Ctrl::Full || player->ctrl == ProtoX::Ctrl::Turret)
 				renderer.Draw(overlay, renderer.mouse_decal.id, { globals.width / 2.f, -globals.height / 2.f, 0.f }, *renderer.mouse_decal.model, renderer.mouse_decal.factor);
+			if (player->CanSplit())
+				renderer.Draw(overlay, renderer.spacebar_decal.id, { 0.f, -globals.height / 2.f, 0.f }, *renderer.spacebar_decal.model, renderer.spacebar_decal.factor);
 		}
 		renderer.Draw(overlay, texts);
 		glViewport(0, 0, res.x, HUD_RATIO(res.y));
@@ -2587,22 +2621,25 @@ public:
 		return true;
 	}
 	void KeyCallback(int key, int scancode, int action, int mods) {
-		//}else if (key == GLFW_KEY_HOME && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-		//	renderer.rt.maskOpacity+=.05f;
-		//}else if (key == GLFW_KEY_END && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-		//	renderer.rt.maskOpacity-=.05f;
-		if (key == GLFW_KEY_LEFT_BRACKET && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-			renderer.rt.contrast -= .05f;
-		} else if (key == GLFW_KEY_RIGHT_BRACKET && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-			renderer.rt.contrast += .05f;
-		} else if (key == GLFW_KEY_COMMA && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-			renderer.rt.brightness -= .05f;
-		} else if (key == GLFW_KEY_PERIOD && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-			renderer.rt.brightness += .05f;
-		}
-		else if (key == GLFW_KEY_F9 && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-			renderer.rt.shadowMask.Reload();
-		}
+		////}else if (key == GLFW_KEY_HOME && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+		////	renderer.rt.maskOpacity+=.05f;
+		////}else if (key == GLFW_KEY_END && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+		////	renderer.rt.maskOpacity-=.05f;
+		//if (key == GLFW_KEY_LEFT_BRACKET && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+		//	renderer.rt.contrast -= .05f;
+		//} else if (key == GLFW_KEY_RIGHT_BRACKET && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+		//	renderer.rt.contrast += .05f;
+		//} else if (key == GLFW_KEY_COMMA && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+		//	renderer.rt.brightness -= .05f;
+		//} else if (key == GLFW_KEY_PERIOD && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+		//	renderer.rt.brightness += .05f;
+		//}
+		//else if (key == GLFW_KEY_F9 && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+		//	renderer.rt.shadowMask.Reload();
+		//}
+
+		if (player->CanSplit() && (key == GLFW_KEY_SPACE && action == GLFW_PRESS))
+			SplitPlayer();
 
 	}
 	void HitTest(ProtoX& p1, ProtoX& p2, double total) {
@@ -2615,6 +2652,14 @@ public:
 			p1.Kill(p1.id, 0, 0, hit_pos, p2.vel);
 			
 		}
+	}
+	void SplitPlayer() {
+		if (!player->ws) return;
+		player->body.scale = 1.f;
+		Splt msg{ Tag("SPLT"), player->id };
+		player->ws->Send((const char*)&msg, sizeof(msg));
+		player->Split(-1.5f);
+		// TODO::
 	}
 	void Update(const Time& t) {
 		const double scroll_speed = .5; // px/s
@@ -2651,6 +2696,8 @@ public:
 					w = e.touchPoints[0].clientX >= (globals.width / 4) && e.touchPoints[0].clientX <= (globals.width * 4 / 5),
 					a = e.touchPoints[0].canvasX >(globals.width * 2 / 3),
 					shoot = e.touchPoints[0].clientY < (globals.height / 2);
+				// TODO:: spacebar!!!
+
 				//LOG_INFO("%d %d %d %d %d %d\n", e.touchPoints[0].clientX, e.touchPoints[0].clientY, globals.width, globals.width / 4, globals.width * 4 / 5, w);
 				player->Move(t.frame, a, d, w);
 				if (shoot) {
@@ -3021,6 +3068,14 @@ public:
 		this->wait = wait->n - 48;
 		//LOG_INFO("OnWait: %d", wait->n);
 	}
+	void OnSplt(const std::vector<unsigned char>& msg) {
+		if (!SanitizeMsg<Splt>(msg.size()))
+			return;
+		const Splt* splt = reinterpret_cast<const Splt*>(&msg.front());
+		if (player->id != splt->id)
+			return;
+		player->Split(1.5f);
+	}
 	void Dispatch(const std::vector<unsigned char>& msg, const Time& t) {
 		if (msg.size() < sizeof(size_t))
 			return;
@@ -3034,7 +3089,8 @@ public:
 			wait = Tag("WAIT"),	// n - number to wait for
 			prop = Tag("PROP"), // propulsion main body control
 			trrt = Tag("TRRT"), // turret rotation control
-			invi = Tag("INVI"); // sent when invincibility timer should be set
+			invi = Tag("INVI"), // sent when invincibility timer should be set
+			splt = Tag("SPLT");
 		switch (tag) {
 		case conn:
 			OnConn(msg);
@@ -3065,6 +3121,9 @@ public:
 			break;
 		case invi:
 			OnInvi(msg);
+			break;
+		case splt:
+			OnSplt(msg);
 			break;
 		}
 	}

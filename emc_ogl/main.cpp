@@ -817,7 +817,7 @@ struct Plyr {
 struct Prop {
 	const size_t tag, id;
 	const int score;
-	const float x, y, vx, vy, rot;
+	const float x, y, vx, vy, rot, scale;
 	const uint8_t prop;
 };
 struct Trrt {
@@ -1152,9 +1152,6 @@ struct ProtoX {
 	void Enlarge() {
 		body.scale = std::min(body.scale * globals.scale_inc, globals.max_scale);
 	}
-	void SetScale(float scale = 1.f) {
-		body.scale = scale;
-	}
 	/*auto GetPrevModel() const {
 		return ::GetModel({}, prev_pos, prev_rot, layer.pivot);
 	}*/
@@ -1454,7 +1451,7 @@ struct ProtoX {
 					globals.ws->Send((char*)&player, sizeof(Plyr));
 				}
 				else if (ctrl == Ctrl::Prop) {
-					Prop prop{ Tag("PROP"), id, score, body.pos.x, body.pos.y, vel.x, vel.y, body.rot, ToProp() };
+					Prop prop{ Tag("PROP"), id, score, body.pos.x, body.pos.y, vel.x, vel.y, body.rot, body.scale, ToProp() };
 					globals.ws->Send((char*)&prop, sizeof(Prop));
 				}
 				else if (ctrl == Ctrl::Turret && turret.rot.prev != turret.rot.val) {
@@ -1497,6 +1494,7 @@ struct ProtoX {
 		pos_invalidated = true;
 		body.pos.x = msg->x; body.pos.y = msg->y;
 		body.rot = msg->rot;
+		body.scale = msg->scale;
 		vel.x = msg->vx; vel.y = msg->vy;
 		score = msg->score;
 		FromProp(msg->prop);
@@ -2930,7 +2928,7 @@ public:
 		auto* proto = GetOrCreatePlayer(player->id, player->x, player->y);
 		proto->FromPropOrPLyrMsg(player);
 		proto->turret.SetRot(player->turret_rot);
-		proto->SetScale(player->scale);
+		proto->body.scale = player->scale;
 	}
 	void OnInvi(const std::vector<unsigned char>& msg) {
 		if (!SanitizeMsg<Invi>(msg.size()))
@@ -2964,6 +2962,7 @@ public:
 				return m.owner->id == scor->owner_id && m.id == scor->missile_id; });
 			if (it != missiles.end()) {
 				it->owner->score += scor->score_dif;
+				it->owner->Enlarge();
 				RemoveMissile(*it);
 			}
 		}

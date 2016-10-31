@@ -1512,7 +1512,7 @@ struct ProtoX {
 		pos_invalidated = true;
 		body.pos.x = msg->x; body.pos.y = msg->y;
 		body.rot = msg->rot;
-		if (ctrl != Ctrl::Full)
+		if (ctrl != Ctrl::Full || !ws /*not player self*//*globals.scene->player.get() != this*/)
 			body.scale = msg->scale;
 		vel.x = msg->vx; vel.y = msg->vy;
 		score = msg->score;
@@ -2975,7 +2975,6 @@ public:
 		auto* proto = GetOrCreatePlayer(player->id, player->x, player->y);
 		proto->FromPropOrPLyrMsg(player);
 		proto->turret.SetRot(player->turret_rot);
-		proto->body.scale = player->scale;
 	}
 	void OnInvi(const std::vector<unsigned char>& msg) {
 		if (!SanitizeMsg<Invi>(msg.size()))

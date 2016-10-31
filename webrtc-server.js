@@ -126,7 +126,10 @@ app.get(release, function (req, res) {
         (session = sessions.get(req.query.p)) != undefined &&
         session.length < maxPlayers) {
         res.sendFile(__dirname + '/emc_ogl/main.html');//  ?p=' + req.query.p);
-    } else redirectToASession(res);
+    } else {
+        debugOut(req.headers);
+        redirectToASession(res);
+    }
 });
 
 app.get(release + '/main.js', function (req, res) {

@@ -43,7 +43,14 @@
 #include "WebRTC.h"
 //#define OBB_TEST
 // TODO:: 
+// - hittest on split?
+// - score fix for split
+// - flickering on split on other players view
+// - session find logic fix
 // - framerate independent resting pos
+// - better invite message
+// - remove velocity dependent missile vector
+// -----
 // - prop send onplyr only
 // - turret send TRRT msg for rotation
 // - send onplyr 33ms
@@ -89,9 +96,9 @@ static GLFWwindow * window;
 static std::random_device rd;
 static std::mt19937 mt(rd());
 
-size_t GenPlayerID() {
+size_t Gen0ToOPlayerID() {
 	const size_t len = 4;
-	std::uniform_int_distribution<> dist(0, 255);
+	std::uniform_int_distribution<> dist(48, 48+32);
 	size_t res = 0;
 	for (size_t i = 0; i < len; ++i) {
 		res |= (unsigned char)dist(mt) << (i << 3);
@@ -861,7 +868,7 @@ struct Text {
 	std::string str;
 };
 struct Splt {
-	const size_t tag, id;
+	const size_t tag, id, other_id;
 };
 struct Particles {
 	static GLuint vbo;
@@ -1036,9 +1043,9 @@ struct ProtoX {
 	bool hit, killed;
 	glm::vec3 vel, f/*, hit_pos*/;
 	int score = 0;
-	size_t missile_id = 0;
+	size_t missile_id = 0, split_other_id = 0;
 	enum class Ctrl { Full, Prop, Turret };
-	Ctrl ctrl = Ctrl::Full;
+	Ctrl ctrl = Ctrl::Full, ctrl_before_split = Ctrl::Full;
 	bool pos_invalidated = false, // from web-message
 		first = true;
 	float clear_color_blink;
@@ -1295,8 +1302,16 @@ struct ProtoX {
 		hit = killed = false;
 	}
 	bool SkipDeathCheck() const { return invincible > 0.f || hit || killed; }
-	void Die(const glm::vec3& hit_pos, const glm::mat4& vp, std::list<Debris>& debris, std::list<Particles>& particles, const Asset::Model& debris_model, glm::vec3 vec, double hit_time, const Camera& cam, bool force_onkill = false) {
+	void Die(const glm::vec3& hit_pos, const glm::mat4& vp, std::list<Debris>& debris, std::list<Particles>& particles, const Asset::Model& debris_model, glm::vec3 vec, double hit_time, const Camera& cam, 
+		std::map<size_t, std::unique_ptr<ProtoX>>* players,
+		bool force_onkill = false) {
 		if (!force_onkill && SkipDeathCheck()) return;
+		if (split_other_id && players) {
+			auto it = players->find(split_other_id);
+			if (it != players->end())
+				it->second->Die({}, vp, debris, particles, debris_model, {}, hit_time, cam, nullptr, true);
+			Kill(split_other_id, 0, 0, {}, {});
+		}
 		hit = true;
 		this->hit_time = hit_time;
 	//	this->hit_pos = RotateZ(hit_pos, body.pos, -body.rot);
@@ -1311,6 +1326,7 @@ struct ProtoX {
 		left.Set(false); right.Set(false); bottom.Set(false);
 		const auto& ndc = cam.NDC(body.pos);
 		globals.audio->Enqueue(Audio::Command::ID::Start, die, glm::clamp(ndc.x, -1.f, 1.f), ::NDCToGain(ndc.x));
+		
 	}
 	bool IsInRestingPos(const AABB& bounds) const {
 		return aabb.b - ground_level <= bounds.b;
@@ -1363,15 +1379,41 @@ struct ProtoX {
 	//	return res;
 	//}
 	inline bool CanSplit() {
-		return ctrl != Ctrl::Full && body.scale >= globals.max_player_scale;
+		return true;
+		//return ctrl != Ctrl::Full && body.scale >= globals.max_player_scale;
 	}
-	void Split(float x_displacement) {
+	void CommonSplit(float x_displacement) {
 		SetInvincibility();
+		ctrl_before_split = ctrl;
 		SetCtrl(ProtoX::Ctrl::Full);
 		body.scale = 1.f;
 		body.pos.x += (body.layer.aabb.r - body.layer.aabb.l) * x_displacement;
 	}
-	void Update(const Time& t, const AABB& bounds, std::list<Particles>& particles, std::list<Debris>& debris, bool player_self, const Camera& cam, const Asset::Model& debris_model) {
+	void HandleSplitNewId(size_t new_id) {
+		if (ctrl == ProtoX::Ctrl::Turret) {
+			split_other_id = id;
+			const_cast<size_t&>(id) = new_id;
+		}
+		else if (ctrl == ProtoX::Ctrl::Prop)
+			split_other_id = new_id;
+	}
+	void Split() {
+		auto new_id = Gen0ToOPlayerID();
+		if (ws) {
+			Splt msg{ Tag("SPLT"), id/*send to original*/, new_id /*our new id*/ };
+			ws->Send((const char*)&msg, sizeof(msg));
+		}
+		HandleSplitNewId(new_id);
+		CommonSplit(-1.5f);
+	}
+	void OnSplit(size_t other_id) {
+		HandleSplitNewId(other_id);
+		CommonSplit(1.5f);
+	}
+
+	void Update(const Time& t, const AABB& bounds, std::list<Particles>& particles,
+		std::list<Debris>& debris, bool player_self, const Camera& cam, const Asset::Model& debris_model,
+		std::map<size_t, std::unique_ptr<ProtoX>>* players) {
 		Execute(t.total, t.frame, commands);
 		msg.clear();
 		if (invincible > 0.f) {
@@ -1438,7 +1480,7 @@ struct ProtoX {
 					glm::vec3 hit_pos = body.pos + glm::vec3{ 0.f, body.layer.aabb.b, 0.f },
 						n{ 0.f, 1.f, 0.f };
 					const auto vec = glm::reflect(vel, n);
-					Die(hit_pos, cam.vp, debris, particles, debris_model, vec, t.total, cam);
+					Die(hit_pos, cam.vp, debris, particles, debris_model, vec, t.total, cam, players);
 					--score;
 					Kill(id, 0, 0, hit_pos, vec);
 				}
@@ -2639,28 +2681,21 @@ public:
 		//}
 
 		if (player->CanSplit() && (key == GLFW_KEY_SPACE && action == GLFW_PRESS))
-			SplitPlayer();
+			player->Split();
 
 	}
 	void HitTest(ProtoX& p1, ProtoX& p2, double total) {
 		if (!p1.SkipDeathCheck() && !p2.SkipDeathCheck() && p1.CollisionTest(p2)) {
 			glm::vec3 hit_pos((p1.body.pos.x + p2.body.pos.x) / 2.f, (p1.body.pos.y + p2.body.pos.y) / 2.f, 0.f);
-			p1.Die( hit_pos, camera.vp, debris, particles, assets.debris, p1.vel, total, camera);
+			p1.Die( hit_pos, camera.vp, debris, particles, assets.debris, p1.vel, total, camera, &players);
 			p1.Kill(p2.id, 0, 0, hit_pos, p1.vel);
-			p2.Die(hit_pos, camera.vp, debris, particles, assets.debris, p2.vel, total, camera);
+			p2.Die(hit_pos, camera.vp, debris, particles, assets.debris, p2.vel, total, camera, nullptr);
 			// p1 because p2 has no ws...
 			p1.Kill(p1.id, 0, 0, hit_pos, p2.vel);
 			
 		}
 	}
-	void SplitPlayer() {
-		if (!player->ws) return;
-		player->body.scale = 1.f;
-		Splt msg{ Tag("SPLT"), player->id };
-		player->ws->Send((const char*)&msg, sizeof(msg));
-		player->Split(-1.5f);
-		// TODO::
-	}
+
 	void Update(const Time& t) {
 		const double scroll_speed = .5; // px/s
 		if (inputHandler.keys[(size_t)InputHandler::Keys::Left])
@@ -2737,7 +2772,7 @@ public:
 					}
 				}
 			}
-			player->Update(t, bounds, particles, debris, true, camera, assets.debris);
+			player->Update(t, bounds, particles, debris, true, camera, assets.debris, &players);
 			//player->msg.push_back({ player->body.pos + glm::vec3{0.f, -100.f, 0.f}, 1.f, Text::Align::Left, std::to_string(InputHandler::count) });
 			// TODO:: is this needed? auto d = camera.pos.x + player->body.pos.x;
 			auto res = player->WrapAround(assets.land.layers[0].aabb.l, assets.land.layers[0].aabb.r);
@@ -2760,7 +2795,7 @@ public:
 		}
 #else		
 		for (auto& p : players) {
-			p.second->Update(t, bounds, particles, debris, false, camera, assets.debris);
+			p.second->Update(t, bounds, particles, debris, false, camera, assets.debris, nullptr);
 		}
 #endif
 
@@ -2777,13 +2812,13 @@ public:
 				renderer.clearColor = globals.palette[col_idx_dist(mt)];
 			}
 			if (player->killed) {
-				auto ctrl = player->ctrl;
+				auto ctrl = (player->ctrl_before_split != ProtoX::Ctrl::Full) ? player->ctrl_before_split:player->ctrl;
 				auto score = player->score;
-				CreatePlayer(player->id);
+				CreatePlayer(player->ctrl_before_split == ProtoX::Ctrl::Turret ? player->split_other_id : player->id);
 				camera.SetPos(player->body.pos.x, player->body.pos.y, globals.camera_z);
 				renderer.clearColor = { 0.f, 0.f, 0.f, 1.f };
-				SetCtrl(ctrl);
 				player->score = score;
+				SetCtrl(ctrl);
 			}
 		}
 		for (const auto& e : globals.envelopes) {
@@ -2834,9 +2869,10 @@ public:
 				bool last = false;
 				for (const auto& p : players) {
 					glm::vec3 hit_pos;
+					if (p.second->id == m.owner->id) continue;
 					if (!p.second->SkipDeathCheck() && m.HitTest(p.second->aabb, hit_pos)) {
 						const glm::vec3 vec{ std::cos(m.rot), std::sin(m.rot), 0.f };
-						p.second->Die(hit_pos, camera.vp, debris, particles, assets.debris, vec, (double)t.total, camera);
+						p.second->Die(hit_pos, camera.vp, debris, particles, assets.debris, vec, (double)t.total, camera, nullptr);
 						++player->score;
 						player->Enlarge();
 						player->Kill(p.second->id, m.id, 1, hit_pos, vec);
@@ -2871,6 +2907,21 @@ public:
 		for (auto& p : players) {
 			p.second->pos_invalidated = false;
 		}
+		if (player) {
+			std::ostringstream ss;
+			ss << std::uppercase<< "P: " << std::hex << player->id << " " << player->split_other_id;
+			player->msg.push_back({ glm::vec3{player->body.pos.x, player->body.pos.y + 100.f, 0.f }, .5f, Text::Align::Left, ss.str() });
+			for (const auto& p : players) {
+				if (p.second->id == player->id) {
+					std::ostringstream ss2;
+					ss2 << std::uppercase << "S: " << std::hex << p.second->id << " " << p.second->split_other_id;
+					p.second->msg.push_back({ glm::vec3{ p.second->body.pos.x, p.second->body.pos.y + 100.f, 0.f }, .5f, Text::Align::Left, ss2.str() });
+					break;
+				}
+			}
+		}
+
+
 #ifdef DEBUG_REL
 		if (players.size()<MAX_NPC) {
 			// TODO:: add new when killed
@@ -3018,11 +3069,11 @@ public:
 		const glm::vec3 hit_pos(scor->x, scor->y, 0.f),
 			missile_vec{ scor->vec_x, scor->vec_y, 0.f };
 		if (scor->target_id == player->id)
-			player->Die(hit_pos, camera.vp, debris, particles, assets.debris, missile_vec, t.total, camera);
+			player->Die(hit_pos, camera.vp, debris, particles, assets.debris, missile_vec, t.total, camera, &players);
 		else {
 			auto it = players.find(scor->target_id);
 			if (it != players.end())
-				it->second->Die(hit_pos, camera.vp, debris, particles, assets.debris, missile_vec, t.total, camera);
+				it->second->Die(hit_pos, camera.vp, debris, particles, assets.debris, missile_vec, t.total, camera, nullptr);
 		}
 	}
 	void OnKill(const std::vector<unsigned char>& msg, const Asset::Model& debris_model, const Time& t) {
@@ -3034,7 +3085,7 @@ public:
 		if (it == std::end(players)) return;
 		auto& p = it->second;
 		auto hit_pos = p->body.pos + glm::vec3{ p->aabb.r - p->aabb.l, p->aabb.t - p->aabb.b, 0.f };
-		p->Die(hit_pos, camera.vp, debris, particles, debris_model, {}, t.total, camera, true);
+		p->Die(hit_pos, camera.vp, debris, particles, debris_model, {}, t.total, camera, &players, true);
 	}
 	//void OnCtrl(const std::vector<unsigned char>& msg) {
 	//	if (!SanitizeMsg<Ctrl>(msg.size()))
@@ -3070,10 +3121,11 @@ public:
 	void OnSplt(const std::vector<unsigned char>& msg) {
 		if (!SanitizeMsg<Splt>(msg.size()))
 			return;
+		if (!player) return;
 		const Splt* splt = reinterpret_cast<const Splt*>(&msg.front());
 		if (player->id != splt->id)
 			return;
-		player->Split(1.5f);
+		player->OnSplit(splt->other_id);
 	}
 	void Dispatch(const std::vector<unsigned char>& msg, const Time& t) {
 		if (msg.size() < sizeof(size_t))

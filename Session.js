@@ -1,8 +1,19 @@
 "use strict";
 var WS = require('ws');
 exports.WS = WS;
+var clientIDLen = 5;
+function generate0ToOClientID(count) {
+    //var symbols = '0123456789:;<=>?@ABCDEFGHIJKLMNO',
+    var res = '';
+    for (var i = 0; i < count; ++i) {
+        res += String.fromCharCode((48 + Math.random() * 32) | 0);
+    }
+    return "" + res;
+}
 var Client = (function () {
     function Client(ws) {
+        this.ctrl = 0;
+        this.id = generate0ToOClientID(clientIDLen);
         this.ws = ws;
     }
     Client.prototype.close = function () { this.ws.close(); };
@@ -47,13 +58,13 @@ var Session = (function () {
     };
     Session.prototype.findClientByID = function (id) {
         for (var i = 0; i < this.clients.length; ++i) {
-            if (this.clients[i].clientID === id)
+            if (this.clients[i].id === id)
                 return this.clients[i];
         }
         return null;
     };
     Session.prototype.removeClient = function (client) {
-        this.clients.splice(this.clients.indexOf(client));
+        this.clients.splice(this.clients.indexOf(client), 1);
     };
     return Session;
 }());

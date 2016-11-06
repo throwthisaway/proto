@@ -812,12 +812,18 @@ struct Ctrl {
 	const size_t tag;
 	const char ctrl;
 };
+struct Conn {
+	const size_t tag;
+	const char id[CLIENTID_LEN];
+	const unsigned char ctrl;
+	const char server_id[CLIENTID_LEN];
+};
 struct Sess{
 	size_t tag;
 	char sessionID[5];
 };
 struct Invi {
-	const size_t tag, id;
+	const size_t tag, id, other_id;
 	const float invincibility;
 };
 
@@ -849,12 +855,7 @@ struct Scor {
 };
 struct Kill {
 	const size_t tag;
-	const char client_id[CLIENTID_LEN];
-};
-struct Conn {
-	const size_t tag;
-	const char client_id[CLIENTID_LEN];
-	const unsigned char ctrl;
+	const char server_id[CLIENTID_LEN];
 };
 struct Wait {
 	const size_t tag;
@@ -1035,7 +1036,7 @@ struct ProtoX {
 		m = 500.f,
 		force = .2f,
 		slowdown = .0003f,
-		ground_level = 20.f,
+		ground_level = 0.f,
 		rot_max_speed = .003f, //rad/ms
 		rot_inc = .000005f, // rad/ms*ms
 		safe_rot = glm::radians(35.f);
@@ -1046,7 +1047,7 @@ struct ProtoX {
 	bool hit, killed;
 	glm::vec3 vel, f/*, hit_pos*/;
 	int score = 0;
-	size_t missile_id = 0, split_other_id = 0;
+	size_t missile_id = 0, server_id = 0;
 	enum class Ctrl { Full, Prop, Turret };
 	Ctrl ctrl = Ctrl::Full, ctrl_before_split = Ctrl::Full;
 	bool pos_invalidated = false, // from web-message
@@ -1165,7 +1166,7 @@ struct ProtoX {
 		Init();
 	}
 	~ProtoX() {
-		LOG_INFO("~ProtoX ctrl: %d, id: %x, other: %x", ctrl, id, split_other_id);
+		LOG_INFO("~ProtoX ctrl: %d, id: %x, other: %x", ctrl, id, server_id);
 		// TODO:: handle missiles after owner destruction
 		auto it = std::partition(std::begin(missiles), std::end(missiles), [this](const Missile& m) {
 			return m.owner != this; });
@@ -1384,11 +1385,11 @@ struct ProtoX {
 	}
 	void HandleSplitNewId(size_t new_id) {
 		if (ctrl == ProtoX::Ctrl::Turret) {
-			split_other_id = id;
+			server_id = id;
 			const_cast<size_t&>(id) = new_id;
 		}
 		else if (ctrl == ProtoX::Ctrl::Prop)
-			split_other_id = new_id;
+			server_id = new_id;
 	}
 	void Split() {
 		auto new_id = Gen0ToOPlayerID();
@@ -1556,7 +1557,7 @@ struct ProtoX {
 	}
 	void SendInvincibility() {
 		if (!ws) return;
-		Invi msg{ Tag("INVI"), id, invincible};
+		Invi msg{ Tag("INVI"), id, server_id, invincible};
 		ws->Send((const char*)&msg, sizeof(msg));
 	}
 	uint8_t ToProp() {
@@ -2538,11 +2539,11 @@ public:
 	}
 
 	void KillSplitOtherPlayer(ProtoX& proto, double hit_time) {
-		if (!proto.split_other_id) return;
-		auto it = players.find(proto.split_other_id);
+		if (!proto.server_id) return;
+		auto it = players.find(proto.server_id);
 		if (it != players.end())
 			it->second->Die({}, {}, hit_time, camera, true);
-		proto.Kill(proto.split_other_id, 0, 0, {}, {});
+		proto.Kill(proto.server_id, 0, 0, {}, {});
 	}
 
 	void OnDie(ProtoX& proto, const glm::vec3& hit_pos, glm::vec3 vec, double hit_time) {
@@ -2828,15 +2829,17 @@ public:
 				LOG_INFO("player killed ctrl: %d, ctrl before split: %d", player->ctrl, player->ctrl_before_split);
 				auto ctrl = (player->ctrl_before_split != ProtoX::Ctrl::Full) ? player->ctrl_before_split:player->ctrl;
 				auto score = player->score;
+				auto other_id = player->server_id;
 				if (ctrl == ProtoX::Ctrl::Full &&
-					player->split_other_id) {
+					player->server_id) {
 					LOG_INFO("@@@WTF?!");
 				}
-				CreatePlayer(player->ctrl_before_split == ProtoX::Ctrl::Turret ? player->split_other_id : player->id);
+				CreatePlayer(player->ctrl_before_split == ProtoX::Ctrl::Turret ? player->server_id : player->id);
 				
 				camera.SetPos(player->body.pos.x, player->body.pos.y, globals.camera_z);
 				renderer.clearColor = { 0.f, 0.f, 0.f, 1.f };
 				player->score = score;
+				player->server_id = other_id;
 				SetCtrl(ctrl);
 			}
 		}
@@ -2928,11 +2931,11 @@ public:
 		}
 		if (player) {
 			std::ostringstream ss;
-			ss << std::uppercase<< "P: " << std::hex << player->id << " " << player->split_other_id;
+			ss << std::uppercase<< "P: " << std::hex << player->id << " " << player->server_id;
 			player->msg.push_back({ glm::vec3{player->body.pos.x, player->body.pos.y + 100.f, 0.f }, .5f, Text::Align::Left, ss.str() });
 			for (const auto& p : players) {
 				std::ostringstream ss2;
-				ss2 << std::uppercase << "S: " << std::hex << p.second->id << " " << p.second->split_other_id;
+				ss2 << std::uppercase << "S: " << std::hex << p.second->id << " " << p.second->server_id;
 				p.second->msg.push_back({ glm::vec3{ p.second->body.pos.x, p.second->body.pos.y + 100.f, 0.f }, .5f, Text::Align::Left, ss2.str() });
 			}
 		}
@@ -2990,8 +2993,11 @@ public:
 			return;
 		globals.ws->RTCConnect();
 		const Conn* conn = reinterpret_cast<const Conn*>(msg.data());
-		CreatePlayer(ID5(conn->client_id, 0));
-		player->ctrl = static_cast<ProtoX::Ctrl>(conn->ctrl - 48/*TODO:: eliminate conversion*/);
+		auto ctrl = static_cast<ProtoX::Ctrl>(conn->ctrl - 48);
+		CreatePlayer(ID5(conn->id, 0));
+		player->ctrl = ctrl;
+		player->server_id = ID5(conn->server_id, 0);
+		LOG_INFO(">>>conn: id: %d, ctrl: %d, other: %d", player->id, player->ctrl, player->server_id);
 	}
 	void SendSessionID() {
 		Sess msg{ Tag("SESS") };
@@ -3016,8 +3022,9 @@ public:
 		if (it == players.end()) {
 			auto ptr = std::make_unique<ProtoX>(id, assets.probe, assets.propulsion.layers.size(), glm::vec3{ x, y, 0.f }, missiles, sceneCb);
 			proto = ptr.get();
+			LOG_INFO(">>>>created new %d", ptr->id);
 			players[id] = std::move(ptr);
-			// TODO:: remove getorcreate in favor of stat?
+			
 		}
 		else proto = it->second.get();
 		return proto;
@@ -3047,7 +3054,10 @@ public:
 			return;
 		const Invi* invi = reinterpret_cast<const Invi*>(&msg.front());
 		auto it = players.find(invi->id);
-		if (it == players.end()) return;
+		if (it == players.end() && invi->other_id)
+			it = players.find(invi->other_id);
+		if (it == players.end())
+			return;
 		it->second->SetInvincibility(invi->invincibility);
 	}
 	void OnMisl(const std::vector<unsigned char>& msg) {
@@ -3091,16 +3101,33 @@ public:
 				it->second->Die(hit_pos, missile_vec, t.total, camera);
 		}
 	}
-	void OnKill(const std::vector<unsigned char>& msg, const Asset::Model& debris_model, const Time& t) {
+	void OnKill(const std::vector<unsigned char>& msg, const Time& t) {
 		if (!SanitizeMsg<Kill>(msg.size()))
 			return;
 		const Kill* kill = reinterpret_cast<const Kill*>(&msg.front());
-		auto clientID = ID5(kill->client_id, 0);
-		auto it = players.find(clientID);
+		LOG_INFO(">>>>>>onkill %d", kill->server_id);
+		auto clientID = ID5(kill->server_id, 0);
+		players.erase(clientID);
+		if (player->id == clientID) {
+			if (player->server_id && player->server_id != player->id)
+			{
+				LOG_INFO(">>>>>onkill createplayer %d", player->server_id);
+				auto pos = player->body.pos;
+				auto score = player->score;
+				CreatePlayer(player->server_id);
+				player->ctrl = ProtoX::Ctrl::Full;
+				player->body.pos = pos;
+				player->score = score;
+				player->server_id = player->id;
+			}
+			else
+				player.reset(); // for safety
+		}
+		/*auto it = players.find(clientID);
 		if (it == std::end(players)) return;
 		auto& p = it->second;
 		auto hit_pos = p->body.pos + glm::vec3{ p->aabb.r - p->aabb.l, p->aabb.t - p->aabb.b, 0.f };
-		p->Die(hit_pos, {}, t.total, camera, true);
+		p->Die(hit_pos, {}, t.total, camera, true);*/
 	}
 	//void OnCtrl(const std::vector<unsigned char>& msg) {
 	//	if (!SanitizeMsg<Ctrl>(msg.size()))
@@ -3176,7 +3203,7 @@ public:
 			OnScor(msg, t);
 			break;
 		case kill:
-			OnKill(msg, assets.debris, t);
+			OnKill(msg, t);
 			break;
 		case ctrl:
 			OnCtrl(msg);

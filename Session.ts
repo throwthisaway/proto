@@ -1,8 +1,18 @@
 import WS = require('ws');
+let clientIDLen = 5;
+function generate0ToOClientID(count : number) : string {
+    //var symbols = '0123456789:;<=>?@ABCDEFGHIJKLMNO',
+    var res = '';
+    for (var i = 0; i < count; ++i) {
+        res += String.fromCharCode((48 + Math.random() * 32) | 0);
+    }
+    return ""+res;
+}
 class Client {
     public session: Session;
-    public ctrl: number;
-    public clientID: string;
+    public ctrl: number = 0;
+    public id: string = generate0ToOClientID(clientIDLen);
+    public otherId : string | null;
     public ws: WS;
     constructor(ws:WS) { this.ws = ws; }
     public close() { this.ws.close();}
@@ -39,12 +49,12 @@ class Session {
     }
     public findClientByID(id : string) : Client | null {
         for (var i = 0; i < this.clients.length; ++i) {
-            if (this.clients[i].clientID === id) return this.clients[i];
+            if (this.clients[i].id === id) return this.clients[i];
         }
         return null;
     }
     public removeClient(client: Client){
-        this.clients.splice(this.clients.indexOf(client));
+        this.clients.splice(this.clients.indexOf(client), 1);
     }
 }
 

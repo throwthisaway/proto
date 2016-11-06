@@ -34,12 +34,3 @@ export function str2ab(str : string)  : ArrayBuffer {
     }
     return buf;
 }
-
-export function generate0ToOClientID(count : number) : string {
-    //var symbols = '0123456789:;<=>?@ABCDEFGHIJKLMNO',
-    var res = '';
-    for (var i = 0; i < count; ++i) {
-        res += String.fromCharCode((48 + Math.random() * 32) | 0);
-    }
-    return ""+res;
-}

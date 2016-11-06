@@ -9,14 +9,13 @@ var app = Express();
 var server = http.createServer(app);
 var debug = new utils.Debug(true, false);
 var rootPath = ''; //'/develop';
-var sessionIDLen = 5, clientIDLen = 5, minPlayers = 4, maxPlayers = 16, maxSessions = 8;
+var sessionIDLen = 5, minPlayers = 4, maxPlayers = 16, maxSessions = 8;
 var RTCClients = new Map();
 var sessions = new Map();
 // session handling
 function getSessionIDFromMsg(msg) {
     if (msg.length < 4 + sessionIDLen)
         return undefined;
-    console.log('session init, id: %s', msg);
     return msg.substr(4, sessionIDLen);
 }
 function findAvailableSessionID() {
@@ -100,42 +99,39 @@ function applyMixins(derivedCtor, baseCtors) {
         });
     });
 }
-function handleSessionStringMessage(wsClient, message) {
+function handleSessionStringMessage(client, message) {
     if (message.indexOf('SESS') === 0) {
         var sessionID = getSessionIDFromMsg(message);
         if (!sessionID) {
-            wsClient.close();
+            client.close();
             return;
         }
         var session = sessions.get(sessionID);
         if (!session) {
-            wsClient.close();
+            client.close();
             return;
         }
-        var client = session.findClientToCtrl();
-        if (client) {
-            client.ctrl = 1;
-            client.sendSessionStringMessage('CTRL1');
-            wsClient.ctrl = 2;
-            wsClient.clientID = client.clientID;
-            wsClient.sendSessionStringMessage("CONN" + client.clientID + "2");
+        var clientToCtrl = session.findClientToCtrl();
+        if (clientToCtrl) {
+            clientToCtrl.ctrl = 1;
+            clientToCtrl.otherId = client.id;
+            clientToCtrl.sendSessionStringMessage('CTRL' + clientToCtrl.ctrl);
+            client.ctrl = 2;
+            client.otherId = clientToCtrl.id;
+            console.log(client.id + ' ' + clientToCtrl.id);
         }
-        else {
-            wsClient.ctrl = 0;
-            wsClient.clientID = utils.generate0ToOClientID(clientIDLen);
-            wsClient.sendSessionStringMessage("CONN" + wsClient.clientID + "0");
-        }
-        wsClient.session = session;
-        session.clients.push(wsClient);
+        client.sendSessionStringMessage('CONN' + (clientToCtrl ? clientToCtrl.id : client.id) + client.ctrl + client.id);
+        client.session = session;
+        session.clients.push(client);
         if (session.clients.length < minPlayers)
-            session.broadcastStringToSession(null, 'WAIT' + utils.ab2str([48 + minPlayers - session.clients.length]));
+            session.broadcastStringToSession(null, 'WAIT' + (minPlayers - session.clients.length));
         else
             session.broadcastStringToSession(null, 'WAIT0');
         return;
     }
-    if (wsClient.session == undefined) {
+    if (client.session == undefined) {
         console.log('Invalid session for ws client');
-        wsClient.close();
+        client.close();
         return;
     }
 }
@@ -196,30 +192,30 @@ wss.on('connection', function (ws) {
         }
     });
     ws.on('close', function (code, message) {
-        if (client.session) {
-            var session = client.session;
-            if (client.ctrl == 0)
-                session.broadcastStringToSession(client, 'KILL' + client.clientID);
-            session.removeClient(client);
-            // check for other client to reset control
-            var clientToResetCtrl = void 0;
-            if (clientToResetCtrl = session.findClientByID(client.clientID)) {
-                clientToResetCtrl.ctrl = 0;
-                clientToResetCtrl.sendSessionStringMessage('CTRL0');
-            }
-            if (session.clients.length < 1) {
-                sessions.delete(session.id);
-                debug.Log('deleting session: ' + session.id + ' session count: ' + sessions.size);
-            }
-            else if (session.clients.length < minPlayers)
-                session.broadcastStringToSession(null, 'WAIT' + utils.ab2str([48 + minPlayers - session.clients.length]));
-        }
         for (var _i = 0, _a = RTCClients.entries(); _i < _a.length; _i++) {
             var _b = _a[_i], key = _b[0], value = _b[1];
             if (value === ws) {
                 close(client, key);
                 break;
             }
+        }
+        if (client.session) {
+            var session = client.session;
+            session.broadcastStringToSession(client, 'KILL' + client.id);
+            session.removeClient(client);
+            // check for other client to reset control
+            if (client.otherId) {
+                var clientToResetCtrl = void 0;
+                if (clientToResetCtrl = session.findClientByID(client.otherId)) {
+                    clientToResetCtrl.ctrl = 0;
+                }
+            }
+            if (session.clients.length < 1) {
+                delete sessions.delete(session.id);
+                debug.Log('deleting session: ' + session.id + ' session count: ' + sessions.size);
+            }
+            else if (session.clients.length < minPlayers)
+                session.broadcastStringToSession(null, 'WAIT' + (minPlayers - session.clients.length));
         }
         //debugOut('Client disconnected, count ' + clients.size + ' ' + code + ' ' + message);
     });

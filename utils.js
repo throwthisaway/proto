@@ -41,12 +41,3 @@ function str2ab(str) {
     return buf;
 }
 exports.str2ab = str2ab;
-function generate0ToOClientID(count) {
-    //var symbols = '0123456789:;<=>?@ABCDEFGHIJKLMNO',
-    var res = '';
-    for (var i = 0; i < count; ++i) {
-        res += String.fromCharCode((48 + Math.random() * 32) | 0);
-    }
-    return "" + res;
-}
-exports.generate0ToOClientID = generate0ToOClientID;

@@ -9,7 +9,6 @@ let server = http.createServer(app);
 let debug = new utils.Debug(true, false);
 let rootPath = '';//'/develop';
 let sessionIDLen = 5,
-    clientIDLen = 5,
     minPlayers = 4,
     maxPlayers = 16,
     maxSessions = 8;
@@ -20,7 +19,6 @@ let sessions = new Map<string, Session>();
 function getSessionIDFromMsg(msg : string) : string | undefined {
     if (msg.length < 4 + sessionIDLen)
         return undefined
-    console.log('session init, id: %s', msg);
     return msg.substr(4, sessionIDLen);
 }
 function findAvailableSessionID() : string | undefined{
@@ -106,35 +104,33 @@ function applyMixins(derivedCtor: any, baseCtors: any[]) {
         });
     });
 }
-function handleSessionStringMessage(wsClient : Client, message : string){
+function handleSessionStringMessage(client : Client, message : string){
     if (message.indexOf('SESS') === 0) {
         var sessionID = getSessionIDFromMsg(message);
-        if (!sessionID) { wsClient.close(); return; }
+        if (!sessionID) { client.close(); return; }
         var session = sessions.get(sessionID);
-        if (!session) { wsClient.close(); return; }
-        let client = session.findClientToCtrl();
-        if (client) {
-            client.ctrl = 1;
-            client.sendSessionStringMessage('CTRL1');
-            wsClient.ctrl = 2;
-            wsClient.clientID = client.clientID;
-            wsClient.sendSessionStringMessage("CONN" + client.clientID + "2");
-        } else {
-            wsClient.ctrl = 0;
-            wsClient.clientID = utils.generate0ToOClientID(clientIDLen);
-            wsClient.sendSessionStringMessage("CONN" + wsClient.clientID + "0");
+        if (!session) { client.close(); return; }
+        let clientToCtrl = session.findClientToCtrl();
+        if (clientToCtrl) {
+            clientToCtrl.ctrl = 1;
+            clientToCtrl.otherId = client.id;
+            clientToCtrl.sendSessionStringMessage('CTRL' + clientToCtrl.ctrl);
+            client.ctrl = 2;
+            client.otherId = clientToCtrl.id;
+            console.log(client.id + ' ' + clientToCtrl.id);
         }
-        wsClient.session = session;
-        session.clients.push(wsClient);
+        client.sendSessionStringMessage('CONN' + (clientToCtrl ? clientToCtrl.id : client.id) + client.ctrl + client.id);
+        client.session = session;
+        session.clients.push(client);
         if (session.clients.length < minPlayers)
-            session.broadcastStringToSession(null, 'WAIT' + utils.ab2str([48 + minPlayers - session.clients.length]));
+            session.broadcastStringToSession(null, 'WAIT' + (minPlayers - session.clients.length));
         else
             session.broadcastStringToSession(null, 'WAIT0');
         return;
     }
-    if (wsClient.session == undefined) {
+    if (client.session == undefined) {
         console.log('Invalid session for ws client');
-        wsClient.close();
+        client.close();
         return;
     }
 }
@@ -192,30 +188,32 @@ wss.on('connection', function (ws) {
         }
     });
     ws.on('close', function (code, message) {
-        if (client.session) {
-            let session = client.session;
-            if (client.ctrl == 0)
-                session.broadcastStringToSession(client, 'KILL' + client.clientID);
-            session.removeClient(client);
-            // check for other client to reset control
-            let clientToResetCtrl : Client | null;
-            if (clientToResetCtrl = session.findClientByID(client.clientID)) {
-                clientToResetCtrl.ctrl = 0;
-                clientToResetCtrl.sendSessionStringMessage('CTRL0');
-            }
-            if (session.clients.length < 1) {
-                sessions.delete(session.id);
-                debug.Log('deleting session: ' + session.id + ' session count: ' + sessions.size);
-            } else  if (session.clients.length < minPlayers)
-                session.broadcastStringToSession(null,'WAIT' + utils.ab2str([48+minPlayers - session.clients.length]));
-        }
-
-        for (var [key, value] of RTCClients.entries()) {
+       for (var [key, value] of RTCClients.entries()) {
              if (value === ws) {
                  close(client, key);
                  break;
              }
         }
+        if (client.session) {
+            let session = client.session;
+            session.broadcastStringToSession(client, 'KILL' + client.id);
+            session.removeClient(client);
+            // check for other client to reset control
+            if (client.otherId) {
+                let clientToResetCtrl: Client | null;
+                if (clientToResetCtrl = session.findClientByID(client.otherId)) {
+                    clientToResetCtrl.ctrl = 0;
+            //        clientToResetCtrl.sendSessionStringMessage('CTRL' + clientToResetCtrl.ctrl);
+                }
+            }
+            if (session.clients.length < 1) {
+                delete sessions.delete(session.id);
+                debug.Log('deleting session: ' + session.id + ' session count: ' + sessions.size);
+            } else  if (session.clients.length < minPlayers)
+                session.broadcastStringToSession(null,'WAIT' + (minPlayers - session.clients.length));
+        }
+
+     
         //debugOut('Client disconnected, count ' + clients.size + ' ' + code + ' ' + message);
     });
 });

@@ -1,2 +1,9 @@
 npm install --save express@4.10.2
 npm install --save ws
+npm install -g typescript
+npm install --save-dev @types/node
+npm install --save-dev @types/core-js
+npm install --save-dev @types/ws
+npm install --save-dev @types/express
+npm install typings --global
+tsc -w webrtc-server.ts utils.ts Session.ts --strictNullChecks

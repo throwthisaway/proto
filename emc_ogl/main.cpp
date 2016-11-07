@@ -43,6 +43,8 @@
 #include "WebRTC.h"
 //#define OBB_TEST
 // TODO:: 
+// - fix split when still invincible
+// - setctrl decal blink
 // - hittest on split?
 // - score fix for split
 // - flickering on split on other players view
@@ -1047,9 +1049,9 @@ struct ProtoX {
 	bool hit, killed;
 	glm::vec3 vel, f/*, hit_pos*/;
 	int score = 0;
-	size_t missile_id = 0, server_id = 0;
+	size_t missile_id = 0, server_id = 0, other_id = 0;
 	enum class Ctrl { Full, Prop, Turret };
-	Ctrl ctrl = Ctrl::Full, ctrl_before_split = Ctrl::Full;
+	Ctrl ctrl = Ctrl::Full;
 	bool pos_invalidated = false, // from web-message
 		first = true;
 	float clear_color_blink;
@@ -1302,7 +1304,6 @@ struct ProtoX {
 	void SetCtrl(Ctrl ctrl) {
 		SetInvincibility();
 		for_life_after_death.ctrl = this->ctrl = ctrl;
-		LOG_INFO(">>>>>> setctrl %d", for_life_after_death.ctrl);
 		pos_invalidated = false;
 	}
 	void Init() {
@@ -1384,31 +1385,36 @@ struct ProtoX {
 	}
 	void CommonSplit(float x_displacement) {
 		SetInvincibility();
-		ctrl_before_split = ctrl;
-		SetCtrl(ProtoX::Ctrl::Full);
+		for_life_after_death.ctrl = ctrl;
+		ctrl = ProtoX::Ctrl::Full;
+		// TODO:: secene.setCtrlCb-->blink decals
 		body.scale = 1.f;
 		body.pos.x += (body.layer.aabb.r - body.layer.aabb.l) * x_displacement;
-	}
-	void HandleSplitNewId(size_t new_id) {
-		if (ctrl == ProtoX::Ctrl::Turret) {
-			server_id = id;
-			const_cast<size_t&>(id) = new_id;
-		}
-		else if (ctrl == ProtoX::Ctrl::Prop)
-			server_id = new_id;
+		// TODO:: recalc bounding boxes and ResetVal
 	}
 	void Split() {
-		auto new_id = Gen0ToOPlayerID();
-		if (ws) {
-			Splt msg{ Tag("SPLT"), id/*send to original*/, new_id /*our new id*/ };
+		if (ctrl == ProtoX::Ctrl::Turret) {
+			if (ws) {
+				Splt msg{ Tag("SPLT"), id/*send to*/, server_id /*send our server id*/ };
+				ws->Send((const char*)&msg, sizeof(msg));
+			}
+			other_id = id;
+			for_life_after_death.id = id;
+			const_cast<size_t&>(id) = server_id;
+			CommonSplit(-1.5f);
+		} else if (/*ctrl == ProtoX::Ctrl::Prop &&*/ ws) {
+			Splt msg{ Tag("SPLT"), id/*send to*/, 0/*whatever*/};
 			ws->Send((const char*)&msg, sizeof(msg));
 		}
-		HandleSplitNewId(new_id);
-		CommonSplit(-1.5f);
 	}
 	void OnSplit(size_t other_id) {
-		HandleSplitNewId(other_id);
-		CommonSplit(1.5f);
+		if (ctrl == ProtoX::Ctrl::Turret) {
+			Split();
+		} else {
+			LOG_INFO(">>>prop split %x", other_id);
+			this->other_id = other_id;
+			CommonSplit(1.5f);
+		}
 	}
 
 	void Update(const Time& t, const AABB& bounds, bool player_self, const Camera& cam) {
@@ -2529,8 +2535,6 @@ public:
 	std::shared_ptr<Envelope> e_wsad_blink, e_mouse_blink, e_spacebar_blink;
 	void SetCtrl(ProtoX::Ctrl ctrl) {
 		if (!player) return;
-		if (ctrl == ProtoX::Ctrl::Full)
-			KillSplitOtherPlayer(*player, globals.timer.TotalMs());
 		player->SetCtrl(ctrl);
 		if (ctrl == ProtoX::Ctrl::Full || ctrl == ProtoX::Ctrl::Prop) {
 			e_wsad_blink = std::shared_ptr<Envelope>(new Blink(renderer.wsad_decal.factor, globals.blink_duration, globals.timer.ElapsedMs(), globals.blink_rate, globals.blink_ratio));
@@ -2544,16 +2548,22 @@ public:
 		}
 	}
 
-	void KillSplitOtherPlayer(ProtoX& proto, double hit_time) {
-		if (!proto.server_id) return;
-		auto it = players.find(proto.server_id);
-		if (it != players.end())
-			it->second->Die({}, {}, hit_time, camera, true);
-		proto.Kill(proto.server_id, 0, 0, {}, {});
+	void KillSplitOtherPlayer(ProtoX& proto, const glm::vec3& hit_pos, glm::vec3 vec, double hit_time) {
+		if (!proto.other_id) return;
+		auto it = players.find(proto.other_id);
+		LOG_INFO(">>>>killsplit %x", proto.other_id);
+		if (it != players.end()) {
+			if (it->second->other_id) throw 1;
+			it->second->Die(hit_pos, vec, hit_time, camera, true);
+		}
+		LOG_INFO(">>>>killsplirmid");
+		proto.Kill(proto.other_id, 0, 0, hit_pos, vec);
+		LOG_INFO(">>>>killsplitend");
 	}
 
 	void OnDie(ProtoX& proto, const glm::vec3& hit_pos, glm::vec3 vec, double hit_time) {
-		KillSplitOtherPlayer(proto, hit_time);
+		LOG_INFO(">>>>ondie");
+		KillSplitOtherPlayer(proto, hit_pos, vec, hit_time);
 		auto l = glm::length(vec);
 		if (l > 0.f) vec /= l;
 		const float from_center_ratio = .5f, vec_ratio = .5f;

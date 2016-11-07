@@ -43,7 +43,6 @@
 #include "WebRTC.h"
 //#define OBB_TEST
 // TODO:: 
-// - fix split when still invincible
 // - setctrl decal blink
 // - hittest on split?
 // - score fix for split
@@ -1427,7 +1426,7 @@ struct ProtoX {
 				visible = true;
 			}
 		}
-		else if (hit) {
+		if (hit) {
 			auto fade_time = (float)(t.total - hit_time) / globals.player_fade_out_time;
 			fade_out = 1.f - fade_time * fade_time * fade_time * fade_time * fade_time;
 			if ((killed = (fade_out <= 0.0001f))) return;
@@ -2831,6 +2830,7 @@ public:
 
 
 		for (auto p = std::begin(players); p != std::end(players);) {
+			LOG_INFO(">>>>>killed %d", p->second->killed);
 			if (p->second->killed) {
 				players.erase(p++);
 			}
@@ -3053,6 +3053,7 @@ public:
 	}
 
 	void OnPlyr(const std::vector<unsigned char>& msg) {
+		LOG_INFO(">>>>OnPlyr");
 		if (!SanitizeMsg<Plyr>(msg.size()))
 			return;
 		const Plyr* player = reinterpret_cast<const Plyr*>(&msg.front());

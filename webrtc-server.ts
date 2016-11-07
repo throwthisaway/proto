@@ -200,10 +200,10 @@ wss.on('connection', function (ws) {
             session.removeClient(client);
             // check for other client to reset control
             if (client.otherId) {
+                session.broadcastStringToSession(client, 'KILL' + client.otherId);
                 let clientToResetCtrl: Client | null;
                 if (clientToResetCtrl = session.findClientByID(client.otherId)) {
                     clientToResetCtrl.ctrl = 0;
-            //        clientToResetCtrl.sendSessionStringMessage('CTRL' + clientToResetCtrl.ctrl);
                 }
             }
             if (session.clients.length < 1) {

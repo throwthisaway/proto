@@ -1062,6 +1062,10 @@ struct ProtoX {
 	size_t missile_count = globals.max_missile;
 	std::queue<Command> commands;
 	float msg_interval = 0.f;
+	struct {
+		size_t id = 0;
+		Ctrl ctrl = Ctrl::Full;
+	}for_life_after_death;
 	struct Body {
 		glm::vec3 pos;
 		float rot, scale;
@@ -1229,9 +1233,9 @@ struct ProtoX {
 
 	void Shoot(std::vector<Missile>& missiles, double frame_time) {
 		if (!missile_count) return;
-		missile_count--;
 		if (ctrl != Ctrl::Turret && ctrl != Ctrl::Full) return;
 		if (hit || killed) return;
+		missile_count--;
 		const float missile_vel = 1.f;
 		auto rot = turret.rest_rot + turret.rot + body.rot;
 		glm::vec3 missile_vec{ std::cos(rot) * missile_vel, std::sin(rot) * missile_vel,.0f};
@@ -1297,10 +1301,12 @@ struct ProtoX {
 	}
 	void SetCtrl(Ctrl ctrl) {
 		SetInvincibility();
-		this->ctrl = ctrl;
+		for_life_after_death.ctrl = this->ctrl = ctrl;
+		LOG_INFO(">>>>>> setctrl %d", for_life_after_death.ctrl);
 		pos_invalidated = false;
 	}
 	void Init() {
+		for_life_after_death.id = id;
 		SetInvincibility();
 		fade_out = globals.player_fade_out_time;
 		e_blink = std::shared_ptr<Envelope>(
@@ -2826,21 +2832,16 @@ public:
 				renderer.clearColor = globals.palette[col_idx_dist(mt)];
 			}
 			if (player->killed) {
-				LOG_INFO("player killed ctrl: %d, ctrl before split: %d", player->ctrl, player->ctrl_before_split);
-				auto ctrl = (player->ctrl_before_split != ProtoX::Ctrl::Full) ? player->ctrl_before_split:player->ctrl;
+				auto ctrl = player->for_life_after_death.ctrl;
+				LOG_INFO(">>>>>> ctrl %d", ctrl);
 				auto score = player->score;
-				auto other_id = player->server_id;
-				if (ctrl == ProtoX::Ctrl::Full &&
-					player->server_id) {
-					LOG_INFO("@@@WTF?!");
-				}
-				CreatePlayer(player->ctrl_before_split == ProtoX::Ctrl::Turret ? player->server_id : player->id);
-				
+				auto server_id = player->server_id;
+				CreatePlayer(player->for_life_after_death.id);
 				camera.SetPos(player->body.pos.x, player->body.pos.y, globals.camera_z);
-				renderer.clearColor = { 0.f, 0.f, 0.f, 1.f };
 				player->score = score;
-				player->server_id = other_id;
+				player->server_id = server_id;
 				SetCtrl(ctrl);
+				renderer.clearColor = { 0.f, 0.f, 0.f, 1.f };
 			}
 		}
 		for (const auto& e : globals.envelopes) {
@@ -2995,7 +2996,7 @@ public:
 		const Conn* conn = reinterpret_cast<const Conn*>(msg.data());
 		auto ctrl = static_cast<ProtoX::Ctrl>(conn->ctrl - 48);
 		CreatePlayer(ID5(conn->id, 0));
-		player->ctrl = ctrl;
+		player->for_life_after_death.ctrl = player->ctrl = ctrl;
 		player->server_id = ID5(conn->server_id, 0);
 		LOG_INFO(">>>conn: id: %d, ctrl: %d, other: %d", player->id, player->ctrl, player->server_id);
 	}
@@ -3105,29 +3106,22 @@ public:
 		if (!SanitizeMsg<Kill>(msg.size()))
 			return;
 		const Kill* kill = reinterpret_cast<const Kill*>(&msg.front());
-		LOG_INFO(">>>>>>onkill %d", kill->server_id);
-		auto clientID = ID5(kill->server_id, 0);
-		players.erase(clientID);
-		if (player->id == clientID) {
-			if (player->server_id && player->server_id != player->id)
-			{
-				LOG_INFO(">>>>>onkill createplayer %d", player->server_id);
-				auto pos = player->body.pos;
-				auto score = player->score;
-				CreatePlayer(player->server_id);
-				player->ctrl = ProtoX::Ctrl::Full;
-				player->body.pos = pos;
-				player->score = score;
-				player->server_id = player->id;
-			}
-			else
-				player.reset(); // for safety
+		auto id = ID5(kill->server_id, 0);
+		
+		ProtoX* p = nullptr;
+		if (player->id == id) {
+			player->for_life_after_death.id = player->server_id;
+			player->for_life_after_death.ctrl = ProtoX::Ctrl::Full;
+			p = player.get();
 		}
-		/*auto it = players.find(clientID);
-		if (it == std::end(players)) return;
-		auto& p = it->second;
-		auto hit_pos = p->body.pos + glm::vec3{ p->aabb.r - p->aabb.l, p->aabb.t - p->aabb.b, 0.f };
-		p->Die(hit_pos, {}, t.total, camera, true);*/
+		else {
+			auto it = players.find(id);
+			if (it != players.end()) p = it->second.get();
+		}
+		if (p) {
+			const auto hit_pos = p->body.pos + glm::vec3{ p->aabb.r - p->aabb.l, p->aabb.t - p->aabb.b, 0.f };
+			p->Die(hit_pos, {}, t.total, camera, true);
+		}
 	}
 	//void OnCtrl(const std::vector<unsigned char>& msg) {
 	//	if (!SanitizeMsg<Ctrl>(msg.size()))

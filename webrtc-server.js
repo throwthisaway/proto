@@ -1,17 +1,17 @@
 "use strict";
-var Session_1 = require("./Session");
-var Express = require('express');
-var utils = require('./utils');
-var http = require('http');
-var ipaddress = process.env.OPENSHIFT_NODEJS_IP || "127.0.0.1";
-var port = process.env.OPENSHIFT_NODEJS_PORT || 8080;
-var app = Express();
-var server = http.createServer(app);
-var debug = new utils.Debug(true, false);
-var rootPath = ''; //'/develop';
-var sessionIDLen = 5, minPlayers = 4, maxPlayers = 16, maxSessions = 8;
-var RTCClients = new Map();
-var sessions = new Map();
+const Session_1 = require("./Session");
+const Express = require('express');
+const utils = require('./utils');
+let http = require('http');
+let ipaddress = process.env.OPENSHIFT_NODEJS_IP || "127.0.0.1";
+let port = process.env.OPENSHIFT_NODEJS_PORT || 8080;
+let app = Express();
+let server = http.createServer(app);
+let debug = new utils.Debug(true, false);
+let rootPath = ''; //'/develop';
+let sessionIDLen = 5, minPlayers = 4, maxPlayers = 16, maxSessions = 8;
+let RTCClients = new Map();
+let sessions = new Map();
 // session handling
 function getSessionIDFromMsg(msg) {
     if (msg.length < 4 + sessionIDLen)
@@ -19,16 +19,15 @@ function getSessionIDFromMsg(msg) {
     return msg.substr(4, sessionIDLen);
 }
 function findAvailableSessionID() {
-    var res = null;
-    for (var _i = 0, sessions_1 = sessions; _i < sessions_1.length; _i++) {
-        var session = sessions_1[_i];
+    let res = null;
+    for (var session of sessions) {
         if (!res || session[1].clients.length < res[1].clients.length)
             res = session;
     }
     return (res && res[1].clients.length < maxPlayers) ? res[0] : undefined;
 }
 function redirectToASession(res) {
-    var id;
+    let id;
     if (id = findAvailableSessionID()) {
         console.log('found an existing session: ' + id);
         res.redirect(rootPath + '/?p=' + id);
@@ -46,7 +45,7 @@ function redirectToASession(res) {
         }
         var sessionID = generateID(sessionIDLen);
         console.log('starting new session: ' + sessionID);
-        var session = new Session_1.Session();
+        let session = new Session_1.Session();
         session.id = sessionID;
         sessions.set(sessionID, session);
         res.redirect(rootPath + '/?p=' + sessionID);
@@ -63,7 +62,7 @@ app.get('/webrtc/adapter.js', function (req, res) {
     res.sendFile(__dirname + '/webrtc/adapter.js');
 });
 app.get(rootPath, function (req, res) {
-    var session = null;
+    let session = null;
     if (req.query.p &&
         (session = sessions.get(req.query.p)) != undefined &&
         session.clients.length < maxPlayers) {
@@ -93,8 +92,8 @@ app.get('/thumbnail4.png', function (req, res) {
     res.sendFile(__dirname + '/thumbnail4.png');
 });
 function applyMixins(derivedCtor, baseCtors) {
-    baseCtors.forEach(function (baseCtor) {
-        Object.getOwnPropertyNames(baseCtor.prototype).forEach(function (name) {
+    baseCtors.forEach(baseCtor => {
+        Object.getOwnPropertyNames(baseCtor.prototype).forEach(name => {
             derivedCtor.prototype[name] = baseCtor.prototype[name];
         });
     });
@@ -111,7 +110,7 @@ function handleSessionStringMessage(client, message) {
             client.close();
             return;
         }
-        var clientToCtrl = session.findClientToCtrl();
+        let clientToCtrl = session.findClientToCtrl();
         if (clientToCtrl) {
             clientToCtrl.ctrl = 1;
             clientToCtrl.otherId = client.id;
@@ -143,7 +142,7 @@ function close(client, remoteID) {
 // {'offer': {'originID': '7fea5', 'targetID': '8e9c3', 'sdp': '...'}}
 // {'answer': {'targetID': '7fea5','sdp': '...'}}
 // {'targetID': '8e9c3', 'originID': originID, 'candidate': '...'}}
-var wss;
+let wss;
 if (ipaddress === "127.0.0.1") {
     wss = new Session_1.WS.Server({
         server: server,
@@ -155,7 +154,7 @@ else {
     });
 }
 wss.on('connection', function (ws) {
-    var client = new Session_1.Client(ws);
+    let client = new Session_1.Client(ws);
     ws.on('message', function (message, flags) {
         var msg = JSON.parse(message);
         if (msg.session) {
@@ -192,21 +191,20 @@ wss.on('connection', function (ws) {
         }
     });
     ws.on('close', function (code, message) {
-        for (var _i = 0, _a = RTCClients.entries(); _i < _a.length; _i++) {
-            var _b = _a[_i], key = _b[0], value = _b[1];
+        for (var [key, value] of RTCClients.entries()) {
             if (value === ws) {
                 close(client, key);
                 break;
             }
         }
         if (client.session) {
-            var session = client.session;
+            let session = client.session;
             session.broadcastStringToSession(client, 'KILL' + client.id);
             session.removeClient(client);
             // check for other client to reset control
             if (client.otherId) {
                 session.broadcastStringToSession(client, 'KILL' + client.otherId);
-                var clientToResetCtrl = void 0;
+                let clientToResetCtrl;
                 if (clientToResetCtrl = session.findClientByID(client.otherId)) {
                     clientToResetCtrl.ctrl = 0;
                 }

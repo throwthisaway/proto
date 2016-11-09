@@ -1,19 +1,18 @@
 "use strict";
-var Debug = (function () {
-    function Debug(debug, debugRTC) {
+class Debug {
+    constructor(debug, debugRTC) {
         this.debug = true;
         this.debugRTC = true;
         this.debug = debug;
         this.debugRTC = debugRTC;
     }
-    Debug.prototype.Log = function (msg) {
+    Log(msg) {
         this.debug && console.log(msg);
-    };
-    Debug.prototype.LogRTC = function (msg) {
+    }
+    LogRTC(msg) {
         this.debugRTC && this.Log(msg);
-    };
-    return Debug;
-}());
+    }
+}
 exports.Debug = Debug;
 function ab2strUtf16(buf) {
     return String.fromCharCode.apply(null, new Uint16Array(buf));

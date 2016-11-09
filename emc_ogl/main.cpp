@@ -43,6 +43,8 @@
 #include "WebRTC.h"
 //#define OBB_TEST
 // TODO:: 
+// - findavailablesession finds existing when there are still available
+// - kill not working on openshift
 // - setctrl decal blink
 // - hittest on split?
 // - score fix for split
@@ -1037,7 +1039,7 @@ struct ProtoX {
 		m = 500.f,
 		force = .2f,
 		slowdown = .0003f,
-		ground_level = 0.f,
+		ground_level = 5.f,
 		rot_max_speed = .003f, //rad/ms
 		rot_inc = .000005f, // rad/ms*ms
 		safe_rot = glm::radians(35.f);
@@ -1329,7 +1331,7 @@ struct ProtoX {
 		sceneCb.die(*this, hit_pos, vec, hit_time);
 	}
 	bool IsInRestingPos(const AABB& bounds) const {
-		return aabb.b - ground_level <= bounds.b;
+		return body.pos.y <= bounds.b - body.layer.aabb.b + ground_level;
 	}
 
 	//auto GenBBoxEdgesCCW() {
@@ -1478,7 +1480,8 @@ struct ProtoX {
 
 			// ground constraint
 			if (IsInRestingPos(bounds)) {
-				body.pos.y += bounds.b - aabb.b + ground_level;
+				auto dy = bounds.b - aabb.b + ground_level;
+				body.pos.y = bounds.b - body.layer.aabb.b + ground_level;
 				if (std::abs(body.rot) > safe_rot && invincible <= 0.f) {
 					glm::vec3 hit_pos = body.pos + glm::vec3{ 0.f, body.layer.aabb.b, 0.f },
 						n{ 0.f, 1.f, 0.f };
@@ -1490,9 +1493,9 @@ struct ProtoX {
 				else {
 					body.rot = 0.f;
 					if (std::abs(vel.y) < 0.04f)
-						vel.y = 0.f;
+						vel = {};
 					else
-						vel = { 0.f, -vel.y / 1.2f, 0.f };
+						vel = { 0.f, -vel.y *.8f, 0.f };
 				}
 			}
 			else if (turret.layer.aabb.t + body.pos.y >= bounds.t) {
@@ -1503,8 +1506,6 @@ struct ProtoX {
 				// wrap around -PI..PI
 				float pi = (body.rot < 0.f) ? -glm::pi<float>() : glm::pi<float>();
 				body.rot = std::fmod(body.rot + rot_speed * (float)t.frame + pi, pi * 2.f) - pi;
-				//LOG_INFO("%g %g %g %g\n", f.x, f.y, f.z, body.rot);
-				//LOG_INFO("%g\n",body.rot);
 			}
 			msg_interval += t.frame;
 			if (ws && (globals.msg_interval == 0.f || msg_interval>=globals.msg_interval)) {
@@ -1525,12 +1526,15 @@ struct ProtoX {
 			}
 		}
 		auto dif = WrapAround(bounds.l, bounds.r);
+		RecalcAABB(t);
+		if (dif!=0.f)
+			ResetVals();
+	}
+	void RecalcAABB(const Time& t) {
 		body.Update(t);
 		turret.Update(t, body.GetModel());
 		aabb = Union(Union(body.aabb, turret.aabb),
 			Union(body.aabb.prev, turret.aabb.prev));
-		if (dif!=0.f)
-			ResetVals();
 	}
 	void ResetVals() {
 		// TODO:: reset preview values
@@ -2942,7 +2946,7 @@ public:
 		}
 		if (player) {
 			std::ostringstream ss;
-			ss << std::uppercase<< "P: " << std::hex << player->id << " " << player->server_id;
+			ss << std::uppercase<< "P: " << std::hex << player->id << " " << player->server_id<<" "<<player->vel.y;
 			player->msg.push_back({ glm::vec3{player->body.pos.x, player->body.pos.y + 100.f, 0.f }, .5f, Text::Align::Left, ss.str() });
 			for (const auto& p : players) {
 				std::ostringstream ss2;
@@ -3053,7 +3057,6 @@ public:
 	}
 
 	void OnPlyr(const std::vector<unsigned char>& msg) {
-		LOG_INFO(">>>>OnPlyr");
 		if (!SanitizeMsg<Plyr>(msg.size()))
 			return;
 		const Plyr* player = reinterpret_cast<const Plyr*>(&msg.front());
@@ -3095,14 +3098,12 @@ public:
 			auto it = std::find_if(missiles.begin(), missiles.end(), [=](const Missile& m) {
 				return m.owner->id == scor->owner_id && m.id == scor->missile_id; });
 			if (it != missiles.end()) {
-				it->owner->score += scor->score_dif;
 				it->owner->Enlarge();
 				RemoveMissile(*it);
 			}
 		}
-		/*else if (scor->owner_id == player->id) {
-			player->score += scor->score_dif;
-		}*/
+		if (player && player->other_id && player->other_id == scor->owner_id)
+			++player->score;
 		const glm::vec3 hit_pos(scor->x, scor->y, 0.f),
 			missile_vec{ scor->vec_x, scor->vec_y, 0.f };
 		if (scor->target_id == player->id)
@@ -3348,7 +3349,7 @@ void main_loop() {
 		globals.scene->Render();
 		InputHandler::Reset();
 		//if (sleep)
-		//	::Sleep(150);
+		//	::Sleep(100);
 //	}
 //	catch (...) {
 //	LOG_INFO("exception has been thrown\n");

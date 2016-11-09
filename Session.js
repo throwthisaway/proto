@@ -1,7 +1,7 @@
 "use strict";
-var WS = require('ws');
+const WS = require('ws');
 exports.WS = WS;
-var clientIDLen = 5;
+let clientIDLen = 5;
 function generate0ToOClientID(count) {
     //var symbols = '0123456789:;<=>?@ABCDEFGHIJKLMNO',
     var res = '';
@@ -10,24 +10,23 @@ function generate0ToOClientID(count) {
     }
     return "" + res;
 }
-var Client = (function () {
-    function Client(ws) {
+class Client {
+    constructor(ws) {
         this.ctrl = 0;
         this.id = generate0ToOClientID(clientIDLen);
         this.ws = ws;
     }
-    Client.prototype.close = function () { this.ws.close(); };
-    Client.prototype.sendSessionStringMessage = function (str) {
+    close() { this.ws.close(); }
+    sendSessionStringMessage(str) {
         this.ws.send(JSON.stringify({ 'session': str }));
-    };
-    return Client;
-}());
+    }
+}
 exports.Client = Client;
-var Session = (function () {
-    function Session() {
+class Session {
+    constructor() {
         this.clients = [];
     }
-    Session.prototype.broadcastStringToSession = function (sender, data) {
+    broadcastStringToSession(sender, data) {
         this.clients.forEach(function each(client) {
             try {
                 if (client != sender)
@@ -37,8 +36,8 @@ var Session = (function () {
                 console.log('client unexpectedly closed: ' + err.message);
             }
         });
-    };
-    Session.prototype.broadcastToSession = function (sender, data) {
+    }
+    broadcastToSession(sender, data) {
         this.clients.forEach(function each(client) {
             try {
                 if (client != sender)
@@ -48,24 +47,23 @@ var Session = (function () {
                 console.log('client unexpectedly closed: ' + err.message);
             }
         });
-    };
-    Session.prototype.findClientToCtrl = function () {
+    }
+    findClientToCtrl() {
         for (var i = 0; i < this.clients.length; ++i) {
             if (this.clients[i].ctrl === 0)
                 return this.clients[i];
         }
         return null;
-    };
-    Session.prototype.findClientByID = function (id) {
+    }
+    findClientByID(id) {
         for (var i = 0; i < this.clients.length; ++i) {
             if (this.clients[i].id === id)
                 return this.clients[i];
         }
         return null;
-    };
-    Session.prototype.removeClient = function (client) {
+    }
+    removeClient(client) {
         this.clients.splice(this.clients.indexOf(client), 1);
-    };
-    return Session;
-}());
+    }
+}
 exports.Session = Session;

@@ -14,6 +14,7 @@ class Client {
     public id: string = generate0ToOClientID(clientIDLen);
     public otherId : string | null;
     public ws: WS;
+    public alive: boolean = true;
     constructor(ws:WS) { this.ws = ws; }
     public close() { this.ws.close();}
     public sendSessionStringMessage(str : string) {
@@ -32,7 +33,7 @@ class Session {
                 console.log('client unexpectedly closed: ' + err.message); }
         });
     }
-    public broadcastToSession(sender : Client, data : any) {
+    public broadcastToSession(sender : Client | null, data : any) {
         this.clients.forEach(function each(client) {
             try{
                 if (client != sender)

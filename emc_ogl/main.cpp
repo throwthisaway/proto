@@ -43,6 +43,7 @@
 #include "WebRTC.h"
 //#define OBB_TEST
 // TODO:: 
+// - hit kill straight out of invincibility
 // - findavailablesession finds existing when there are still available
 // - kill not working on openshift
 // - setctrl decal blink
@@ -154,7 +155,8 @@ struct {
 		player_fade_out_time = 3500.f, // ms;
 		msg_interval = 0.f, //ms
 		max_player_scale = 2.f,// 3.5f,
-		scale_inc = 1.2f; 
+		scale_inc = 1.2f,
+		alive_interval = 1000.f;
 	const size_t max_missile = 3;
 	const glm::vec4 radar_player_color{ 1.f, 1.f, 1.f, 1.f }, radar_enemy_color{ 1.f, .5f, .5f, 1.f };
 	const gsl::span<const glm::vec4, gsl::dynamic_range>& palette = pal, &grey_palette = grey_pal;
@@ -858,11 +860,15 @@ struct Scor {
 };
 struct Kill {
 	const size_t tag;
-	const char server_id[CLIENTID_LEN];
+	/*const*/ char server_id[CLIENTID_LEN];
 };
 struct Wait {
 	const size_t tag;
 	const unsigned char n;
+};
+
+struct Ping {
+	const size_t tag, id;
 };
 struct Text {
 	enum class Align { Left, Center, Right };
@@ -1064,7 +1070,7 @@ struct ProtoX {
 	SceneCb sceneCb;
 	size_t missile_count = globals.max_missile;
 	std::queue<Command> commands;
-	float msg_interval = 0.f;
+	float msg_interval = 0.f, alive = 0.f;
 	struct {
 		size_t id = 0;
 		Ctrl ctrl = Ctrl::Full;
@@ -1419,6 +1425,12 @@ struct ProtoX {
 	}
 
 	void Update(const Time& t, const AABB& bounds, bool player_self, const Camera& cam) {
+		alive += (float)t.frame;
+		if (ws && alive > globals.alive_interval) {
+			Ping ping{ Tag("PING"), server_id };
+			ws->Send((const char*)&ping, sizeof(Ping));
+			alive -= globals.alive_interval;
+		}
 		Execute(t.total, t.frame, commands);
 		msg.clear();
 		if (invincible > 0.f) {
@@ -2475,7 +2487,7 @@ public:
 	float update = 0.f;
 	size_t _sent = 0.f, _rec = 0.f;
 	Val<size_t> sent, received;
-
+	std::map<size_t, double> alive;
 //#ifndef __EMSCRIPTEN__
 //	void* operator new(size_t i)
 //	{
@@ -2738,7 +2750,6 @@ public:
 			camera.Translate(float(scroll_speed * t.frame), 0.f, 0.f);
 		if (inputHandler.keys[(size_t)InputHandler::Keys::Right])
 			camera.Translate(float(scroll_speed * t.frame), 0.f, 0.f);
-		texts.clear();
 		if (globals.ws) {
 			update += t.frame;
 			if (update >= 1000.f) {
@@ -2746,16 +2757,8 @@ public:
 				sent = globals.ws->sent;
 				received = globals.ws->received;	
 			}
-			texts.push_back({ { 380.f, 300.f, 0.f }, 1.f, Text::Align::Right, std::to_string(sent.val - sent.prev) + ":" + std::to_string(received.val - received.prev) });
-			//texts.push_back({ { 380.f, 300.f, 0.f }, 1.f, Text::Align::Right, std::to_string(globals.ws->sent) + ":" + std::to_string(globals.ws->received) });
-		}
-		if (wait > 0) {
-			std::stringstream ss;
-			ss << "WAITING FOR " << wait << " MORE PLAYER" << ((wait == 1) ? "" : "S");
-			texts.push_back({ {}, .8f, Text::Align::Center, ss.str() });
-			ss.str("");
-			ss << "SHARE THE URL IN THE ADDRESS BAR";
-			texts.push_back({ {0.f,  -(assets.text.aabb.t - assets.text.aabb.b), 0.f}, .8f, Text::Align::Center, ss.str() });
+			//texts.push_back({ { 380.f, 300.f, 0.f }, 1.f, Text::Align::Right, std::to_string(sent.val - sent.prev) + ":" + std::to_string(received.val - received.prev) });
+			
 		}
 		if (player) {
 			bool touch = false;
@@ -2826,7 +2829,7 @@ public:
 			auto& p1 = *it1->second, &p2 = *it2->second;
 			HitTest(p1, p2, t.total);
 		}
-#else		
+#else
 		for (auto& p : players) {
 			p.second->Update(t, bounds, false, camera);
 		}
@@ -2834,7 +2837,6 @@ public:
 
 
 		for (auto p = std::begin(players); p != std::end(players);) {
-			LOG_INFO(">>>>>killed %d", p->second->killed);
 			if (p->second->killed) {
 				players.erase(p++);
 			}
@@ -2953,8 +2955,18 @@ public:
 				ss2 << std::uppercase << "S: " << std::hex << p.second->id << " " << p.second->server_id;
 				p.second->msg.push_back({ glm::vec3{ p.second->body.pos.x, p.second->body.pos.y + 100.f, 0.f }, .5f, Text::Align::Left, ss2.str() });
 			}
+			if (player->ws)
+				for (auto& p : alive) {
+					p.second += (float)t.frame;
+					if (p.second > globals.alive_interval * 2.f) {
+						Kill kill{ Tag("KILL") };
+						memcpy(kill.server_id, ID5(p.first).data(), sizeof(kill.server_id));
+						player->ws->WSSend((const char*)&kill, sizeof(Kill));
+						p.second = 0.f;
+						LOG_INFO("pingkill %.5s", kill.server_id);
+					}
+				}
 		}
-
 
 #ifdef DEBUG_REL
 		if (players.size()<MAX_NPC) {
@@ -2973,10 +2985,15 @@ public:
 		////glDeleteVertexArrays(1, &VertexArrayID);
 	}
 	void OnError(int code, const char* msg) {
-		LOG_INFO("Socket error: %d  %s\n", code, msg);
+		LOG_INFO("WebRTC error: %d  %s\n", code, msg);
 	}
 	void OnClose() {
-		LOG_INFO("Socket closed\n");
+		LOG_INFO("WebRTC closed\n");
+	}
+	void WSOnClose() {
+		LOG_INFO("WebSocket closed\n");
+		texts.clear();
+		texts.push_back({ {}, .8f, Text::Align::Center, "SESSION LOST. PLEASE REFRESH." });
 	}
 	void OnOpen() {
 		SendSessionID();
@@ -3119,7 +3136,8 @@ public:
 			return;
 		const Kill* kill = reinterpret_cast<const Kill*>(&msg.front());
 		auto id = ID5(kill->server_id, 0);
-		
+		alive.erase(id);
+		LOG_INFO(">>>>onkill %x", id);
 		ProtoX* p = nullptr;
 		if (player->id == id) {
 			player->for_life_after_death.id = player->server_id;
@@ -3164,6 +3182,16 @@ public:
 			return;
 		auto wait = reinterpret_cast<const Wait*>(&msg.front());
 		this->wait = wait->n - 48;
+
+		texts.clear();
+		if (this->wait > 0) {
+			std::stringstream ss;
+			ss << "WAITING FOR " << this->wait << " MORE PLAYER" << ((this->wait == 1) ? "" : "S");
+			texts.push_back({ {}, .8f, Text::Align::Center, ss.str() });
+			ss.str("");
+			ss << "SHARE THE URL IN THE ADDRESS BAR";
+			texts.push_back({ { 0.f,  -(assets.text.aabb.t - assets.text.aabb.b), 0.f }, .8f, Text::Align::Center, ss.str() });
+		}
 		//LOG_INFO("OnWait: %d", wait->n);
 	}
 	void OnSplt(const std::vector<unsigned char>& msg) {
@@ -3173,6 +3201,14 @@ public:
 		const Splt* splt = reinterpret_cast<const Splt*>(&msg.front());
 		if (player->id == splt->id)
 			player->OnSplit(splt->other_id);
+	}
+	void OnPing(const std::vector<unsigned char>& msg) {
+		if (!SanitizeMsg<Ping>(msg.size()))
+			return;
+		if (!player) return;
+		const Ping* ping = reinterpret_cast<const Ping*>(&msg.front());
+		alive[ping->id] = 0.;
+		LOG_INFO(">>>ping %.5s", ID5(ping->id).data());
 	}
 	void Dispatch(const std::vector<unsigned char>& msg, const Time& t) {
 		if (msg.size() < sizeof(size_t))
@@ -3188,7 +3224,8 @@ public:
 			prop = Tag("PROP"), // propulsion main body control
 			trrt = Tag("TRRT"), // turret rotation control
 			invi = Tag("INVI"), // sent when invincibility timer should be set
-			splt = Tag("SPLT");
+			splt = Tag("SPLT"),
+			ping = Tag("PING");
 		switch (tag) {
 		case conn:
 			OnConn(msg);
@@ -3222,6 +3259,9 @@ public:
 			break;
 		case splt:
 			OnSplt(msg);
+			break;
+		case ping:
+			OnPing(msg);
 			break;
 		}
 	}
@@ -3314,7 +3354,7 @@ int main(int argc, char** argv) {
 
 	Session session = { std::bind(&Scene::OnOpen, globals.scene.get()),
 		std::bind(&Scene::OnClose, globals.scene.get()),
-		std::bind(&Scene::OnClose, globals.scene.get()),
+		std::bind(&Scene::WSOnClose, globals.scene.get()),
 		std::bind(&Scene::OnConnect, globals.scene.get(),std::placeholders::_1),
 		std::bind(&Scene::OnError, globals.scene.get(),std::placeholders::_1, std::placeholders::_2),
 		std::bind(&Scene::OnMessage, globals.scene.get(),std::placeholders::_1, std::placeholders::_2),

@@ -42,7 +42,7 @@ var createConnection = function (initial) {
         var readyState = sendChannel.readyState;
         debug.LogRTC('Send channel state is: ' + readyState);
         if (readyState === 'open') { Connected(); }
-        else if (readyState === 'close') { close(); }
+        else if (readyState === 'close') { WebRTCPeer.close(remoteID); }
     }
 
     function onAddIceCandidateSuccess() {
@@ -66,7 +66,7 @@ var createConnection = function (initial) {
         var readyState = receiveChannel.readyState;
         debug.LogRTC('Receive channel state is: ' + readyState);
         if (readyState === 'open') { Connected(); }
-        else if (readyState === 'close') { close(); }
+        else if (readyState === 'close') { WebRTCPeer.close(remoteID); }
     }
 
     function onReceiveChannelCb(e) {
@@ -77,16 +77,6 @@ var createConnection = function (initial) {
         receiveChannel.onopen = onReceiveChannelStateChange;
         receiveChannel.onclose = onReceiveChannelStateChange;
         recvSize = 0;
-    }
-
-    function close() {
-        if (sendChannel)
-            sendChannel.close();
-        if (receiveChannel)
-            receiveChannel.close();
-        conn.close();
-        conn = null;
-        WebRTCPeer.close(remoteID);
     }
 
     function init(_ws, _remoteID, _clientID) {
@@ -142,7 +132,14 @@ var createConnection = function (initial) {
         handleAnswer: handleAnswer,
         sendOffer: sendOffer,
         handleIceCandidate: handleIceCandidate,
-        close: close,
+        close: function() {
+            if (sendChannel)
+                sendChannel.close();
+            if (receiveChannel)
+                receiveChannel.close();
+            conn.close();
+            conn = null;
+        },
         initial: initial
     };
 }
@@ -152,11 +149,21 @@ var WebRTCPeer = function () {
     var clientID;
     var cpp = null;
     var connections = new Map();
-
+    var i = 0;
+    function closeRTCClient(remoteID){
+        var conn = connections.get(remoteID);
+        if (conn) conn.close();
+            connections.delete(remoteID);
+        cpp && cpp.OnClose();
+        console.log("WebRTC remoteID: " + remoteID + " closed count " + connections.size);
+    }
     function onWSMessage(e) {
         var msg = JSON.parse(e.data);
+        console.log(msg + (++i));
         if (msg.session) {
             if (cpp) cpp.WSOnMessage(msg.session);
+        } else if (msg.ping) {
+            ws.send(JSON.stringify({'ping': 'pong'}));
         } else if (msg.connect) {
             var conn = createConnection(true);
             connections.set(msg.connect, conn);
@@ -177,9 +184,7 @@ var WebRTCPeer = function () {
             var conn = connections.get(msg.originID);
             if (conn) conn.handleIceCandidate(msg.candidate);
         } else if (msg.close) {
-            var conn = connections.get(msg.close);
-            if (conn) conn.close();
-            connections.delete(msg.close);
+            closeRTCClient(msg.close);
         }
     }
 
@@ -197,6 +202,7 @@ var WebRTCPeer = function () {
                 debug.Log('ws-error ' + error);
             };
             ws.onclose = function(code, message){
+                console.log("WebSocket ws.onclose");
                 cpp && cpp.WSOnClose();
             },
             ws.onmessage = function (e) {
@@ -204,12 +210,22 @@ var WebRTCPeer = function () {
             };
         },
         close: function (remoteID) {
-            connections.delete(remoteID);
-            cpp && cpp.OnClose();
+            closeRTCClient(remoteID);
         },
         send: function (data) {
+            var toClose = [];
             for (var client of connections.values()) {
-                client.send(data);
+                try{
+                    client.send(data);
+                } catch(err) {
+                    console.log('RTC unexpectedly closed: ' + err.message);
+                    client.close();
+                    toClose.push(client.remoteID);
+                }
+            }
+            for (var remoteID of toClose) {
+                closeRTCClient(remoteID);
+                console.log("RTC delete on send " + remoteID + " " + connections.size() );
             }
         },
         wsSend: function (data) {

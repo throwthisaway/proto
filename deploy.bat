@@ -1,3 +1,5 @@
+mkdir ..\1101\webrtc
+mkdir ..\1101\emc_ogl
 copy /y webrtc-server.js ..\1101\
 copy /y utils.js ..\1101\
 copy /y Session.js ..\1101\

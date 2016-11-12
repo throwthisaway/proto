@@ -14,6 +14,7 @@ class Client {
     constructor(ws) {
         this.ctrl = 0;
         this.id = generate0ToOClientID(clientIDLen);
+        this.alive = true;
         this.ws = ws;
     }
     close() { this.ws.close(); }

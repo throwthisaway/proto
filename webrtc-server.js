@@ -9,7 +9,7 @@ let app = Express();
 let server = http.createServer(app);
 let debug = new utils.Debug(true, false);
 let rootPath = ''; //'/develop';
-let sessionIDLen = 5, minPlayers = 4, maxPlayers = 16, maxSessions = 8;
+let sessionIDLen = 5, clientIDLen = 5, minPlayers = 4, maxPlayers = 16, maxSessions = 8;
 let RTCClients = new Map();
 let sessions = new Map();
 // session handling
@@ -17,6 +17,11 @@ function getSessionIDFromMsg(msg) {
     if (msg.length < 4 + sessionIDLen)
         return undefined;
     return msg.substr(4, sessionIDLen);
+}
+function getClientIDFromMsg(msg) {
+    if (msg.length < 4 + clientIDLen)
+        return undefined;
+    return msg.substr(4, clientIDLen);
 }
 function findAvailableSessionID() {
     let res = null;
@@ -128,15 +133,46 @@ function handleSessionStringMessage(client, message) {
             session.broadcastStringToSession(null, 'WAIT0');
         return;
     }
-    if (client.session == undefined) {
-        console.log('Invalid session for ws client');
-        client.close();
-        return;
+    else if (message.indexOf('KILL') === 0) {
+        console.log("killing " + message);
+        var clientIDToKill = getClientIDFromMsg(message);
+        if (clientIDToKill) {
+            var clientToKill = client.session.findClientByID(clientIDToKill);
+            if (clientToKill)
+                clientToKill.close();
+        }
     }
 }
-function close(client, remoteID) {
-    RTCClients.delete(remoteID);
-    client.session.broadcastToSession(client, JSON.stringify({ 'close': remoteID }));
+function close(client) {
+    for (var [remoteID, ws] of RTCClients.entries()) {
+        if (ws === client.ws) {
+            delete RTCClients.delete(remoteID);
+            client.session.broadcastToSession(client, JSON.stringify({ 'close': remoteID }));
+            break;
+        }
+    }
+    if (client.session) {
+        let session = client.session;
+        session.broadcastStringToSession(client, 'KILL' + client.id);
+        console.log((new Date()) + ">>>>>KILL + " + client.id);
+        session.removeClient(client);
+        // check for other client to reset control
+        if (client.otherId) {
+            session.broadcastStringToSession(client, 'KILL' + client.otherId);
+            console.log((new Date()) + ">>>>>KILL + " + client.otherId);
+            let clientToResetCtrl;
+            if (clientToResetCtrl = session.findClientByID(client.otherId)) {
+                clientToResetCtrl.ctrl = 0;
+            }
+        }
+        if (session.clients.length < 1) {
+            delete sessions.delete(session.id);
+            debug.Log('deleting session: ' + session.id + ' session count: ' + sessions.size);
+        }
+        else if (session.clients.length < minPlayers)
+            session.broadcastStringToSession(null, 'WAIT' + (minPlayers - session.clients.length));
+    }
+    //debugOut('Client disconnected, count ' + clients.size + ' ' + code + ' ' + message);
 }
 // {'connect': '7fea5'}
 // {'offer': {'originID': '7fea5', 'targetID': '8e9c3', 'sdp': '...'}}
@@ -153,12 +189,36 @@ else {
         server: server
     });
 }
+/*let pingId = setInterval(function(){
+    let clientsToClose : Client[] = [];
+    for (var [sessionID, session] of sessions) {
+        for (var client of session.clients) {
+            if (!client.alive) {
+               // debug.Log("ToClose " + client.id);
+                clientsToClose.push(client);
+            }
+            else {
+                //debug.Log("wasalive " + client.id);
+                client.alive = false;
+            }
+        }
+       // debug.Log("session " + session.clients.length);
+        session.broadcastToSession(null, JSON.stringify({'ping': 'ping'}));
+    }
+    for (var client of clientsToClose) {
+        debug.Log('Closing ' + client.id);
+        close(client);
+    }
+}, 1000);*/
 wss.on('connection', function (ws) {
     let client = new Session_1.Client(ws);
     ws.on('message', function (message, flags) {
         var msg = JSON.parse(message);
         if (msg.session) {
             handleSessionStringMessage(client, msg.session);
+        }
+        else if (msg.ping) {
+            client.alive = true;
         }
         else if (msg.connect) {
             // broadcast connect request to everyone else in the session
@@ -191,32 +251,7 @@ wss.on('connection', function (ws) {
         }
     });
     ws.on('close', function (code, message) {
-        for (var [key, value] of RTCClients.entries()) {
-            if (value === ws) {
-                close(client, key);
-                break;
-            }
-        }
-        if (client.session) {
-            let session = client.session;
-            session.broadcastStringToSession(client, 'KILL' + client.id);
-            session.removeClient(client);
-            // check for other client to reset control
-            if (client.otherId) {
-                session.broadcastStringToSession(client, 'KILL' + client.otherId);
-                let clientToResetCtrl;
-                if (clientToResetCtrl = session.findClientByID(client.otherId)) {
-                    clientToResetCtrl.ctrl = 0;
-                }
-            }
-            if (session.clients.length < 1) {
-                delete sessions.delete(session.id);
-                debug.Log('deleting session: ' + session.id + ' session count: ' + sessions.size);
-            }
-            else if (session.clients.length < minPlayers)
-                session.broadcastStringToSession(null, 'WAIT' + (minPlayers - session.clients.length));
-        }
-        //debugOut('Client disconnected, count ' + clients.size + ' ' + code + ' ' + message);
+        close(client);
     });
 });
 server.listen(port, ipaddress, function () {

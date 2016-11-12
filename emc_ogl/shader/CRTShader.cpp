@@ -86,8 +86,8 @@ vec4 MaskShadow(vec2 pos){
 
 void main() {
 	vec4 frag =  texture2D(uSmpRT, vUV);	
-	gl_FragColor = Scan(vUV) * frag * MaskCRT(vUV);
-	//gl_FragColor = Scan(vUV) * frag * MaskShadow(vUV);
+	//gl_FragColor = Scan(vUV) * frag * MaskCRT(vUV);
+	gl_FragColor = Scan(vUV) * frag * MaskShadow(vUV);
 }
 
 )";

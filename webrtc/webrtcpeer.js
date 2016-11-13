@@ -6,7 +6,7 @@ var debug = new Debug(false, false);
 var createConnection = function (initial) {
     var ws, remoteID, clientID;
     var recvSize = 0;
-    var conn, sendChannel, receiveChannel, servers = null, pcConstraint = null;
+    var conn, sendChannel, receiveChannel, servers = {"iceServers": [{"url": "stun:stun.l.google.com:19302"}]}, pcConstraint = null;
 
     function Connected() {
         if (sendChannel && sendChannel.readyState === 'open' &&
@@ -21,7 +21,7 @@ var createConnection = function (initial) {
     }
 
     function iceCb(e) {
-        debug.LogRTC('Send ICE candidate: \n' + e.candidate);
+        debug.LogRTC('Send ICE candidate: \n' + JSON.stringify(e.candidate));
         if (!e.candidate) return;
         ws.send(JSON.stringify({ 'targetID': remoteID, 'originID': clientID, 'candidate': e.candidate }));
     }

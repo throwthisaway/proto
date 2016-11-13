@@ -43,15 +43,9 @@
 #include "WebRTC.h"
 //#define OBB_TEST
 // TODO:: 
-// - hit kill straight out of invincibility
+// - auto restart server on fatal errors
 // - findavailablesession finds existing when there are still available
-// - kill not working on openshift
-// - setctrl decal blink
 // - hittest on split?
-// - score fix for split
-// - flickering on split on other players view
-// - session find logic fix
-// - framerate independent resting pos
 // - better invite message
 // - remove velocity dependent missile vector
 // -----
@@ -68,8 +62,6 @@
 // - introduce npc flag, overhaul player_self flag, add npc behaviour
 //----------------------------------------
 // - colorize player only
-// - display session lost on socket error
-// - test connection loss on broadcast messages (remove connection on exception)
 template<typename T>
 constexpr size_t ID5(const T& t, size_t offset) {
 	return ((t[offset + 4] - '0') << 20) | ((t[offset + 3] - '0') << 15) | ((t[offset + 2] - '0') << 10) | ((t[offset + 1] - '0') << 5) | (t[offset] - '0');
@@ -2563,11 +2555,13 @@ public:
 	}
 	void OnCtrlChange(Control ctrl) {
 		if (ctrl == Control::Full || ctrl == Control::Prop) {
+			renderer.wsad_decal.factor = 1.f; // reset
 			e_wsad_blink = std::shared_ptr<Envelope>(new Blink(renderer.wsad_decal.factor, globals.blink_duration, globals.timer.TotalMs(), globals.blink_rate, globals.blink_ratio));
 			// TODO:: replace/remove
 			globals.envelopes.push_back(e_wsad_blink);
 		}
 		if (ctrl == Control::Full || ctrl == Control::Turret) {
+			renderer.mouse_decal.factor = 1.f; // reset
 			e_mouse_blink = std::unique_ptr<Envelope>(new Blink(renderer.mouse_decal.factor, globals.blink_duration, globals.timer.TotalMs(), globals.blink_rate, globals.blink_ratio));
 			// TODO:: replace/remove
 			globals.envelopes.push_back(e_mouse_blink);
@@ -3116,8 +3110,11 @@ public:
 				RemoveMissile(*it);
 			}
 		}
-		if (player && player->other_id && player->other_id == scor->owner_id)
-			++player->score;
+		if (player &&
+			((player->other_id && player->other_id == scor->owner_id) ||
+				player->id == scor->owner_id)) {
+			player->score += scor->score_dif;
+		}
 		const glm::vec3 hit_pos(scor->x, scor->y, 0.f),
 			missile_vec{ scor->vec_x, scor->vec_y, 0.f };
 		if (scor->target_id == player->id) {

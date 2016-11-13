@@ -8,7 +8,7 @@ export class Debug {
         this.debug && console.log(msg);
     }
     public LogRTC(msg : string) {
-        this.debugRTC && this.Log(msg);
+        this.debugRTC && console.log(msg);
     }
 }
 

@@ -155,11 +155,10 @@ var WebRTCPeer = function () {
         if (conn) conn.close();
             connections.delete(remoteID);
         cpp && cpp.OnClose();
-        console.log("WebRTC remoteID: " + remoteID + " closed count " + connections.size);
+        console.log("WebRTC remoteID: " + remoteID + " closed connection count: " + connections.size);
     }
     function onWSMessage(e) {
         var msg = JSON.parse(e.data);
-        console.log(msg + (++i));
         if (msg.session) {
             if (cpp) cpp.WSOnMessage(msg.session);
         } else if (msg.ping) {
@@ -194,7 +193,6 @@ var WebRTCPeer = function () {
             cpp = _cpp;
             ws = new WebSocket('ws://' + url);
             ws.onopen = function () {
-                //debugOut('ws-onopen');
                 cpp && cpp.OnOpen();
             };
 
@@ -202,7 +200,6 @@ var WebRTCPeer = function () {
                 debug.Log('ws-error ' + error);
             };
             ws.onclose = function(code, message){
-                console.log("WebSocket ws.onclose");
                 cpp && cpp.WSOnClose();
             },
             ws.onmessage = function (e) {
@@ -219,13 +216,11 @@ var WebRTCPeer = function () {
                     client.send(data);
                 } catch(err) {
                     console.log('RTC unexpectedly closed: ' + err.message);
-                    client.close();
                     toClose.push(client.remoteID);
                 }
             }
             for (var remoteID of toClose) {
                 closeRTCClient(remoteID);
-                console.log("RTC delete on send " + remoteID + " " + connections.size() );
             }
         },
         wsSend: function (data) {

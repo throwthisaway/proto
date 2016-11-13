@@ -6,7 +6,7 @@ let ipaddress = process.env.OPENSHIFT_NODEJS_IP || "127.0.0.1";
 let port : number|any = process.env.OPENSHIFT_NODEJS_PORT || 8080;
 let app = Express();
 let server = http.createServer(app);
-let debug = new utils.Debug(true, false);
+let debug = new utils.Debug(false, false);
 let rootPath = '';//'/develop';
 let sessionIDLen = 5,
     clientIDLen = 5,
@@ -122,7 +122,7 @@ function handleSessionStringMessage(client : Client, message : string){
             clientToCtrl.sendSessionStringMessage('CTRL' + clientToCtrl.ctrl);
             client.ctrl = 2;
             client.otherId = clientToCtrl.id;
-            console.log(client.id + ' ' + clientToCtrl.id);
+            debug.Log(client.id + ' ' + clientToCtrl.id);
         }
         client.sendSessionStringMessage('CONN' + (clientToCtrl ? clientToCtrl.id : client.id) + client.ctrl + client.id);
         client.session = session;
@@ -133,7 +133,7 @@ function handleSessionStringMessage(client : Client, message : string){
             session.broadcastStringToSession(null, 'WAIT0');
         return;
     } else if (message.indexOf('KILL') === 0) {
-        console.log("killing "  + message);
+        debug.Log("killing "  + message);
         var clientIDToKill = getClientIDFromMsg(message);
         if (clientIDToKill) {
             var clientToKill = client.session.findClientByID(clientIDToKill);
@@ -153,12 +153,12 @@ function close(client : Client){
     if (client.session) {
         let session = client.session;
         session.broadcastStringToSession(client, 'KILL' + client.id);
-        console.log((new Date()) + ">>>>>KILL + " + client.id);
+        debug.Log((new Date()) + ">>>>>KILL + " + client.id);
         session.removeClient(client);
         // check for other client to reset control
         if (client.otherId) {
             session.broadcastStringToSession(client, 'KILL' + client.otherId);
-            console.log((new Date()) + ">>>>>KILL + " + client.otherId);
+            debug.Log((new Date()) + ">>>>>KILL + " + client.otherId);
             let clientToResetCtrl: Client | null;
             if (clientToResetCtrl = session.findClientByID(client.otherId)) {
                 clientToResetCtrl.ctrl = 0;

@@ -1034,8 +1034,10 @@ struct Debris {
 		}
 	}
 };
+enum class Control { Full, Prop, Turret };
 struct SceneCb {
 	std::function<void(ProtoX&, const glm::vec3&, glm::vec3, double)> die;
+	std::function<void(Control)> ctrl;
 };
 struct ProtoX {
 	const size_t id;
@@ -1057,8 +1059,7 @@ struct ProtoX {
 	glm::vec3 vel, f/*, hit_pos*/;
 	int score = 0;
 	size_t missile_id = 0, server_id = 0, other_id = 0;
-	enum class Ctrl { Full, Prop, Turret };
-	Ctrl ctrl = Ctrl::Full;
+	Control ctrl = Control::Full;
 	bool pos_invalidated = false, // from web-message
 		first = true;
 	float clear_color_blink;
@@ -1073,7 +1074,7 @@ struct ProtoX {
 	float msg_interval = 0.f, alive = 0.f;
 	struct {
 		size_t id = 0;
-		Ctrl ctrl = Ctrl::Full;
+		Control ctrl = Control::Full;
 	}for_life_after_death;
 	struct Body {
 		glm::vec3 pos;
@@ -1179,15 +1180,16 @@ struct ProtoX {
 		Init();
 	}
 	~ProtoX() {
-		LOG_INFO("~ProtoX ctrl: %d, id: %x, other: %x", ctrl, id, server_id);
+		//LOG_INFO("~ProtoX ctrl: %d, id: %x, other: %x", ctrl, id, server_id);
 		// TODO:: handle missiles after owner destruction
 		auto it = std::partition(std::begin(missiles), std::end(missiles), [this](const Missile& m) {
 			return m.owner != this; });
 		missiles.erase(it, std::end(missiles));
 	}
 	void Enlarge() {
-		if (ctrl == Ctrl::Full) return;
+		if (ctrl == Control::Full) return;
 		body.scale = std::min(body.scale * globals.scale_inc, globals.max_player_scale);
+		SetInvincibility();
 	}
 	/*auto GetPrevModel() const {
 		return ::GetModel({}, prev_pos, prev_rot, layer.pivot);
@@ -1242,7 +1244,7 @@ struct ProtoX {
 
 	void Shoot(std::vector<Missile>& missiles, double frame_time) {
 		if (!missile_count) return;
-		if (ctrl != Ctrl::Turret && ctrl != Ctrl::Full) return;
+		if (ctrl != Control::Turret && ctrl != Control::Full) return;
 		if (hit || killed) return;
 		missile_count--;
 		const float missile_vel = 1.f;
@@ -1257,14 +1259,14 @@ struct ProtoX {
 		}
 	}
 	void TurretControl(double x, double px) {
-		if (ctrl != Ctrl::Turret && ctrl != Ctrl::Full) return;
+		if (ctrl != Control::Turret && ctrl != Control::Full) return;
 		const double rot_ratio = (turret.max_rot - turret.min_rot) / globals.width;
 		turret.SetRot(float((globals.width >> 1) - x) * rot_ratio);
 		//turret.rot += float((px - x) * rot_ratio);
 	}
 	void Move(double frame_time, bool lt, bool rt, bool bt) {
 		if (hit) return;
-		if (ctrl != Ctrl::Prop && ctrl != Ctrl::Full) return;
+		if (ctrl != Control::Prop && ctrl != Control::Full) return;
 		left.Set(lt);
 		right.Set(rt);
 		bottom.Set(bt);
@@ -1308,10 +1310,11 @@ struct ProtoX {
 		globals.envelopes.push_back(e_invinciblity);
 		SendInvincibility();
 	}
-	void SetCtrl(Ctrl ctrl) {
+	void SetCtrl(Control ctrl) {
 		SetInvincibility();
 		for_life_after_death.ctrl = this->ctrl = ctrl;
 		pos_invalidated = false;
+		sceneCb.ctrl(ctrl);
 	}
 	void Init() {
 		for_life_after_death.id = id;
@@ -1337,7 +1340,7 @@ struct ProtoX {
 		sceneCb.die(*this, hit_pos, vec, hit_time);
 	}
 	bool IsInRestingPos(const AABB& bounds) const {
-		return body.pos.y <= bounds.b - body.layer.aabb.b + ground_level;
+		return body.pos.y <= bounds.b - body.layer.aabb.b * body.scale + ground_level;
 	}
 
 	//auto GenBBoxEdgesCCW() {
@@ -1387,20 +1390,21 @@ struct ProtoX {
 	//	return res;
 	//}
 	inline bool CanSplit() {
-		return ctrl != Ctrl::Full;
-		//return ctrl != Ctrl::Full && body.scale >= globals.max_player_scale;
+		//return ctrl != Control::Full;
+		return ctrl != Control::Full && body.scale >= globals.max_player_scale;
 	}
 	void CommonSplit(float x_displacement) {
 		SetInvincibility();
 		for_life_after_death.ctrl = ctrl;
-		ctrl = ProtoX::Ctrl::Full;
+		ctrl = Control::Full;
+		sceneCb.ctrl(ctrl);
 		// TODO:: secene.setCtrlCb-->blink decals
 		body.scale = 1.f;
 		body.pos.x += (body.layer.aabb.r - body.layer.aabb.l) * x_displacement;
 		// TODO:: recalc bounding boxes and ResetVal
 	}
 	void Split() {
-		if (ctrl == ProtoX::Ctrl::Turret) {
+		if (ctrl == Control::Turret) {
 			if (ws) {
 				Splt msg{ Tag("SPLT"), id/*send to*/, server_id /*send our server id*/ };
 				ws->Send((const char*)&msg, sizeof(msg));
@@ -1409,16 +1413,15 @@ struct ProtoX {
 			for_life_after_death.id = id;
 			const_cast<size_t&>(id) = server_id;
 			CommonSplit(-1.5f);
-		} else if (/*ctrl == ProtoX::Ctrl::Prop &&*/ ws) {
+		} else if (/*ctrl == Control::Prop &&*/ ws) {
 			Splt msg{ Tag("SPLT"), id/*send to*/, 0/*whatever*/};
 			ws->Send((const char*)&msg, sizeof(msg));
 		}
 	}
 	void OnSplit(size_t other_id) {
-		if (ctrl == ProtoX::Ctrl::Turret) {
+		if (ctrl == Control::Turret) {
 			Split();
 		} else {
-			LOG_INFO(">>>prop split %x", other_id);
 			this->other_id = other_id;
 			CommonSplit(1.5f);
 		}
@@ -1469,7 +1472,7 @@ struct ProtoX {
 		right.Update(t);
 		bottom.Update(t);
 		if (player_self) {
-			if (ctrl == Ctrl::Full || ctrl == Ctrl::Prop) {
+			if (ctrl == Control::Full || ctrl == Control::Prop) {
 				vel += ((f + g) / m) * (float)t.frame;
 				vel.x = std::max(-max_vel, std::min(max_vel, vel.x));
 				vel.y = std::max(-max_vel, std::min(max_vel, vel.y));
@@ -1492,8 +1495,7 @@ struct ProtoX {
 
 			// ground constraint
 			if (IsInRestingPos(bounds)) {
-				auto dy = bounds.b - aabb.b + ground_level;
-				body.pos.y = bounds.b - body.layer.aabb.b + ground_level;
+				body.pos.y = bounds.b - body.layer.aabb.b * body.scale + ground_level;
 				if (std::abs(body.rot) > safe_rot && invincible <= 0.f) {
 					glm::vec3 hit_pos = body.pos + glm::vec3{ 0.f, body.layer.aabb.b, 0.f },
 						n{ 0.f, 1.f, 0.f };
@@ -1522,15 +1524,15 @@ struct ProtoX {
 			msg_interval += t.frame;
 			if (ws && (globals.msg_interval == 0.f || msg_interval>=globals.msg_interval)) {
 				msg_interval -= globals.msg_interval;
-				if (ctrl == Ctrl::Full) {
+				if (ctrl == Control::Full) {
 					Plyr player{ Tag("PLYR"), id, score, body.pos.x, body.pos.y, turret.rot, vel.x, vel.y, body.rot, body.scale, ToProp()};
 					globals.ws->Send((char*)&player, sizeof(Plyr));
 				}
-				else if (ctrl == Ctrl::Prop) {
+				else if (ctrl == Control::Prop) {
 					Prop prop{ Tag("PROP"), id, score, body.pos.x, body.pos.y, vel.x, vel.y, body.rot, body.scale, ToProp() };
 					globals.ws->Send((char*)&prop, sizeof(Prop));
 				}
-				else if (ctrl == Ctrl::Turret && turret.rot.prev != turret.rot.val) {
+				else if (ctrl == Control::Turret && turret.rot.prev != turret.rot.val) {
 					turret.rot = turret.rot.val;
 					Trrt trrt{ Tag("TRRT"), id, turret.rot };
 					globals.ws->Send((char*)&trrt, sizeof(Trrt));
@@ -1576,7 +1578,7 @@ struct ProtoX {
 		pos_invalidated = true;
 		body.pos.x = msg->x; body.pos.y = msg->y;
 		body.rot = msg->rot;
-		if (ctrl != Ctrl::Full || !ws /*not player self*//*globals.scene->player.get() != this*/)
+		if (ctrl != Control::Full || !ws /*not player self*//*globals.scene->player.get() != this*/)
 			body.scale = msg->scale;
 		vel.x = msg->vx; vel.y = msg->vy;
 		score = msg->score;
@@ -2144,9 +2146,9 @@ struct Renderer {
 		glUniformMatrix4fv(shader.uMVP, 1, GL_FALSE, &mvp[0][0]);
 		float prop_blink = 1.f, turret_blink = 1.f;
 		if (player) {
-			if (proto.ctrl == ProtoX::Ctrl::Full || proto.ctrl == ProtoX::Ctrl::Prop)
+			if (proto.ctrl == Control::Full || proto.ctrl == Control::Prop)
 				prop_blink = proto.blink;
-			if (proto.ctrl == ProtoX::Ctrl::Full || proto.ctrl == ProtoX::Ctrl::Turret)
+			if (proto.ctrl == Control::Full || proto.ctrl == Control::Turret)
 				turret_blink = proto.blink;
 		}
 		Draw<GL_TRIANGLES>(shader.uCol, proto.body.layer.parts, prop_blink);
@@ -2466,7 +2468,8 @@ public:
 	Shader::Simple simple;
 	Renderer renderer;
 	std::vector<Missile> missiles;
-	SceneCb sceneCb{ std::bind(&Scene::OnDie, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4) };
+	SceneCb sceneCb{ std::bind(&Scene::OnDie, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4),
+		std::bind(&Scene::OnCtrlChange, this, std::placeholders::_1)};
 	std::unique_ptr<ProtoX> player;
 	std::map<size_t, std::unique_ptr<ProtoX>> players;
 	std::list<Particles> particles;
@@ -2548,41 +2551,36 @@ public:
 		}
 	}
 	std::shared_ptr<Envelope> e_wsad_blink, e_mouse_blink, e_spacebar_blink;
-	void SetCtrl(ProtoX::Ctrl ctrl) {
-		if (!player) return;
-		player->SetCtrl(ctrl);
-		if (ctrl == ProtoX::Ctrl::Full || ctrl == ProtoX::Ctrl::Prop) {
-			e_wsad_blink = std::shared_ptr<Envelope>(new Blink(renderer.wsad_decal.factor, globals.blink_duration, globals.timer.ElapsedMs(), globals.blink_rate, globals.blink_ratio));
-			// TODO:: replace/remove
-			globals.envelopes.push_back(e_wsad_blink);
-		}
-		if (ctrl == ProtoX::Ctrl::Full || ctrl == ProtoX::Ctrl::Turret) {
-			e_mouse_blink = std::unique_ptr<Envelope>(new Blink(renderer.mouse_decal.factor, globals.blink_duration, globals.timer.ElapsedMs(), globals.blink_rate, globals.blink_ratio));
-			// TODO:: replace/remove
-			globals.envelopes.push_back(e_mouse_blink);
-		}
-	}
 
 	void KillSplitOtherPlayer(ProtoX& proto, const glm::vec3& hit_pos, glm::vec3 vec, double hit_time) {
 		if (!proto.other_id) return;
 		auto it = players.find(proto.other_id);
-		LOG_INFO(">>>>killsplit %x", proto.other_id);
 		if (it != players.end()) {
 			if (it->second->other_id) throw 1;
 			it->second->Die(hit_pos, vec, hit_time, camera, true);
 		}
-		LOG_INFO(">>>>killsplirmid");
 		proto.Kill(proto.other_id, 0, 0, hit_pos, vec);
-		LOG_INFO(">>>>killsplitend");
 	}
-
+	void OnCtrlChange(Control ctrl) {
+		if (ctrl == Control::Full || ctrl == Control::Prop) {
+			e_wsad_blink = std::shared_ptr<Envelope>(new Blink(renderer.wsad_decal.factor, globals.blink_duration, globals.timer.TotalMs(), globals.blink_rate, globals.blink_ratio));
+			// TODO:: replace/remove
+			globals.envelopes.push_back(e_wsad_blink);
+		}
+		if (ctrl == Control::Full || ctrl == Control::Turret) {
+			e_mouse_blink = std::unique_ptr<Envelope>(new Blink(renderer.mouse_decal.factor, globals.blink_duration, globals.timer.TotalMs(), globals.blink_rate, globals.blink_ratio));
+			// TODO:: replace/remove
+			globals.envelopes.push_back(e_mouse_blink);
+		}
+	}
 	void OnDie(ProtoX& proto, const glm::vec3& hit_pos, glm::vec3 vec, double hit_time) {
-		LOG_INFO(">>>>ondie");
+		
 		KillSplitOtherPlayer(proto, hit_pos, vec, hit_time);
 		auto l = glm::length(vec);
 		if (l > 0.f) vec /= l;
 		const float from_center_ratio = .5f, vec_ratio = .5f;
 		debris.emplace_back(assets.debris, proto.body.GetModel(), proto.body.pos, glm::normalize(::Center(proto.aabb) - hit_pos) * from_center_ratio + vec * vec_ratio, hit_time);
+		auto ddd = glm::normalize(::Center(proto.aabb) - hit_pos) * from_center_ratio + vec * vec_ratio;
 		particles.emplace_back(hit_pos, vec, hit_time);
 	}
 #ifdef OBB_TEST
@@ -2636,7 +2634,7 @@ public:
 		/*bounds.t = float((height >> 1) + (height >> 2));
 		bounds.b = -float((height >> 1) + (height >> 2));*/
 #ifdef DEBUG_REL
-		SetCtrl(ProtoX::Ctrl::Full);
+		player->SetCtrl(Control::Full);
 		GenerateNPCs();
 #endif
 		inputHandler.keyCb = std::bind(&Scene::KeyCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
@@ -2662,19 +2660,19 @@ public:
 		renderer.Draw(camera, missiles);
 		if (player) {
 			renderer.Draw(camera, *player.get(), true);
-			renderer.Draw(camera, player->aabb);
-			//renderer.DrawLines<GL_LINE_STRIP>(camera, GetConvexHullOfOBBSweep(player->body.bbox, player->body.bbox.prev), { .3f, 1.f, .3f, 1.f });
-			//renderer.DrawLines<GL_LINE_STRIP>(camera, GetConvexHullOfOBBSweep(player->turret.bbox, player->turret.bbox.prev), { 1.f, .3f, .3f, 1.f });
-			renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::obb1, { .3f, 1.f, .3f, 1.f });
-			renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::obb2, { 1.f, .3f, .3f, 1.f });
+			//renderer.Draw(camera, player->aabb);
+			////renderer.DrawLines<GL_LINE_STRIP>(camera, GetConvexHullOfOBBSweep(player->body.bbox, player->body.bbox.prev), { .3f, 1.f, .3f, 1.f });
+			////renderer.DrawLines<GL_LINE_STRIP>(camera, GetConvexHullOfOBBSweep(player->turret.bbox, player->turret.bbox.prev), { 1.f, .3f, .3f, 1.f });
+			//renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::obb1, { .3f, 1.f, .3f, 1.f });
+			//renderer.DrawLines<GL_LINE_STRIP>(camera, ProtoX::obb2, { 1.f, .3f, .3f, 1.f });
 		}
 		renderer.Draw(camera, particles);
 		renderer.Draw(camera, debris);
 		renderer.DrawForeground(camera);
 		if (player) {
-			if (player->ctrl == ProtoX::Ctrl::Full || player->ctrl == ProtoX::Ctrl::Prop)
+			if (player->ctrl == Control::Full || player->ctrl == Control::Prop)
 				renderer.Draw(overlay, renderer.wsad_decal.id, { -globals.width / 2.f, -globals.height / 2.f, 0.f }, *renderer.wsad_decal.model, renderer.wsad_decal.factor);
-			if (player->ctrl == ProtoX::Ctrl::Full || player->ctrl == ProtoX::Ctrl::Turret)
+			if (player->ctrl == Control::Full || player->ctrl == Control::Turret)
 				renderer.Draw(overlay, renderer.mouse_decal.id, { globals.width / 2.f, -globals.height / 2.f, 0.f }, *renderer.mouse_decal.model, renderer.mouse_decal.factor);
 			if (player->CanSplit())
 				renderer.Draw(overlay, renderer.spacebar_decal.id, { 0.f, -globals.height / 2.f, 0.f }, *renderer.spacebar_decal.model, renderer.spacebar_decal.factor);
@@ -2686,7 +2684,7 @@ public:
 	}
 	void OnConnect(bool initial) {
 		//// send ctrl query
-		//if (initial && player && player->ctrl == ProtoX::Ctrl::Full) {
+		//if (initial && player && player->ctrl == Control::Full) {
 		//	Ctrl msg{ Tag("CTRL"), player->id, 0u, 0 };
 		//	globals.ws->Send((const char*)&msg, sizeof(msg));
 		//}
@@ -2849,14 +2847,15 @@ public:
 			}
 			if (player->killed) {
 				auto ctrl = player->for_life_after_death.ctrl;
-				LOG_INFO(">>>>>> ctrl %d", ctrl);
 				auto score = player->score;
 				auto server_id = player->server_id;
 				CreatePlayer(player->for_life_after_death.id);
 				camera.SetPos(player->body.pos.x, player->body.pos.y, globals.camera_z);
 				player->score = score;
 				player->server_id = server_id;
-				SetCtrl(ctrl);
+				player->SetCtrl(ctrl);
+				//if (player->ctrl == Control::Prop) player->for_life_after_death.ctrl = Control::Turret;
+				//else if (player->ctrl == Control::Turret) player->for_life_after_death.ctrl = Control::Prop;
 				renderer.clearColor = { 0.f, 0.f, 0.f, 1.f };
 			}
 		}
@@ -2901,7 +2900,7 @@ public:
 			for (auto& m : missiles){
 				//
 				if (m.owner->invincible > 0.f /*invincible players can't kill*/ ||
-					m.owner->ctrl == ProtoX::Ctrl::Prop /*register the hit only once*/ ||
+					m.owner->ctrl == Control::Prop /*register the hit only once*/ ||
 					m.owner != player.get()/*only ours*/) {
 					continue;
 				}
@@ -2947,14 +2946,14 @@ public:
 			p.second->pos_invalidated = false;
 		}
 		if (player) {
-			std::ostringstream ss;
-			ss << std::uppercase<< "P: " << std::hex << player->id << " " << player->server_id<<" "<<player->vel.y;
-			player->msg.push_back({ glm::vec3{player->body.pos.x, player->body.pos.y + 100.f, 0.f }, .5f, Text::Align::Left, ss.str() });
-			for (const auto& p : players) {
-				std::ostringstream ss2;
-				ss2 << std::uppercase << "S: " << std::hex << p.second->id << " " << p.second->server_id;
-				p.second->msg.push_back({ glm::vec3{ p.second->body.pos.x, p.second->body.pos.y + 100.f, 0.f }, .5f, Text::Align::Left, ss2.str() });
-			}
+			//std::ostringstream ss;
+			//ss << std::uppercase<< "P: " << std::hex << player->id << " " << player->server_id<<" "<<player->vel.y;
+			//player->msg.push_back({ glm::vec3{player->body.pos.x, player->body.pos.y + 100.f, 0.f }, .5f, Text::Align::Left, ss.str() });
+			//for (const auto& p : players) {
+			//	std::ostringstream ss2;
+			//	ss2 << std::uppercase << "S: " << std::hex << p.second->id << " " << p.second->server_id;
+			//	p.second->msg.push_back({ glm::vec3{ p.second->body.pos.x, p.second->body.pos.y + 100.f, 0.f }, .5f, Text::Align::Left, ss2.str() });
+			//}
 			if (player->ws)
 				for (auto& p : alive) {
 					p.second += (float)t.frame;
@@ -2963,7 +2962,6 @@ public:
 						memcpy(kill.server_id, ID5(p.first).data(), sizeof(kill.server_id));
 						player->ws->WSSend((const char*)&kill, sizeof(Kill));
 						p.second = 0.f;
-						LOG_INFO("pingkill %.5s", kill.server_id);
 					}
 				}
 		}
@@ -3018,18 +3016,18 @@ public:
 	//	const Conn* conn = reinterpret_cast<const Conn*>(msg.data());
 	//	size_t id = ID5(conn->client_id, 0);
 	//	CreatePlayer(id);
-	//	player->ctrl = static_cast<ProtoX::Ctrl>(conn->ctrl - 48/*TODO:: eliminate conversion*/);
+	//	player->ctrl = static_cast<Control>(conn->ctrl - 48/*TODO:: eliminate conversion*/);
 	//}
 	void OnConn(const std::vector<unsigned char>& msg) {
 		if (!SanitizeMsg<Conn>(msg.size()))
 			return;
 		globals.ws->RTCConnect();
 		const Conn* conn = reinterpret_cast<const Conn*>(msg.data());
-		auto ctrl = static_cast<ProtoX::Ctrl>(conn->ctrl - 48);
+		auto ctrl = static_cast<Control>(conn->ctrl - 48);
 		CreatePlayer(ID5(conn->id, 0));
 		player->for_life_after_death.ctrl = player->ctrl = ctrl;
+		sceneCb.ctrl(ctrl);
 		player->server_id = ID5(conn->server_id, 0);
-		LOG_INFO(">>>conn: id: %d, ctrl: %d, other: %d", player->id, player->ctrl, player->server_id);
 	}
 	void SendSessionID() {
 		Sess msg{ Tag("SESS") };
@@ -3054,7 +3052,6 @@ public:
 		if (it == players.end()) {
 			auto ptr = std::make_unique<ProtoX>(id, assets.probe, assets.propulsion.layers.size(), glm::vec3{ x, y, 0.f }, missiles, sceneCb);
 			proto = ptr.get();
-			LOG_INFO(">>>>created new %d", ptr->id);
 			players[id] = std::move(ptr);
 			
 		}
@@ -3123,12 +3120,16 @@ public:
 			++player->score;
 		const glm::vec3 hit_pos(scor->x, scor->y, 0.f),
 			missile_vec{ scor->vec_x, scor->vec_y, 0.f };
-		if (scor->target_id == player->id)
-			player->Die(hit_pos, missile_vec, t.total, camera);
-		else {
+		if (scor->target_id == player->id) {
+			bool force = player->invincible > 0.f;
+			player->Die(hit_pos, missile_vec, t.total, camera, force);
+		} else {
 			auto it = players.find(scor->target_id);
-			if (it != players.end())
-				it->second->Die(hit_pos, missile_vec, t.total, camera);
+			if (it != players.end()) {
+				bool force = it->second->invincible > 0.f;
+				it->second->Die(hit_pos, missile_vec, t.total, camera, force);
+				
+			}
 		}
 	}
 	void OnKill(const std::vector<unsigned char>& msg, const Time& t) {
@@ -3137,11 +3138,10 @@ public:
 		const Kill* kill = reinterpret_cast<const Kill*>(&msg.front());
 		auto id = ID5(kill->server_id, 0);
 		alive.erase(id);
-		LOG_INFO(">>>>onkill %x", id);
 		ProtoX* p = nullptr;
 		if (player->id == id) {
 			player->for_life_after_death.id = player->server_id;
-			player->for_life_after_death.ctrl = ProtoX::Ctrl::Full;
+			player->for_life_after_death.ctrl = Control::Full;
 			p = player.get();
 		}
 		else {
@@ -3157,17 +3157,17 @@ public:
 	//	if (!SanitizeMsg<Ctrl>(msg.size()))
 	//		return;
 	//	const Ctrl* ctrl = reinterpret_cast<const Ctrl*>(&msg.front());
-	//	if (player && player->ctrl == ProtoX::Ctrl::Full && ctrl->ctrl == 0/*query*/) {
-	//		Ctrl msg{ Tag("CTRL"), player->id, ctrl->sourceId, static_cast<char>(ProtoX::Ctrl::Turret) };
+	//	if (player && player->ctrl == Control::Full && ctrl->ctrl == 0/*query*/) {
+	//		Ctrl msg{ Tag("CTRL"), player->id, ctrl->sourceId, static_cast<char>(Control::Turret) };
 	//		globals.ws->Send((const char*)&msg, sizeof(msg));
 	//	}
-	//	else if (player && player->id == ctrl->targetId && player->ctrl == ProtoX::Ctrl::Full && ctrl->ctrl == static_cast<char>(ProtoX::Ctrl::Turret)/*answer*/) {
-	//		SetCtrl(static_cast<ProtoX::Ctrl>(ctrl->ctrl));
-	//		Ctrl msg{ Tag("CTRL"), player->id, ctrl->sourceId, static_cast<char>(ProtoX::Ctrl::Prop) };
+	//	else if (player && player->id == ctrl->targetId && player->ctrl == Control::Full && ctrl->ctrl == static_cast<char>(Control::Turret)/*answer*/) {
+	//		SetCtrl(static_cast<Control>(ctrl->ctrl));
+	//		Ctrl msg{ Tag("CTRL"), player->id, ctrl->sourceId, static_cast<char>(Control::Prop) };
 	//		globals.ws->Send((const char*)&msg, sizeof(msg));
 	//	}
-	//	else if(player && player->id == ctrl->targetId && player->ctrl == ProtoX::Ctrl::Full && ctrl->ctrl == static_cast<char>(ProtoX::Ctrl::Prop)/*response*/) {
-	//		SetCtrl(static_cast<ProtoX::Ctrl>(ctrl->ctrl));
+	//	else if(player && player->id == ctrl->targetId && player->ctrl == Control::Full && ctrl->ctrl == static_cast<char>(Control::Prop)/*response*/) {
+	//		SetCtrl(static_cast<Control>(ctrl->ctrl));
 	//	}
 	//	
 	//}
@@ -3175,7 +3175,7 @@ public:
 		if (!SanitizeMsg<Ctrl>(msg.size()))
 			return;
 		const Ctrl* ctrl = reinterpret_cast<const Ctrl*>(&msg.front());
-		SetCtrl(static_cast<ProtoX::Ctrl>(ctrl->ctrl - 48));
+		if (player) player->SetCtrl(static_cast<Control>(ctrl->ctrl - 48));
 	}
 	void OnWait(const std::vector<unsigned char>& msg) {
 		if (!SanitizeMsg<Wait>(msg.size()))
@@ -3192,7 +3192,6 @@ public:
 			ss << "SHARE THE URL IN THE ADDRESS BAR";
 			texts.push_back({ { 0.f,  -(assets.text.aabb.t - assets.text.aabb.b), 0.f }, .8f, Text::Align::Center, ss.str() });
 		}
-		//LOG_INFO("OnWait: %d", wait->n);
 	}
 	void OnSplt(const std::vector<unsigned char>& msg) {
 		if (!SanitizeMsg<Splt>(msg.size()))
@@ -3208,7 +3207,6 @@ public:
 		if (!player) return;
 		const Ping* ping = reinterpret_cast<const Ping*>(&msg.front());
 		alive[ping->id] = 0.;
-		LOG_INFO(">>>ping %.5s", ID5(ping->id).data());
 	}
 	void Dispatch(const std::vector<unsigned char>& msg, const Time& t) {
 		if (msg.size() < sizeof(size_t))
@@ -3323,7 +3321,7 @@ int main(int argc, char** argv) {
 	}
 	if (argc > 4) {
 		globals.sessionID = argv[4];
-		LOG_INFO("SessionID is: %s\n", argv[4]);
+		//LOG_INFO("SessionID is: %s\n", argv[4]);
 	}
 	init(globals.width, globals.height);
 

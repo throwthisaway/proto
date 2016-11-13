@@ -10,7 +10,7 @@ class Debug {
         this.debug && console.log(msg);
     }
     LogRTC(msg) {
-        this.debugRTC && this.Log(msg);
+        this.debugRTC && console.log(msg);
     }
 }
 exports.Debug = Debug;

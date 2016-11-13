@@ -10,7 +10,7 @@ var Debug = (function () {
         this.debug && console.log(msg);
     };
     Debug.prototype.LogRTC = function (msg) {
-        this.debugRTC && this.Log(msg);
+        this.debugRTC && console.log(msg);
     };
     return Debug;
 }());

@@ -164,22 +164,23 @@ var WebRTCPeer = function () {
         } else if (msg.ping) {
             ws.send(JSON.stringify({'ping': 'pong'}));
         } else if (msg.connect) {
+            debug.LogRTC('onwsmessage-connect: ' + msg.connect);
             var conn = createConnection(true);
             connections.set(msg.connect, conn);
             conn.init(ws, msg.connect, clientID);
             conn.sendOffer();
         } else if (msg.offer) {
-            debug.LogRTC('onwsmessage-on-offer');
+            debug.LogRTC('onwsmessage-on-offer: ' + msg.offer.originID);
             var conn = createConnection(false);
             connections.set(msg.offer.originID, conn);
             conn.init(ws, msg.offer.originID, clientID/*same as msg.offer.targetID*/);
             conn.handleOffer(msg.offer.sdp);
         } else if (msg.answer) {
-            debug.LogRTC('onwsmessage-on-answer');
+            debug.LogRTC('onwsmessage-on-answer: ' + msg.answer.originID);
             var conn = connections.get(msg.answer.originID);
             if (conn) conn.handleAnswer(msg.answer.sdp);
         } else if (msg.candidate) {
-            debug.LogRTC('onwsmessage-addicecandidate');
+            debug.LogRTC('onwsmessage-addicecandidate: ' + msg.originID);
             var conn = connections.get(msg.originID);
             if (conn) conn.handleIceCandidate(msg.candidate);
         } else if (msg.close) {

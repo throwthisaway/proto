@@ -134,7 +134,7 @@ function handleSessionStringMessage(client, message) {
         return;
     }
     else if (message.indexOf('KILL') === 0) {
-        debug.Log("killing " + message);
+        console.log("killing " + message);
         var clientIDToKill = getClientIDFromMsg(message);
         if (clientIDToKill) {
             var clientToKill = client.session.findClientByID(clientIDToKill);
@@ -251,6 +251,7 @@ wss.on('connection', function (ws) {
         }
     });
     ws.on('close', function (code, message) {
+        console.log("ws-onclose");
         close(client);
     });
 });

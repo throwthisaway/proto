@@ -44,9 +44,7 @@
 //#define OBB_TEST
 // TODO:: 
 // - auto restart server on fatal errors
-// - findavailablesession finds existing when there are still available
 // - hittest on split?
-// - better invite message
 // - remove velocity dependent missile vector
 // -----
 // - prop send onplyr only
@@ -147,7 +145,7 @@ struct {
 		player_fade_out_time = 3500.f, // ms;
 		msg_interval = 0.f, //ms
 		max_player_scale = 2.f,// 3.5f,
-		scale_inc = 1.2f,
+		scale_inc = 1.07f,
 		alive_interval = 1000.f;
 	const size_t max_missile = 3;
 	const glm::vec4 radar_player_color{ 1.f, 1.f, 1.f, 1.f }, radar_enemy_color{ 1.f, .5f, .5f, 1.f };
@@ -1104,6 +1102,12 @@ struct ProtoX {
 				elapsed -= frame_time;
 			}
 		}
+		void Sound(bool on) {
+			if (on)
+				globals.audio->Enqueue(Audio::Command::ID::Start, source, pan, gain, true);
+			else
+				globals.audio->Enqueue(Audio::Command::ID::Stop, source);
+		}
 		void Set(bool on) {
 			if (this->on == on)
 				return;
@@ -1112,10 +1116,7 @@ struct ProtoX {
 				frame = 0;
 				elapsed = 0.;
 			}
-			if (on)	
-				globals.audio->Enqueue(Audio::Command::ID::Start, source, pan, gain, true);
-			else
-				globals.audio->Enqueue(Audio::Command::ID::Stop, source);
+			Sound(on);
 		}
 		Propulsion(const glm::vec3& pos, float rot, float scale, size_t frame_count, float pan, float gain) :
 			pos(pos), rot(rot), scale(scale), frame_count(frame_count),
@@ -1180,8 +1181,8 @@ struct ProtoX {
 	}
 	void Enlarge() {
 		if (ctrl == Control::Full) return;
-		body.scale = std::min(body.scale * globals.scale_inc, globals.max_player_scale);
 		SetInvincibility();
+		body.scale = std::min(body.scale * globals.scale_inc, globals.max_player_scale);
 	}
 	/*auto GetPrevModel() const {
 		return ::GetModel({}, prev_pos, prev_rot, layer.pivot);
@@ -1593,8 +1594,11 @@ struct ProtoX {
 	}
 	void FromProp(uint8_t prop) {
 		left.on = (prop & prop_left) > 0;
+		left.Sound(left.on);
 		right.on = (prop & prop_right) > 0;
+		right.Sound(right.on);
 		bottom.on = (prop & prop_bottom) > 0;
+		bottom.Sound(bottom.on);
 	}
 };
 std::vector<glm::vec3> ProtoX::obb1, ProtoX::obb2;
@@ -2951,7 +2955,8 @@ public:
 			if (player->ws)
 				for (auto& p : alive) {
 					p.second += (float)t.frame;
-					if (p.second > globals.alive_interval * 2.f) {
+					if (p.second > globals.alive_interval * 5.f) {
+						LOG_INFO(">>>no response from %.5s", ID5(p.first).data());
 						Kill kill{ Tag("KILL") };
 						memcpy(kill.server_id, ID5(p.first).data(), sizeof(kill.server_id));
 						player->ws->WSSend((const char*)&kill, sizeof(Kill));
@@ -3182,12 +3187,13 @@ public:
 
 		texts.clear();
 		if (this->wait > 0) {
-			std::stringstream ss;
+		/*	std::stringstream ss;
 			ss << "WAITING FOR " << this->wait << " MORE PLAYER" << ((this->wait == 1) ? "" : "S");
 			texts.push_back({ {}, .8f, Text::Align::Center, ss.str() });
 			ss.str("");
 			ss << "SHARE THE URL IN THE ADDRESS BAR";
-			texts.push_back({ { 0.f,  -(assets.text.aabb.t - assets.text.aabb.b), 0.f }, .8f, Text::Align::Center, ss.str() });
+			texts.push_back({ { 0.f,  -(assets.text.aabb.t - assets.text.aabb.b), 0.f }, .8f, Text::Align::Center, ss.str() });*/
+			texts.push_back({ { 0.f,  -(assets.text.aabb.t - assets.text.aabb.b), 0.f }, .8f, Text::Align::Center, "INVITE MORE PLAYERS WITH THE URL" });
 		}
 	}
 	void OnSplt(const std::vector<unsigned char>& msg) {

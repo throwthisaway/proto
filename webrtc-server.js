@@ -33,13 +33,15 @@ function findAvailableSessionID() {
 }
 function redirectToASession(res) {
     let id;
-    if (id = findAvailableSessionID()) {
-        console.log('found an existing session: ' + id);
-        res.redirect(rootPath + '/?p=' + id);
-    }
-    else if (sessions.size >= maxSessions) {
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.end('All sessions are full. Try again later.');
+    if (sessions.size >= maxSessions) {
+        if (id = findAvailableSessionID()) {
+            console.log('found an existing session: ' + id);
+            res.redirect(rootPath + '/?p=' + id);
+        }
+        else {
+            res.writeHead(200, { 'Content-Type': 'text/plain' });
+            res.end('All sessions are full. Try again later.');
+        }
     }
     else {
         function generateID(count) {
@@ -134,7 +136,7 @@ function handleSessionStringMessage(client, message) {
         return;
     }
     else if (message.indexOf('KILL') === 0) {
-        console.log("killing " + message);
+        debug.Log("killing " + message);
         var clientIDToKill = getClientIDFromMsg(message);
         if (clientIDToKill) {
             var clientToKill = client.session.findClientByID(clientIDToKill);
@@ -251,7 +253,7 @@ wss.on('connection', function (ws) {
         }
     });
     ws.on('close', function (code, message) {
-        console.log("ws-onclose");
+        debug.Log("ws-onclose");
         close(client);
     });
 });

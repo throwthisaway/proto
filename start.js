@@ -5,7 +5,7 @@ const cluster = require('cluster'),
       ],
       production = process.env.NODE_ENV == 'production';
 
-let stopping = false;
+var stopping = false;
 
 cluster.on('disconnect', function(worker) {
   if (production) {
@@ -20,7 +20,7 @@ cluster.on('disconnect', function(worker) {
 if (cluster.isMaster) {
     const workerCount = 1;//process.env.NODE_CLUSTER_WORKERS || 4;
   console.log(`Starting ${workerCount} workers...`);
-  for (let i = 0; i < workerCount; i++) {
+  for (var i = 0; i < workerCount; i++) {
     cluster.fork();
   }
   if (production) {
@@ -36,6 +36,6 @@ if (cluster.isMaster) {
     });
   }
 } else {
-  require('./server.js');
+  require('./webrtc-server.js');
 }
 

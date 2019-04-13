@@ -3,8 +3,8 @@ const Session_1 = require("./Session");
 const Express = require('express');
 const utils = require('./utils');
 let http = require('http');
-let ipaddress = process.env.OPENSHIFT_NODEJS_IP || "127.0.0.1";
-let port = process.env.OPENSHIFT_NODEJS_PORT || 8080;
+let ipaddress = process.env.IP || process.env.OPENSHIFT_NODEJS_IP || '0.0.0.0';
+let port = process.env.PORT || process.env.OPENSHIFT_NODEJS_PORT || 8080;
 let app = Express();
 let server = http.createServer(app);
 let debug = new utils.Debug(false, false);
@@ -51,7 +51,8 @@ function redirectToASession(res) {
             return "" + res;
         }
         var sessionID = generateID(sessionIDLen);
-        console.log('starting new session: ' + sessionID);
+        console.log(new Date() + ' starting new session: ' + sessionID);
+        DumpSessionsInfo();
         let session = new Session_1.Session();
         session.id = sessionID;
         sessions.set(sessionID, session);
@@ -95,8 +96,8 @@ app.get(rootPath + '/main.data', function (req, res) {
     res.setHeader('Content-Type', 'application/octet-stream');
     res.sendFile(__dirname + '/emc_ogl/main.data.gz');
 });
-app.get('/thumbnail4.png', function (req, res) {
-    res.sendFile(__dirname + '/thumbnail4.png');
+app.get('/thumbnail5.jpg', function (req, res) {
+    res.sendFile(__dirname + '/thumbnail5.jpg');
 });
 function applyMixins(derivedCtor, baseCtors) {
     baseCtors.forEach(baseCtor => {
@@ -104,6 +105,14 @@ function applyMixins(derivedCtor, baseCtors) {
             derivedCtor.prototype[name] = baseCtor.prototype[name];
         });
     });
+}
+function DumpSessionInfo(session) {
+    console.log('Session id: ' + session.id + ' player count: ' + session.clients.length);
+}
+function DumpSessionsInfo() {
+    for (var session of sessions) {
+        DumpSessionInfo(session[1]);
+    }
 }
 function handleSessionStringMessage(client, message) {
     if (message.indexOf('SESS') === 0) {
@@ -129,6 +138,8 @@ function handleSessionStringMessage(client, message) {
         client.sendSessionStringMessage('CONN' + (clientToCtrl ? clientToCtrl.id : client.id) + client.ctrl + client.id);
         client.session = session;
         session.clients.push(client);
+        console.log(new Date() + ' player connected');
+        DumpSessionInfo(session);
         if (session.clients.length < minPlayers)
             session.broadcastStringToSession(null, 'WAIT' + (minPlayers - session.clients.length));
         else
@@ -156,8 +167,10 @@ function close(client) {
     if (client.session) {
         let session = client.session;
         session.broadcastStringToSession(client, 'KILL' + client.id);
-        debug.Log((new Date()) + ">>>>>KILL + " + client.id);
+        debug.Log(new Date() + ">>>>>KILL + " + client.id);
         session.removeClient(client);
+        console.log(new Date() + ' player disconnected');
+        DumpSessionInfo(session);
         // check for other client to reset control
         if (client.otherId) {
             session.broadcastStringToSession(client, 'KILL' + client.otherId);
@@ -169,7 +182,8 @@ function close(client) {
         }
         if (session.clients.length < 1) {
             delete sessions.delete(session.id);
-            debug.Log('deleting session: ' + session.id + ' session count: ' + sessions.size);
+            console.log(new Date() + ' deleting session: ' + session.id);
+            DumpSessionsInfo();
         }
         else if (session.clients.length < minPlayers)
             session.broadcastStringToSession(null, 'WAIT' + (minPlayers - session.clients.length));
@@ -258,5 +272,5 @@ wss.on('connection', function (ws) {
     });
 });
 server.listen(port, ipaddress, function () {
-    console.log((new Date()) + ' Server is listening on port ' + port);
+    console.log((new Date()) + ' Server is listening on ' + ipaddress + ':' + port);
 });

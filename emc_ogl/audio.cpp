@@ -154,11 +154,11 @@ Audio::Audio() : device(::alcOpenDevice(NULL)),
 	alcGetIntegerv(device, ALC_MAJOR_VERSION, 1, &minor);
 	assert(major == 1);
 	const ALfloat pos[] = { 0.f, 0.f, 1.f },
-		vel[] = { 0.f, 0.f, 0.f },
+		// removed from webaudio vel[] = { 0.f, 0.f, 0.f },
 		orientation[] = { 0.f, 0.f, -1.f, 0.f, 1.f, 0.f };
 
 	::alListenerfv(AL_POSITION, pos);
-	::alListenerfv(AL_VELOCITY, vel);
+	// removed from webaudio ::alListenerfv(AL_VELOCITY, vel);
 	::alListenerfv(AL_ORIENTATION, orientation);
 	::alDistanceModel(AL_LINEAR_DISTANCE);
 

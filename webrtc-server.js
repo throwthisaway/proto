@@ -13,6 +13,7 @@ let sessionIDLen = 5, clientIDLen = 5, minPlayers = 4, maxPlayers = 16, maxSessi
 let RTCClients = new Map();
 let sessions = new Map();
 // session handling
+Express.static.mime.define({'application/wasm': ['wasm']});
 function getSessionIDFromMsg(msg) {
     if (msg.length < 4 + sessionIDLen)
         return undefined;
@@ -86,10 +87,10 @@ app.get(rootPath + '/main.js', function (req, res) {
     res.setHeader('Content-Type', 'application/javascript');
     res.sendFile(__dirname + '/emc_ogl/main.js.gz');
 });
-app.get(rootPath + '/main.js.mem', function (req, res) {
+app.get(rootPath + '/main.wasm', function (req, res) {
     res.setHeader('Content-Encoding', 'gzip');
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.sendFile(__dirname + '/emc_ogl/main.js.mem.gz');
+    res.setHeader('Content-Type', 'application/wasm');
+    res.sendFile(__dirname + '/emc_ogl/main.wasm.gz');
 });
 app.get(rootPath + '/main.data', function (req, res) {
     res.setHeader('Content-Encoding', 'gzip');

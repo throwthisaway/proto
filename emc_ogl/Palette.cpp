@@ -63,5 +63,5 @@ speccy_grey[] = {/* {},*/ speccy[6], speccy[13] };
 //{ 0.5f,0.5f,1.0f , 1.f },{ 0.75f,0.5f,1.0f , 1.f },{ 1.0f,0.5f,1.0f , 1.f },{ 1.0f,0.5f,0.75f , 1.f } };
 
 const int a = 0;
-const gsl::span<const glm::vec4, gsl::dynamic_range> pal = gsl::as_span(cpc, sizeof(cpc) / sizeof(cpc[0])),
-grey_pal = gsl::as_span(c64_grey, sizeof(c64_grey) / sizeof(c64_grey[0]));
+const gsl::span<const glm::vec4, gsl::dynamic_range> pal = gsl::make_span(cpc, sizeof(cpc) / sizeof(cpc[0])),
+grey_pal = gsl::make_span(c64_grey, sizeof(c64_grey) / sizeof(c64_grey[0]));

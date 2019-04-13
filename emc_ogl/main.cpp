@@ -2358,7 +2358,7 @@ struct InputHandler {
 	static std::queue<TouchEvent> touch_event_queue;
 	static EM_BOOL touchstart_callback(int eventType, const EmscriptenTouchEvent *e, void *userData)
 	{
-		touch_event_queue.push({ eventType, std::min((size_t)e->numTouches, NUMTOUCHES)});
+		touch_event_queue.push({ eventType, std::min((unsigned int)e->numTouches, NUMTOUCHES)});
 		auto& front = touch_event_queue.front();
 		memcpy(front.touchPoints, e->touches, sizeof(EmscriptenTouchPoint) * front.n);
 		return 0;
@@ -3285,7 +3285,7 @@ static void init(int width, int height) {
 	ThrowIf(glfwInit() != GL_TRUE, "glfw init failed");
 	
 #ifdef __EMSCRIPTEN__
-	assert(!strcmp(glfwGetVersionString(), "3.0.0 JS WebGL Emscripten"));
+//	assert(!strcmp(glfwGetVersionString(), "3.0.0 JS WebGL Emscripten"));
 #else
 	//glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
 	//glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 4);

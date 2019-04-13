@@ -39,8 +39,8 @@ WebRTC* passThrough(size_t ptr) {
 WebRTC::WebRTC(const char * hostname, unsigned short port, const char *id, const Session& session) : session(session) {
 #ifdef __EMSCRIPTEN__
 	EM_ASM_({
-		var hostname = Module.UTF8ToString($0);
-		var id = Module.UTF8ToString($2);
+		var hostname = UTF8ToString($0);
+		var id = UTF8ToString($2);
 		//console.log('>>>>>> ' + hostname + ' ' + $1 + ' ' + id + ' ' + $3);
 		WebRTCPeer.init(hostname + ':' + $1, id, new Module.WebRTC($3));
 	}, hostname, port, id, this);

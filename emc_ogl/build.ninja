@@ -1,17 +1,18 @@
-MeshLoaderPath = ..\..\MeshLoader\
-MeshExportPath = ..\..\MeshExport\
-#EMCC_PATH=f:\Programs\Emscripten\emscripten\1.35.0\
-EMCC_PATH=f:\Programs\Emscripten\emscripten\incoming\
-
+MeshLoaderPath = ../../MeshLoader/
+MeshExportPath = ../../MeshExport/
+EmscriptenIncludes = "/Users/throwthisaway/Projects/emsdk_portable/emscripten/1.38.12/system/include/emscripten"
+#EMCC_PATH=f:/Programs/Emscripten/emscripten/1.35.0/
+#EMCC_PATH=f:/Programs/Emscripten/emscripten/incoming/
+EMCC=emcc
 debug = -s DEMANGLE_SUPPORT=1 -s ALLOW_MEMORY_GROWTH=1 -v -s ASSERTIONS=1
 release = -O3 -s NO_EXIT_RUNTIME=1
 build_config = $release
-cppflags = -s USE_GLFW=3 -s NO_EXIT_RUNTIME=1 -DGLM $build_config -std=c++14 -I..\..\..\3rdparty\glm -I..\..\..\3rdparty\GSL\include -i${MeshLoaderPath} -i${MeshExportPath}MeshCommon -i${MeshExportPath}MeshView2005\Img
+cppflags = -s EXTRA_EXPORTED_RUNTIME_METHODS=['UTF8ToString'] -s USE_GLFW=3 -s NO_EXIT_RUNTIME=1 -DPLATFORM_EMSCRIPTEN $build_config -std=c++14 -I${EmscriptenIncludes} -I../../../3rdparty/glm -I../../../3rdparty/GSL/include -i${MeshLoaderPath} -i${MeshExportPath}MeshCommon -i${MeshExportPath}MeshView2005/Img
 linkflags = -s USE_GLFW=3 -s NO_EXIT_RUNTIME=1 $build_config --bind --preload-file asset
 rule cpp
-  command = ${EMCC_PATH}emcc.bat $cppflags $in -o $out
+  command = ${EMCC_PATH}${EMCC} $cppflags $in -o $out
 rule link
-  command = ${EMCC_PATH}emcc.bat $linkflags $in -o $out
+  command = ${EMCC_PATH}${EMCC} $linkflags $in -o $out
 rule zip
   command = gzip --force --keep $in
 build main.bc: cpp main.cpp
@@ -24,23 +25,23 @@ build Img.bc: cpp ${MeshLoaderPath}Img.cpp
 build Tga.bc: cpp ${MeshLoaderPath}Tga.cpp
 build Log.bc: cpp ${MeshLoaderPath}Log.cpp
 build Exception.bc: cpp Exception.cpp
-build Shader.bc: cpp Shader\Shader.cpp
-build Color.bc: cpp Shader\Color.cpp
-build ColorPosAttrib.bc: cpp Shader\ColorPosAttrib.cpp
-build CRTShader.bc: cpp Shader\CRTShader.cpp
-build Simple.bc: cpp Shader\Simple.cpp
-build Texture.bc: cpp Shader\Texture.cpp
-build VBlur7x.bc: cpp Shader\VBlur7x.cpp
-build HBlur7x.bc: cpp Shader\HBlur7x.cpp
-build VBlur9x.bc: cpp Shader\VBlur9x.cpp
-build HBlur9x.bc: cpp Shader\HBlur9x.cpp
-build Contrast.bc: cpp Shader\Contrast.cpp
-build Spherical.bc: cpp Shader\Spherical.cpp
-build BloomPass1.bc: cpp Shader\BloomPass1.cpp
-build BloomPass2.bc: cpp Shader\BloomPass2.cpp
-build Highlight.bc: cpp Shader\Highlight.cpp
-build CombineMAdd.bc: cpp Shader\CombineMAdd.cpp
-build TextureColorMod.bc: cpp Shader\TextureColorMod.cpp
+build Shader.bc: cpp Shader/Shader.cpp
+build Color.bc: cpp Shader/Color.cpp
+build ColorPosAttrib.bc: cpp Shader/ColorPosAttrib.cpp
+build CRTShader.bc: cpp Shader/CRTShader.cpp
+build Simple.bc: cpp Shader/Simple.cpp
+build Texture.bc: cpp Shader/Texture.cpp
+build VBlur7x.bc: cpp Shader/VBlur7x.cpp
+build HBlur7x.bc: cpp Shader/HBlur7x.cpp
+build VBlur9x.bc: cpp Shader/VBlur9x.cpp
+build HBlur9x.bc: cpp Shader/HBlur9x.cpp
+build Contrast.bc: cpp Shader/Contrast.cpp
+build Spherical.bc: cpp Shader/Spherical.cpp
+build BloomPass1.bc: cpp Shader/BloomPass1.cpp
+build BloomPass2.bc: cpp Shader/BloomPass2.cpp
+build Highlight.bc: cpp Shader/Highlight.cpp
+build CombineMAdd.bc: cpp Shader/CombineMAdd.cpp
+build TextureColorMod.bc: cpp Shader/TextureColorMod.cpp
 build RT.bc: cpp RT.cpp
 build SAT.bc: cpp SAT.cpp
 build Timer.bc: cpp Timer.cpp
@@ -59,5 +60,5 @@ Helpers.bc $
 Command.bc $
 WebRTC.bc
 build main.js.gz: zip main.js | main.js
-build main.js.mem.gz: zip main.js.mem | main.js
+build main.wasm.gz: zip main.wasm | main.js
 build main.data.gz: zip main.data | main.js

@@ -1,5 +1,6 @@
 "use strict";
-const WS = require('ws');
+Object.defineProperty(exports, "__esModule", { value: true });
+const WS = require("ws");
 exports.WS = WS;
 let clientIDLen = 5;
 function generate0ToOClientID(count) {
@@ -24,9 +25,7 @@ class Client {
 }
 exports.Client = Client;
 class Session {
-    constructor() {
-        this.clients = [];
-    }
+    constructor() { this.clients = []; }
     broadcastStringToSession(sender, data) {
         this.clients.forEach(function each(client) {
             try {

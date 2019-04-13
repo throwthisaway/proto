@@ -2,8 +2,8 @@ import {Client, Session, WS} from "./Session"
 import * as Express from 'express';
 import * as utils from './utils'
 let http = require('http');
-let ipaddress = process.env.OPENSHIFT_NODEJS_IP || "127.0.0.1";
-let port : number|any = process.env.OPENSHIFT_NODEJS_PORT || 8080;
+let ipaddress = process.env.IP || process.env.OPENSHIFT_NODEJS_IP || '0.0.0.0';
+let port = process.env.PORT || process.env.OPENSHIFT_NODEJS_PORT || 8080;
 let app = Express();
 let server = http.createServer(app);
 let debug = new utils.Debug(false, false);
@@ -74,7 +74,7 @@ app.get('/webrtc/adapter.js', function (req, res) {
 });
 
 app.get(rootPath, function (req, res) {
-    let session : Session | null = null;
+    let session : Session | null | undefined = null;
     if (req.query.p &&
         (session = sessions.get(req.query.p)) != undefined &&
         session.clients.length < maxPlayers) {
@@ -90,10 +90,10 @@ app.get(rootPath + '/main.js', function (req, res) {
     res.setHeader('Content-Type', 'application/javascript');
     res.sendFile(__dirname + '/emc_ogl/main.js.gz');
 });
-app.get(rootPath + '/main.js.mem', function (req, res) {
+app.get(rootPath + '/main.wasm', function (req, res) {
     res.setHeader('Content-Encoding', 'gzip');
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.sendFile(__dirname + '/emc_ogl/main.js.mem.gz');
+    res.setHeader('Content-Type', 'application/wasm');
+    res.sendFile(__dirname + '/emc_ogl/main.wasm.gz');
 });
 app.get(rootPath + '/main.data', function (req, res) {
     res.setHeader('Content-Encoding', 'gzip');
@@ -147,7 +147,7 @@ function handleSessionStringMessage(client : Client, message : string){
 function close(client : Client){
     for (var [remoteID, ws] of RTCClients.entries()) {
         if (ws === client.ws) {
-            delete RTCClients.delete(remoteID);
+            RTCClients.delete(remoteID);
             client.session.broadcastToSession(client, JSON.stringify({'close': remoteID}));
             break;
         }
@@ -167,7 +167,7 @@ function close(client : Client){
             }
         }
         if (session.clients.length < 1) {
-            delete sessions.delete(session.id);
+            sessions.delete(session.id);
             debug.Log('deleting session: ' + session.id + ' session count: ' + sessions.size);
         } else  if (session.clients.length < minPlayers)
             session.broadcastStringToSession(null,'WAIT' + (minPlayers - session.clients.length));
@@ -180,15 +180,18 @@ function close(client : Client){
 // {'answer': {'targetID': '7fea5','sdp': '...'}}
 // {'targetID': '8e9c3', 'originID': originID, 'candidate': '...'}}
 let wss : WS.Server;
-if (ipaddress === "127.0.0.1") {
-    wss = new WS.Server({
-        server: server,
-        port: 8000 });
-} else {
-    wss = new WS.Server({
-        server: server
-    });
-}
+// if (ipaddress === "127.0.0.1") {
+//     wss = new WS.Server({
+//         server: server,
+//         port: 8000 });
+// } else {
+//     wss = new WS.Server({
+//         server: server
+//     });
+// }
+wss = new WS.Server({
+    server: server
+});
 /*let pingId = setInterval(function(){
     let clientsToClose : Client[] = [];
     for (var [sessionID, session] of sessions) {
@@ -253,5 +256,5 @@ wss.on('connection', function (ws) {
 });
 
 server.listen(port, ipaddress, function () {
-    console.log((new Date()) + ' Server is listening on port ' + port);
+    console.log((new Date()) + ' Server is listening on ' + ipaddress + ':' + port);
 });

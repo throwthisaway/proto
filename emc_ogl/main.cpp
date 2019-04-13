@@ -152,7 +152,7 @@ struct {
 	const gsl::span<const glm::vec4, gsl::dynamic_range>& palette = pal, &grey_palette = grey_pal;
 	Timer timer;
 	std::string host = "localhost";
-	unsigned short port = 8000;
+	unsigned short port = 8080;
 	int width = 1024, height = 768;
 	std::string sessionID;
 	std::unique_ptr<Audio> audio;

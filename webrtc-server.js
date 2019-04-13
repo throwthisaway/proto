@@ -1,7 +1,8 @@
 "use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 const Session_1 = require("./Session");
-const Express = require('express');
-const utils = require('./utils');
+const Express = require("express");
+const utils = require("./utils");
 let http = require('http');
 let ipaddress = process.env.IP || process.env.OPENSHIFT_NODEJS_IP || '0.0.0.0';
 let port = process.env.PORT || process.env.OPENSHIFT_NODEJS_PORT || 8080;
@@ -13,7 +14,6 @@ let sessionIDLen = 5, clientIDLen = 5, minPlayers = 4, maxPlayers = 16, maxSessi
 let RTCClients = new Map();
 let sessions = new Map();
 // session handling
-Express.static.mime.define({'application/wasm': ['wasm']});
 function getSessionIDFromMsg(msg) {
     if (msg.length < 4 + sessionIDLen)
         return undefined;
@@ -52,8 +52,7 @@ function redirectToASession(res) {
             return "" + res;
         }
         var sessionID = generateID(sessionIDLen);
-        console.log(new Date() + ' starting new session: ' + sessionID);
-        DumpSessionsInfo();
+        console.log('starting new session: ' + sessionID);
         let session = new Session_1.Session();
         session.id = sessionID;
         sessions.set(sessionID, session);
@@ -97,8 +96,8 @@ app.get(rootPath + '/main.data', function (req, res) {
     res.setHeader('Content-Type', 'application/octet-stream');
     res.sendFile(__dirname + '/emc_ogl/main.data.gz');
 });
-app.get('/thumbnail5.jpg', function (req, res) {
-    res.sendFile(__dirname + '/thumbnail5.jpg');
+app.get('/thumbnail4.png', function (req, res) {
+    res.sendFile(__dirname + '/thumbnail4.png');
 });
 function applyMixins(derivedCtor, baseCtors) {
     baseCtors.forEach(baseCtor => {
@@ -106,14 +105,6 @@ function applyMixins(derivedCtor, baseCtors) {
             derivedCtor.prototype[name] = baseCtor.prototype[name];
         });
     });
-}
-function DumpSessionInfo(session) {
-    console.log('Session id: ' + session.id + ' player count: ' + session.clients.length);
-}
-function DumpSessionsInfo() {
-    for (var session of sessions) {
-        DumpSessionInfo(session[1]);
-    }
 }
 function handleSessionStringMessage(client, message) {
     if (message.indexOf('SESS') === 0) {
@@ -139,8 +130,6 @@ function handleSessionStringMessage(client, message) {
         client.sendSessionStringMessage('CONN' + (clientToCtrl ? clientToCtrl.id : client.id) + client.ctrl + client.id);
         client.session = session;
         session.clients.push(client);
-        console.log(new Date() + ' player connected');
-        DumpSessionInfo(session);
         if (session.clients.length < minPlayers)
             session.broadcastStringToSession(null, 'WAIT' + (minPlayers - session.clients.length));
         else
@@ -160,7 +149,7 @@ function handleSessionStringMessage(client, message) {
 function close(client) {
     for (var [remoteID, ws] of RTCClients.entries()) {
         if (ws === client.ws) {
-            delete RTCClients.delete(remoteID);
+            RTCClients.delete(remoteID);
             client.session.broadcastToSession(client, JSON.stringify({ 'close': remoteID }));
             break;
         }
@@ -168,10 +157,8 @@ function close(client) {
     if (client.session) {
         let session = client.session;
         session.broadcastStringToSession(client, 'KILL' + client.id);
-        debug.Log(new Date() + ">>>>>KILL + " + client.id);
+        debug.Log((new Date()) + ">>>>>KILL + " + client.id);
         session.removeClient(client);
-        console.log(new Date() + ' player disconnected');
-        DumpSessionInfo(session);
         // check for other client to reset control
         if (client.otherId) {
             session.broadcastStringToSession(client, 'KILL' + client.otherId);
@@ -182,9 +169,8 @@ function close(client) {
             }
         }
         if (session.clients.length < 1) {
-            delete sessions.delete(session.id);
-            console.log(new Date() + ' deleting session: ' + session.id);
-            DumpSessionsInfo();
+            sessions.delete(session.id);
+            debug.Log('deleting session: ' + session.id + ' session count: ' + sessions.size);
         }
         else if (session.clients.length < minPlayers)
             session.broadcastStringToSession(null, 'WAIT' + (minPlayers - session.clients.length));
@@ -196,16 +182,18 @@ function close(client) {
 // {'answer': {'targetID': '7fea5','sdp': '...'}}
 // {'targetID': '8e9c3', 'originID': originID, 'candidate': '...'}}
 let wss;
-if (ipaddress === "127.0.0.1") {
-    wss = new Session_1.WS.Server({
-        server: server,
-        port: 8000 });
-}
-else {
-    wss = new Session_1.WS.Server({
-        server: server
-    });
-}
+// if (ipaddress === "127.0.0.1") {
+//     wss = new WS.Server({
+//         server: server,
+//         port: 8000 });
+// } else {
+//     wss = new WS.Server({
+//         server: server
+//     });
+// }
+wss = new Session_1.WS.Server({
+    server: server
+});
 /*let pingId = setInterval(function(){
     let clientsToClose : Client[] = [];
     for (var [sessionID, session] of sessions) {
